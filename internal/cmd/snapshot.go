@@ -148,28 +148,28 @@ func getTenantSnapshot(serviceDetails *api.ServiceDetails, artifactsBaseDir stri
 	for i, id := range ids {
 		log.Info().Msg("---------------------------------------------------------------------------------")
 		log.Info().Msgf("Processing package %d/%d - ID: %v", i+1, len(ids), id)
+		// Filter in/out packages before any call to the tenant
+		if str.FilterIDs(id, includedIds, excludedIds) {
+			continue
+		}
 		packageWorkingDir := fmt.Sprintf("%v/%v", workDir, id)
 		packageArtifactsDir := fmt.Sprintf("%v/%v", artifactsBaseDir, id)
 		packageDataFromTenant, readOnly, _, err := synchroniser.VerifyDownloadablePackage(id)
 		if err != nil {
 			return err
 		}
-		if !readOnly {
-			// Filter in/out artifacts
-			if str.FilterIDs(id, includedIds, excludedIds) {
-				continue
-			}
-			if syncPackageLevelDetails {
-				err = synchroniser.PackageToGit(packageDataFromTenant, id, packageWorkingDir, packageArtifactsDir)
-				if err != nil {
-					return err
-				}
-			}
-			err = synchroniser.ArtifactsToGit(id, packageWorkingDir, packageArtifactsDir, nil, nil, draftHandling, "ID", nil)
+		if readOnly {
+			continue
+		}
+		if syncPackageLevelDetails {
+			err = synchroniser.PackageToGit(packageDataFromTenant, id, packageWorkingDir, packageArtifactsDir)
 			if err != nil {
 				return err
 			}
-
+		}
+		err = synchroniser.ArtifactsToGit(id, packageWorkingDir, packageArtifactsDir, nil, nil, draftHandling, "ID", nil)
+		if err != nil {
+			return err
 		}
 	}
 
