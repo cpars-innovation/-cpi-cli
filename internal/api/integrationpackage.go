@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/engswee/flashpipe/internal/httpclnt"
 	"github.com/go-errors/errors"
@@ -15,20 +16,7 @@ type IntegrationPackage struct {
 }
 
 type PackageSingleData struct {
-	Root struct {
-		Id             string `json:"Id"`
-		Name           string `json:"Name"`
-		Description    string `json:"Description"`
-		ShortText      string `json:"ShortText"`
-		Version        string `json:"Version"`
-		Vendor         string `json:"Vendor,omitempty"`
-		Mode           string `json:"Mode,omitempty"`
-		Products       string `json:"Products,omitempty"`
-		Keywords       string `json:"Keywords,omitempty"`
-		Countries      string `json:"Countries,omitempty"`
-		Industries     string `json:"Industries,omitempty"`
-		LineOfBusiness string `json:"LineOfBusiness,omitempty"`
-	} `json:"d"`
+	Root PackageFields `json:"d"`
 }
 
 type artifactData struct {
@@ -43,10 +31,23 @@ type artifactData struct {
 
 type packageMultipleData struct {
 	Root struct {
-		Results []struct {
-			Id string `json:"Id"`
-		} `json:"results"`
+		Results []PackageFields `json:"results"`
 	} `json:"d"`
+}
+
+type PackageFields struct {
+	Id             string `json:"Id"`
+	Name           string `json:"Name"`
+	Description    string `json:"Description"`
+	ShortText      string `json:"ShortText"`
+	Version        string `json:"Version"`
+	Vendor         string `json:"Vendor,omitempty"`
+	Mode           string `json:"Mode,omitempty"`
+	Products       string `json:"Products,omitempty"`
+	Keywords       string `json:"Keywords,omitempty"`
+	Countries      string `json:"Countries,omitempty"`
+	Industries     string `json:"Industries,omitempty"`
+	LineOfBusiness string `json:"LineOfBusiness,omitempty"`
 }
 
 type ArtifactDetails struct {
@@ -90,6 +91,35 @@ func (ip *IntegrationPackage) GetPackagesList() ([]string, error) {
 		packageIds = append(packageIds, result.Id)
 	}
 	return packageIds, nil
+}
+
+// GetPackagesData returns the details of all packages of the current tenant in a single call.
+// The collection returns the same entity fields as the single package call, so callers can use
+// this to avoid one Get call per package.
+func (ip *IntegrationPackage) GetPackagesData() ([]*PackageSingleData, error) {
+	log.Info().Msg("Getting details of all IntegrationPackages")
+	urlPath := "/api/v1/IntegrationPackages"
+
+	callType := "Get IntegrationPackages list"
+	resp, err := readOnlyCall(urlPath, callType, ip.exe)
+	if err != nil {
+		return nil, err
+	}
+	var jsonData *packageMultipleData
+	respBody, err := ip.exe.ReadRespBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(respBody, &jsonData)
+	if err != nil {
+		log.Error().Msgf("Error unmarshalling response as JSON. Response body = %s", respBody)
+		return nil, errors.Wrap(err, 0)
+	}
+	var packages []*PackageSingleData
+	for _, result := range jsonData.Root.Results {
+		packages = append(packages, &PackageSingleData{Root: result})
+	}
+	return packages, nil
 }
 
 func (ip *IntegrationPackage) Get(id string) (packageData *PackageSingleData, readOnly bool, exists bool, err error) {
@@ -161,28 +191,28 @@ func (ip *IntegrationPackage) GetArtifactsData(id string, artifactType string) (
 }
 
 func (ip *IntegrationPackage) GetAllArtifacts(id string) ([]*ArtifactDetails, error) {
-	var details []*ArtifactDetails
-	integrations, err := ip.GetArtifactsData(id, "Integration")
-	if err != nil {
-		return nil, err
-	}
-	details = append(details, integrations...)
-	mappings, err := ip.GetArtifactsData(id, "MessageMapping")
-	if err != nil {
-		return nil, err
-	}
-	details = append(details, mappings...)
-	scripts, err := ip.GetArtifactsData(id, "ScriptCollection")
-	if err != nil {
-		return nil, err
-	}
-	details = append(details, scripts...)
-	valmaps, err := ip.GetArtifactsData(id, "ValueMapping")
-	if err != nil {
-		return nil, err
-	}
-	details = append(details, valmaps...)
+	// The four artifact types are independent calls - run them concurrently and merge in a fixed order
+	artifactTypes := []string{"Integration", "MessageMapping", "ScriptCollection", "ValueMapping"}
+	results := make([][]*ArtifactDetails, len(artifactTypes))
+	errs := make([]error, len(artifactTypes))
 
+	var wg sync.WaitGroup
+	for i, artifactType := range artifactTypes {
+		wg.Add(1)
+		go func(i int, artifactType string) {
+			defer wg.Done()
+			results[i], errs[i] = ip.GetArtifactsData(id, artifactType)
+		}(i, artifactType)
+	}
+	wg.Wait()
+
+	var details []*ArtifactDetails
+	for i := range artifactTypes {
+		if errs[i] != nil {
+			return nil, errs[i]
+		}
+		details = append(details, results[i]...)
+	}
 	return details, nil
 }
 

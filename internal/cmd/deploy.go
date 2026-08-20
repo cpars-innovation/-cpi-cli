@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/engswee/flashpipe/internal/analytics"
@@ -90,43 +92,44 @@ func deployArtifacts(artifactIds []string, artifactType string, delayLength int,
 	artifactIds = str.TrimSlice(artifactIds)
 
 	// Loop and deploy each artifact
+	var triggeredIds []string
 	for i, id := range artifactIds {
 		log.Info().Msgf("Processing artifact %d - %v", i+1, id)
-		err := deploySingle(dt, rt, id, compareVersions)
+		triggered, err := deploySingle(dt, rt, id, compareVersions)
 		// TODO - PRIO1 write error wrapper - https://go.dev/blog/errors-are-values
 		if err != nil {
 			return err
+		}
+		if triggered {
+			triggeredIds = append(triggeredIds, id)
 		}
 	}
 
-	// Check deployment status of artifacts
-	for i, id := range artifactIds {
-		err := checkDeploymentStatus(rt, delayLength, maxCheckLimit, id)
-		if err != nil {
-			return err
-		}
-		// TODO - PRIO1 write error wrapper - https://go.dev/blog/errors-are-values
-
-		log.Info().Msgf("Artifact %d - %v deployed successfully", i+1, id)
+	// Check deployment status of the artifacts that were actually deployed
+	err := checkDeploymentStatus(rt, delayLength, maxCheckLimit, triggeredIds)
+	if err != nil {
+		return err
 	}
 
 	log.Info().Msg("🏆 Artifact(s) deployment completed successfully")
 	return nil
 }
 
-func deploySingle(artifact api.DesigntimeArtifact, runtime *api.Runtime, id string, compareVersions bool) error {
+// deploySingle triggers deployment of an artifact. It returns whether a deployment was actually
+// triggered - an artifact already deployed with the same version is skipped.
+func deploySingle(artifact api.DesigntimeArtifact, runtime *api.Runtime, id string, compareVersions bool) (bool, error) {
 	designtimeVer, _, exists, err := artifact.Get(id, "active")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !exists {
-		return fmt.Errorf("Designtime artifact %v does not exist", id)
+		return false, fmt.Errorf("Designtime artifact %v does not exist", id)
 	}
 
 	if compareVersions {
 		runtimeVer, _, err := runtime.Get(id)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// Compare designtime version with runtime version to determine if deployment is needed
@@ -134,52 +137,67 @@ func deploySingle(artifact api.DesigntimeArtifact, runtime *api.Runtime, id stri
 		log.Debug().Msgf("Designtime version = %s. Runtime version = %s", designtimeVer, runtimeVer)
 		if designtimeVer == runtimeVer {
 			log.Info().Msgf("Artifact %v with version %v already deployed. Skipping runtime deployment", id, runtimeVer)
-		} else {
-			log.Info().Msgf("🚀 Artifact previously not deployed, or versions differ. Proceeding to deploy artifact %v with version %v", id, designtimeVer)
-			err = artifact.Deploy(id)
-			if err != nil {
-				return err
-			}
-			log.Info().Msgf("Artifact %v deployment triggered", id)
+			return false, nil
 		}
+		log.Info().Msgf("🚀 Artifact previously not deployed, or versions differ. Proceeding to deploy artifact %v with version %v", id, designtimeVer)
+		err = artifact.Deploy(id)
+		if err != nil {
+			return false, err
+		}
+		log.Info().Msgf("Artifact %v deployment triggered", id)
 	} else {
 		log.Info().Msgf("🚀 Proceeding to deploy artifact %v with version %v", id, designtimeVer)
 		err = artifact.Deploy(id)
 		if err != nil {
-			return err
+			return false, err
 		}
 		log.Info().Msgf("Artifact %v deployment triggered", id)
 	}
-	return nil
+	return true, nil
 }
 
-func checkDeploymentStatus(runtime *api.Runtime, delayLength int, maxCheckLimit int, id string) error {
-	log.Info().Msgf("Checking runtime status for artifact %v every %d seconds up to %d times", id, delayLength, maxCheckLimit)
+// checkDeploymentStatus polls the runtime status of all deployed artifacts in each round, so that
+// artifacts deploying in parallel on the tenant are not waited for one after another.
+func checkDeploymentStatus(runtime *api.Runtime, delayLength int, maxCheckLimit int, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	log.Info().Msgf("Checking runtime status for %d artifact(s) every %d seconds up to %d times", len(ids), delayLength, maxCheckLimit)
 
+	pending := slices.Clone(ids)
 	for i := 0; i < maxCheckLimit; i++ {
-		version, status, err := runtime.Get(id)
-		if err != nil {
-			return err
-		}
-		log.Info().Msgf("Check %d - Current artifact runtime status = %s", i+1, status)
-		if version == "NOT_DEPLOYED" {
-			time.Sleep(time.Duration(delayLength) * time.Second)
-			continue
-		}
-		if status == "STARTED" {
-			return nil
-		} else if status != "STARTING" {
+		var stillPending []string
+		var pendingStatuses []string
+		for _, id := range pending {
+			version, status, err := runtime.Get(id)
+			if err != nil {
+				return err
+			}
+			log.Info().Msgf("Check %d - Current runtime status of artifact %v = %s", i+1, id, status)
+			if version == "NOT_DEPLOYED" || status == "STARTING" {
+				stillPending = append(stillPending, id)
+				pendingStatuses = append(pendingStatuses, fmt.Sprintf("%v = %s", id, status))
+				continue
+			}
+			if status == "STARTED" {
+				log.Info().Msgf("Artifact %v deployed successfully", id)
+				continue
+			}
 			// If there is an error, delay before getting the error details as it sometimes return 204 when the error details are not available yet
 			time.Sleep(time.Duration(delayLength) * time.Second)
 			errorMessage, err := runtime.GetErrorInfo(id)
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("Artifact deployment unsuccessful, ended with status %s. Error message = %s", status, errorMessage)
+			return fmt.Errorf("Artifact %v deployment unsuccessful, ended with status %s. Error message = %s", id, status, errorMessage)
+		}
+		if len(stillPending) == 0 {
+			return nil
 		}
 		if i == (maxCheckLimit - 1) {
-			return fmt.Errorf("Artifact status remained in %s after %d checks", status, maxCheckLimit)
+			return fmt.Errorf("Artifact status remained unfinished after %d checks - %v", maxCheckLimit, strings.Join(pendingStatuses, ", "))
 		}
+		pending = stillPending
 		time.Sleep(time.Duration(delayLength) * time.Second)
 	}
 	return nil

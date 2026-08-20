@@ -133,32 +133,31 @@ func getTenantSnapshot(serviceDetails *api.ServiceDetails, artifactsBaseDir stri
 	// Initialise HTTP executer
 	exe := api.InitHTTPExecuter(serviceDetails)
 
-	// Get packages from the tenant
+	// Get packages from the tenant - details of all packages are returned in this single call,
+	// so no additional call per package is needed
 	ip := api.NewIntegrationPackage(exe)
-	ids, err := ip.GetPackagesList()
+	packages, err := ip.GetPackagesData()
 	if err != nil {
 		return err
 	}
-	if len(ids) == 0 {
+	if len(packages) == 0 {
 		return fmt.Errorf("No packages found in the tenant")
 	}
 
-	log.Info().Msgf("Processing %d packages", len(ids))
+	log.Info().Msgf("Processing %d packages", len(packages))
 	synchroniser := sync.New(exe)
-	for i, id := range ids {
+	for i, packageDataFromTenant := range packages {
+		id := packageDataFromTenant.Root.Id
 		log.Info().Msg("---------------------------------------------------------------------------------")
-		log.Info().Msgf("Processing package %d/%d - ID: %v", i+1, len(ids), id)
+		log.Info().Msgf("Processing package %d/%d - ID: %v", i+1, len(packages), id)
 		// Filter in/out packages before any call to the tenant
 		if str.FilterIDs(id, includedIds, excludedIds) {
 			continue
 		}
 		packageWorkingDir := fmt.Sprintf("%v/%v", workDir, id)
 		packageArtifactsDir := fmt.Sprintf("%v/%v", artifactsBaseDir, id)
-		packageDataFromTenant, readOnly, _, err := synchroniser.VerifyDownloadablePackage(id)
-		if err != nil {
-			return err
-		}
-		if readOnly {
+		if packageDataFromTenant.Root.Mode == "READ_ONLY" {
+			log.Warn().Msgf("Skipping package %v as it is Configure-only and cannot be downloaded", id)
 			continue
 		}
 		if syncPackageLevelDetails {
