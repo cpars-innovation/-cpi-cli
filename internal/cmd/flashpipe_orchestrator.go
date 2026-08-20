@@ -823,7 +823,8 @@ func deployAllArtifactsParallel(tasks []DeploymentTask, maxConcurrent int,
 				flashpipeType := mapArtifactTypeForSync(t.ArtifactType)
 				log.Info().Msgf("  → Deploying: %s (type: %s)", t.ArtifactID, t.ArtifactType)
 
-				err := deployArtifacts([]string{t.ArtifactID}, flashpipeType, retries, delaySeconds, true, serviceDetails)
+				// deployArtifacts takes the delay before the number of status checks
+				err := deployArtifacts([]string{t.ArtifactID}, flashpipeType, delaySeconds, retries, true, serviceDetails)
 
 				resultChan <- deployResult{
 					Task:  t,
