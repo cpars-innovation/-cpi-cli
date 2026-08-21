@@ -2,7 +2,7 @@ package models
 
 // ConfigureConfig represents the complete configuration file structure
 type ConfigureConfig struct {
-	DeploymentPrefix string             `yaml:"deploymentPrefix,omitempty"`
+	DeploymentPrefix string             `yaml:"deploymentPrefix"`
 	Packages         []ConfigurePackage `yaml:"packages"`
 }
 
@@ -10,7 +10,7 @@ type ConfigureConfig struct {
 type ConfigurePackage struct {
 	ID          string              `yaml:"integrationSuiteId"`
 	DisplayName string              `yaml:"displayName,omitempty"`
-	Deploy      bool                `yaml:"deploy"` // Deploy all artifacts in package after configuration
+	Deploy      bool                `yaml:"deploy,omitempty"` // Deploy all artifacts in package after configuration
 	Artifacts   []ConfigureArtifact `yaml:"artifacts"`
 }
 
@@ -35,7 +35,7 @@ type ConfigureArtifact struct {
 	DisplayName string                   `yaml:"displayName,omitempty"`
 	Type        string                   `yaml:"type"`                 // Integration, MessageMapping, ScriptCollection, ValueMapping
 	Version     string                   `yaml:"version,omitempty"`    // Artifact version, defaults to "active"
-	Deploy      bool                     `yaml:"deploy"`               // Deploy this specific artifact after configuration
+	Deploy      bool                     `yaml:"deploy,omitempty"`     // Deploy this specific artifact after configuration
 	Parameters  []ConfigurationParameter `yaml:"parameters,omitempty"` // List of configuration parameters to update
 	Batch       *BatchSettings           `yaml:"batch,omitempty"`      // Optional batch processing settings
 }

@@ -77,6 +77,39 @@ flashpipe configure --config-path ./my-config.yml
 
 ## Configuration File Format
 
+### Pull configuration from the tenant
+
+Create one deploy-compatible YAML file per integration package:
+
+```bash
+# Pull every package into ./config
+flashpipe configure pull --output-dir ./config
+
+# Pull selected packages
+flashpipe configure pull --output-dir ./config \
+  --package-ids UtilitiesBaseUtilitiesCommon,AnotherPackage
+```
+
+The same settings can come from the global file passed with `--config`:
+
+```yaml
+configure:
+  pull:
+    outputDir: ./config
+    packageIds:
+      - UtilitiesBaseUtilitiesCommon
+      - AnotherPackage
+```
+
+```bash
+flashpipe --config ./flashpipe.yaml configure pull
+```
+
+Explicit `--output-dir` and `--package-ids` flags override the YAML settings.
+Package IDs that do not exist on the tenant are logged and skipped; remaining packages are still exported.
+
+Existing files named `<package-id>.yml` are replaced. Review pulled values before committing them because artifact parameters can contain environment-specific or sensitive data.
+
 ### Complete Structure
 
 ```yaml

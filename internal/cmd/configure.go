@@ -191,6 +191,7 @@ Configuration:
 	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
 	configureCmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of parameters per batch request (config: configure.batchSize, default: 90)")
 	configureCmd.Flags().BoolVar(&disableBatch, "disable-batch", false, "Disable batch processing, use individual requests (config: configure.disableBatch)")
+	configureCmd.AddCommand(NewConfigurePullCommand())
 
 	return configureCmd
 }
