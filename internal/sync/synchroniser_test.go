@@ -1,7 +1,7 @@
 package sync
 
 import (
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

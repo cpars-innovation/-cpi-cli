@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
-	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )

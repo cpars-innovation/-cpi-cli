@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
-	"github.com/cpars-innovation/-cpi-cli/internal/exitcode"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
-	"github.com/cpars-innovation/-cpi-cli/internal/output"
+	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/exitcode"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/rs/zerolog/log"
 )
 

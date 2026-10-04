@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/exitcode"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/exitcode"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"golang.org/x/oauth2"
 )
 

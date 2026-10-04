@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
 	"github.com/spf13/viper"
 )
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/deployer"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/rs/zerolog/log"
 )
 

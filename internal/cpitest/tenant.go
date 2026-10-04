@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 )
 
 // Runtime is the runtime state of an artifact.

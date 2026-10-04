@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/deploy"
+	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

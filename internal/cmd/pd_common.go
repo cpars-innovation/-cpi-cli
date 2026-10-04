@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/spf13/cobra"
 )
 

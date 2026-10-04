@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )

@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/cpars-innovation/-cpi-cli/internal/file"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/rs/zerolog/log"
 )
 

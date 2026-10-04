@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 )

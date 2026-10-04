@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"

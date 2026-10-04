@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
-	"github.com/cpars-innovation/-cpi-cli/internal/config"
-	"github.com/cpars-innovation/-cpi-cli/internal/file"
-	"github.com/cpars-innovation/-cpi-cli/internal/str"
-	"github.com/cpars-innovation/-cpi-cli/internal/sync"
+	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/config"
+	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/internal/sync"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"

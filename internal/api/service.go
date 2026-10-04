@@ -2,8 +2,8 @@ package api
 
 import (
 	"bytes"
-	"github.com/cpars-innovation/-cpi-cli/internal/config"
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/config"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"io"

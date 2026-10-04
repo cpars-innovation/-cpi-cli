@@ -3,7 +3,7 @@ package file
 import (
 	"fmt"
 	"github.com/beevik/etree"
-	"github.com/cpars-innovation/-cpi-cli/internal/str"
+	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/rs/zerolog/log"
 	"os"
 )

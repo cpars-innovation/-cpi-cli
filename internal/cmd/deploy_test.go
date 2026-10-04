@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/cpitest"
-	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/deployer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

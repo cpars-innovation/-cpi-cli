@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
-	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"

@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
-	"github.com/cpars-innovation/-cpi-cli/internal/logger"
+	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/internal/logger"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"

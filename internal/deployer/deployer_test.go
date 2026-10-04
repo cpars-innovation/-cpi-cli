@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
-	"github.com/cpars-innovation/-cpi-cli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

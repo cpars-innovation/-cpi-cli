@@ -1,4 +1,4 @@
-module github.com/cpars-innovation/-cpi-cli
+module github.com/cpars-innovation/cpicli
 
 go 1.25.0
 

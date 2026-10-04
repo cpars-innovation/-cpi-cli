@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/rs/zerolog/log"
 )
 

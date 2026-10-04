@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"

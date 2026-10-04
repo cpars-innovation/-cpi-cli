@@ -5,7 +5,7 @@ Modifications copyright © 2026 cpars innovation
 package main
 
 import (
-	"github.com/cpars-innovation/-cpi-cli/internal/cmd"
+	"github.com/cpars-innovation/cpicli/internal/cmd"
 )
 
 // Version and BuildTime are set at build time via
