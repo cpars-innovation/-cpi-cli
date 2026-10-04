@@ -18,9 +18,11 @@ import (
 
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
-Typical loop: upload_artifact (local dir -> designtime) -> deploy -> get_runtime_status;
-send a test message, then list_message_logs (since=send time, wait_seconds) and
-get_message_log for the error; fix the local files and repeat. set_parameters changes
+Typical loop: download_artifact (once) -> edit files -> upload_artifact -> validate_artifact
+-> deploy -> get_runtime_status; list_service_endpoints gives the URL for a test message;
+after sending it, list_message_logs (since=send time, wait_seconds), then get_message_log,
+get_message_steps (failing step) and get_message_attachment / get_message_store_entry
+for payloads; fix the local files and repeat. check_guidelines reports design issues. set_parameters changes
 externalised parameters; deploy afterwards to activate them.
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory is one of
 usage (fix the arguments), auth, tenant_http, failed, timeout, partial.
@@ -187,6 +189,212 @@ func Tools(cfg Config) []Tool {
 					return nil, err
 				}
 				return ops.GetMessageLog(cfg.Exe, a.MessageGuid, 0)
+			},
+		},
+		{
+			Name: "get_message_steps", Title: "Get processing steps of a message",
+			Description: "Step-level trace of a message (runs and steps with status and error) and the first failing step. modelStepId identifies the step in the iFlow model (BPMN).",
+			InputSchema: object(props{"message_guid": str("Message GUID")}, "message_guid"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					MessageGuid string `json:"message_guid"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.GetMessageSteps(cfg.Exe, a.MessageGuid)
+			},
+		},
+		{
+			Name: "get_message_attachment", Title: "Download a message log attachment",
+			Description: "Content of a log attachment (attachment id from get_message_log). Text is returned inline, binary as base64; truncated to max_bytes.",
+			InputSchema: object(props{"attachment_id": str("Attachment ID"), "max_bytes": maxBytesSchema()}, "attachment_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					AttachmentID string `json:"attachment_id"`
+					MaxBytes     int    `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetMessageAttachment(cfg.Exe, a.AttachmentID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "get_message_store_entry", Title: "Download a persisted message",
+			Description: "Payload persisted by a Persist step (entry id from messageStoreEntries of get_message_log). Truncated to max_bytes.",
+			InputSchema: object(props{"entry_id": str("Message store entry ID"), "max_bytes": maxBytesSchema()}, "entry_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					EntryID  string `json:"entry_id"`
+					MaxBytes int    `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetMessageStoreEntry(cfg.Exe, a.EntryID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "list_runtime_artifacts", Title: "List deployed artifacts",
+			Description: "All deployed artifacts with status, version and deployment time; filter by runtime status (e.g. [\"ERROR\"] to find broken deployments, with their error message).",
+			InputSchema: object(props{"statuses": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"STARTED", "STARTING", "ERROR", "STOPPING"}}}}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Statuses []string `json:"statuses"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				list, err := ops.ListRuntimeArtifacts(cfg.Exe, a.Statuses)
+				return map[string]any{"artifacts": list}, err
+			},
+		},
+		{
+			Name: "list_service_endpoints", Title: "List endpoint URLs",
+			Description: "Callable URLs of deployed integration flows (where to send test messages).",
+			InputSchema: object(props{"artifact_id": str("Only endpoints of this integration flow")}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID string `json:"artifact_id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				eps, err := ops.ListServiceEndpoints(cfg.Exe, a.ArtifactID)
+				return map[string]any{"endpoints": eps}, err
+			},
+		},
+		{
+			Name: "validate_artifact", Title: "Validate an integration flow",
+			Description: "Run the tenant's check of an integration flow (like Check in the Web UI) before deploying. status PASSED or FAILED with details; FAILED is errorCategory failed.",
+			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
+			Annotations: map[string]any{"readOnlyHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID string `json:"artifact_id"`
+					Version    string `json:"version"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.ValidateArtifact(cfg.Exe, a.ArtifactID, a.Version)
+			},
+		},
+		{
+			Name: "check_guidelines", Title: "Check design guidelines",
+			Description: "Run the design guidelines activated on the tenant against an integration flow and wait for the result; returns violations (not compliant, not skipped) with the violated components.",
+			InputSchema: object(props{
+				"artifact_id":     str("Integration flow ID"),
+				"version":         str(`Designtime version, default "active"`),
+				"timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "Maximum wait, default 120"},
+			}, "artifact_id"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID     string `json:"artifact_id"`
+					Version        string `json:"version"`
+					TimeoutSeconds int    `json:"timeout_seconds"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				timeout := 120 * time.Second
+				if a.TimeoutSeconds > 0 {
+					timeout = time.Duration(a.TimeoutSeconds) * time.Second
+				}
+				return ops.CheckGuidelines(ctx, cfg.Exe, a.ArtifactID, a.Version, timeout, cfg.LogPollInterval)
+			},
+		},
+		{
+			Name: "list_resources", Title: "List resources of an integration flow",
+			Description: "Scripts, mappings, schemas and other resources contained in an integration flow (name and type).",
+			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID string `json:"artifact_id"`
+					Version    string `json:"version"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				list, err := ops.ListResources(cfg.Exe, a.ArtifactID, a.Version)
+				return map[string]any{"artifactId": a.ArtifactID, "resources": list}, err
+			},
+		},
+		{
+			Name: "get_resource", Title: "Read a resource of an integration flow",
+			Description: "Content of one resource (e.g. a Groovy script or XSLT) from the tenant; text inline, binary as base64.",
+			InputSchema: object(props{
+				"artifact_id": str("Integration flow ID"),
+				"name":        str("Resource name from list_resources"),
+				"type":        str("Resource type from list_resources (e.g. groovy, xslt, mmap)"),
+				"version":     str(`Designtime version, default "active"`),
+				"max_bytes":   maxBytesSchema(),
+			}, "artifact_id", "name", "type"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID string `json:"artifact_id"`
+					Name       string `json:"name"`
+					Type       string `json:"type"`
+					Version    string `json:"version"`
+					MaxBytes   int    `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetResource(cfg.Exe, a.ArtifactID, a.Version, a.Name, a.Type, a.MaxBytes)
+			},
+		},
+		{
+			Name: "download_artifact", Title: "Download an artifact into a local directory",
+			Description: "Download a designtime artifact from the tenant and extract it into a local directory (inside the server root) to edit it; upload it again with upload_artifact. The directory must be empty unless overwrite=true.",
+			InputSchema: object(props{
+				"artifact_id":   str("Artifact ID"),
+				"artifact_type": enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),
+				"dir":           str("Target directory, relative to the server root"),
+				"overwrite":     boolean("Replace the content of a non-empty directory"),
+				"version":       str(`Designtime version, default "active"`),
+			}, "artifact_id", "dir"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID   string `json:"artifact_id"`
+					ArtifactType string `json:"artifact_type"`
+					Dir          string `json:"dir"`
+					Overwrite    bool   `json:"overwrite"`
+					Version      string `json:"version"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if a.ArtifactType == "" {
+					a.ArtifactType = "Integration"
+				}
+				dir, err := resolvePath(cfg.Root, a.Dir)
+				if err != nil {
+					return nil, err
+				}
+				if dir == mustAbs(cfg.Root) {
+					return nil, output.Usagef("dir must be a sub-directory of the server root")
+				}
+				return ops.DownloadArtifactToDir(cfg.Exe, a.ArtifactType, a.ArtifactID, a.Version, dir, a.Overwrite)
 			},
 		},
 		{
@@ -468,4 +676,26 @@ func strArray(desc string) map[string]any {
 }
 func enum(desc string, values ...string) map[string]any {
 	return map[string]any{"type": "string", "enum": values, "description": desc}
+}
+
+func maxBytesSchema() map[string]any {
+	return map[string]any{"type": "integer", "minimum": 1, "maximum": 1048576, "description": "Maximum bytes returned, default 65536"}
+}
+
+func mustAbs(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
+func checkMaxBytes(n int) error {
+	if n < 0 || n > 1048576 {
+		return output.Usagef("max_bytes must be between 1 and 1048576")
+	}
+	return nil
 }

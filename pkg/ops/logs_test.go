@@ -86,7 +86,8 @@ func TestWaitForMessageLogs(t *testing.T) {
 func TestGetMessageLog(t *testing.T) {
 	now := time.Now()
 	m := mplMock(t, []cpitest.MessageLog{{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now,
-		ErrorText: "Mapping failed", Headers: map[string]string{"OrderId": "4711"}, Attachments: []string{"payload.xml"}}})
+		ErrorText: "Mapping failed", Headers: map[string]string{"OrderId": "4711"}, Attachments: map[string]string{"payload.xml": "<order/>"}, StoreEntries: map[string]string{"store-1": "<persisted/>"},
+		Steps: []cpitest.Step{{StepID: "s1", ModelStepID: "CallActivity_1", Activity: "Script", Status: "COMPLETED"}, {StepID: "s2", ModelStepID: "MessageMapping_2", Activity: "Mapping", Status: "FAILED", Error: "Mapping failed"}}}})
 	d, err := GetMessageLog(m.Executer(), "g1", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "Mapping failed", d.ErrorText)
@@ -96,4 +97,48 @@ func TestGetMessageLog(t *testing.T) {
 
 	_, err = GetMessageLog(m.Executer(), "nope", 0)
 	assert.Equal(t, exitcode.Usage, output.ExitCode(err))
+}
+
+func TestMessageLogDetailsAndContent(t *testing.T) {
+	now := time.Now()
+	m := mplMock(t, []cpitest.MessageLog{{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now,
+		Attachments: map[string]string{"payload.xml": "<order/>"}, StoreEntries: map[string]string{"store-1": "<persisted/>"},
+		Steps: []cpitest.Step{{StepID: "s1", ModelStepID: "CallActivity_1", Activity: "Script", Status: "COMPLETED"},
+			{StepID: "s2", ModelStepID: "MessageMapping_2", Activity: "Mapping", Status: "FAILED", Error: "Mapping failed"}}}})
+
+	d, err := GetMessageLog(m.Executer(), "g1", 0)
+	require.NoError(t, err)
+	require.Len(t, d.MessageStoreEntries, 1)
+	assert.Empty(t, d.Warnings)
+
+	att, err := GetMessageAttachment(m.Executer(), d.Attachments[0].ID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "<order/>", att.Text)
+
+	entry, err := GetMessageStoreEntry(m.Executer(), "store-1", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "<persisted/>", entry.Text)
+
+	_, err = GetMessageAttachment(m.Executer(), "nope", 0)
+	assert.Equal(t, exitcode.Usage, output.ExitCode(err))
+
+	steps, err := GetMessageSteps(m.Executer(), "g1")
+	require.NoError(t, err)
+	require.Len(t, steps.Runs, 1)
+	assert.Len(t, steps.Runs[0].Steps, 2)
+	require.NotNil(t, steps.FailedStep)
+	assert.Equal(t, "MessageMapping_2", steps.FailedStep.ModelStepID)
+}
+
+func TestNewContent(t *testing.T) {
+	c := NewContent([]byte("héllo"), 2) // cut inside the 2-byte é
+	assert.Equal(t, "h", c.Text)
+	assert.True(t, c.Truncated)
+	assert.Equal(t, 6, c.Size)
+
+	bin := NewContent([]byte{0xff, 0x00, 0xfe}, 0)
+	assert.Empty(t, bin.Text)
+	assert.Equal(t, "/wD+", bin.Base64)
+
+	assert.False(t, NewContent([]byte("abc"), -1).Truncated)
 }

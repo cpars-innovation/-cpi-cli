@@ -255,7 +255,11 @@ func (s *Server) callTool(ctx context.Context, id json.RawMessage, params json.R
 		res.Error = err.Error()
 		log.Warn().Str("tool", p.Name).Int("exitCode", code).Msg(err.Error())
 	}
-	text, mErr := json.Marshal(res)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keep XML payloads readable
+	mErr := enc.Encode(res)
+	text := bytes.TrimSpace(buf.Bytes())
 	if mErr != nil {
 		return nil, &rpcError{Code: codeInvalidParams, Message: "failed to encode result: " + mErr.Error()}
 	}

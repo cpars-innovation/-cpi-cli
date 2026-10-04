@@ -179,16 +179,21 @@ func isTransient(err error) bool {
 	return code >= 500 || code == 429
 }
 
-// MessageLogDetail is one message with error text, headers and attachments.
+// MessageLogDetail is one message with error text, headers, attachments and
+// persisted messages.
 type MessageLogDetail struct {
 	MessageLog
 	CustomHeaderProperties []cpi.NameValue         `json:"customHeaderProperties"`
 	AdapterAttributes      []cpi.NameValue         `json:"adapterAttributes"`
 	Attachments            []cpi.MessageAttachment `json:"attachments"`
+	MessageStoreEntries    []cpi.MessageStoreEntry `json:"messageStoreEntries"`
+	// Warnings lists optional details that could not be read.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // GetMessageLog returns the details of one message. maxErrorBytes truncates
-// the error text (0: 16384).
+// the error text (0: 16384). Optional details that fail to load are reported
+// in Warnings; authentication errors still fail the call.
 func GetMessageLog(exe *httpclnt.HTTPExecuter, guid string, maxErrorBytes int) (*MessageLogDetail, error) {
 	if guid == "" {
 		return nil, output.Usagef("message GUID is required")
@@ -205,24 +210,129 @@ func GetMessageLog(exe *httpclnt.HTTPExecuter, guid string, maxErrorBytes int) (
 		return nil, output.Usagef("message %s not found", guid)
 	}
 	d := &MessageLogDetail{MessageLog: toMessageLog(*l),
-		CustomHeaderProperties: []cpi.NameValue{}, AdapterAttributes: []cpi.NameValue{}, Attachments: []cpi.MessageAttachment{}}
+		CustomHeaderProperties: []cpi.NameValue{}, AdapterAttributes: []cpi.NameValue{},
+		Attachments: []cpi.MessageAttachment{}, MessageStoreEntries: []cpi.MessageStoreEntry{}}
+
+	optional := func(what string, err error) error {
+		if err == nil {
+			return nil
+		}
+		if httpclnt.IsAuthError(err) {
+			return err
+		}
+		d.Warnings = append(d.Warnings, fmt.Sprintf("%s: %v", what, err))
+		return nil
+	}
 	if slices.Contains(errorMessageStatuses, l.Status) {
 		text, err := mpl.ErrorText(guid)
-		if err != nil {
+		if err := optional("error text", err); err != nil {
 			return nil, err
 		}
 		d.ErrorText, d.ErrorTruncated = truncate(text, maxErrorBytes)
 	}
-	if d.CustomHeaderProperties, err = mpl.CustomHeaderProperties(guid); err != nil {
+	if headers, err := mpl.CustomHeaderProperties(guid); optional("custom header properties", err) != nil {
 		return nil, err
+	} else if err == nil {
+		d.CustomHeaderProperties = headers
 	}
-	if d.AdapterAttributes, err = mpl.AdapterAttributes(guid); err != nil {
+	if attrs, err := mpl.AdapterAttributes(guid); optional("adapter attributes", err) != nil {
 		return nil, err
+	} else if err == nil {
+		d.AdapterAttributes = attrs
 	}
-	if d.Attachments, err = mpl.Attachments(guid); err != nil {
+	if atts, err := mpl.Attachments(guid); optional("attachments", err) != nil {
 		return nil, err
+	} else if err == nil {
+		d.Attachments = atts
+	}
+	if entries, err := mpl.MessageStoreEntries(guid); optional("message store entries", err) != nil {
+		return nil, err
+	} else if err == nil {
+		d.MessageStoreEntries = entries
 	}
 	return d, nil
+}
+
+// DownloadedContent is a downloaded attachment or persisted message.
+type DownloadedContent struct {
+	ID string `json:"id"`
+	Content
+}
+
+// GetMessageAttachment downloads an MPL attachment (see NewContent for max).
+func GetMessageAttachment(exe *httpclnt.HTTPExecuter, attachmentID string, max int) (*DownloadedContent, error) {
+	if attachmentID == "" {
+		return nil, output.Usagef("attachment ID is required (from the attachments of a message log)")
+	}
+	b, err := cpi.NewMessageLogs(exe).AttachmentContent(attachmentID)
+	if err != nil {
+		if httpclnt.StatusCode(err) == 404 {
+			return nil, output.Usagef("attachment %s not found", attachmentID)
+		}
+		return nil, err
+	}
+	return &DownloadedContent{ID: attachmentID, Content: NewContent(b, max)}, nil
+}
+
+// GetMessageStoreEntry downloads a persisted message payload.
+func GetMessageStoreEntry(exe *httpclnt.HTTPExecuter, entryID string, max int) (*DownloadedContent, error) {
+	if entryID == "" {
+		return nil, output.Usagef("message store entry ID is required (from messageStoreEntries of a message log)")
+	}
+	b, err := cpi.NewMessageLogs(exe).MessageStoreEntryContent(entryID)
+	if err != nil {
+		if httpclnt.StatusCode(err) == 404 {
+			return nil, output.Usagef("message store entry %s not found", entryID)
+		}
+		return nil, err
+	}
+	return &DownloadedContent{ID: entryID, Content: NewContent(b, max)}, nil
+}
+
+// MessageRunWithSteps is a processing run and its steps.
+type MessageRunWithSteps struct {
+	cpi.MessageRun
+	Steps []cpi.MessageRunStep `json:"steps"`
+}
+
+// MessageSteps is the step-level processing trace of a message.
+type MessageSteps struct {
+	MessageGuid string                `json:"messageGuid"`
+	Runs        []MessageRunWithSteps `json:"runs"`
+	// FailedStep is the first step that reported an error, if any.
+	FailedStep *cpi.MessageRunStep `json:"failedStep,omitempty"`
+}
+
+// GetMessageSteps returns the processing runs and steps of a message, and the
+// first failing step (to locate the error in the iFlow model: ModelStepID).
+func GetMessageSteps(exe *httpclnt.HTTPExecuter, guid string) (*MessageSteps, error) {
+	if guid == "" {
+		return nil, output.Usagef("message GUID is required")
+	}
+	mpl := cpi.NewMessageLogs(exe)
+	runs, err := mpl.Runs(guid)
+	if err != nil {
+		if httpclnt.StatusCode(err) == 404 {
+			return nil, output.Usagef("message %s not found", guid)
+		}
+		return nil, err
+	}
+	res := &MessageSteps{MessageGuid: guid, Runs: make([]MessageRunWithSteps, 0, len(runs))}
+	for _, r := range runs {
+		steps, err := mpl.RunSteps(r.ID)
+		if err != nil {
+			return nil, err
+		}
+		res.Runs = append(res.Runs, MessageRunWithSteps{MessageRun: r, Steps: steps})
+		for i := range steps {
+			st := strings.ToUpper(steps[i].Status)
+			if res.FailedStep == nil && (steps[i].Error != "" || strings.Contains(st, "FAIL") || strings.Contains(st, "ERROR")) {
+				step := steps[i]
+				res.FailedStep = &step
+			}
+		}
+	}
+	return res, nil
 }
 
 // ParseTimeArg accepts "", a duration back from now (30m, 2h, 1d) or an

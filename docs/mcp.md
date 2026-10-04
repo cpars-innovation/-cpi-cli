@@ -57,19 +57,32 @@ tenant; there is no read-only mode yet.
 
 ## Tools
 
-| Tool | Changes the tenant | Purpose |
-|------|--------------------|---------|
-| `list_packages` | no | All integration packages |
-| `list_artifacts` | no | Designtime artifacts of a package (all four types) |
-| `get_runtime_status` | no | Runtime status, version, deployment time; error message for artifacts in ERROR |
-| `list_message_logs` | no | Message processing logs by artifact, status, time window, correlation/application ID; error text of failed messages included; `wait_seconds` waits until the messages are final |
-| `get_message_log` | no | One message: status, full error text, custom header properties, adapter attributes, attachment list |
-| `get_parameters` | no | Externalised parameters of an integration flow |
-| `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail before anything is written; `dry_run` available |
-| `upload_artifact` | designtime | Create or update an artifact from a local directory; reports `CREATED`, `UPDATED` or `UNCHANGED` |
-| `deploy` | runtime | Deploy and wait; per-artifact `DEPLOYED`, `SKIPPED`, `FAILED` (with tenant error), `TIMEOUT` |
+| Tool | Changes | Purpose |
+|------|---------|---------|
+| `list_packages` | | All integration packages |
+| `list_artifacts` | | Designtime artifacts of a package (all four types) |
+| `list_resources` | | Scripts, mappings, schemas, ... of an integration flow |
+| `get_resource` | | Content of one resource (text inline, binary base64) |
+| `download_artifact` | local files | Extract an artifact into a directory inside `--root` (empty unless `overwrite`) |
+| `upload_artifact` | designtime | Create or update an artifact from a local directory; `CREATED`, `UPDATED` or `UNCHANGED` |
+| `validate_artifact` | | Tenant check of an integration flow (like *Check* in the Web UI); `PASSED` / `FAILED` with details |
+| `check_guidelines` | | Run the activated design guidelines and wait; violations with violated components |
+| `get_parameters` | | Externalised parameters of an integration flow |
+| `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
+| `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT` |
+| `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
+| `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |
+| `list_service_endpoints` | | Callable URLs of deployed integration flows (where to send test messages) |
+| `list_message_logs` | | Message processing logs by artifact, status, time, IDs; error texts; `wait_seconds` for final status |
+| `get_message_log` | | One message: error text, custom header properties, adapter attributes, attachments, persisted messages |
+| `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
+| `get_message_attachment` | | Content of a log attachment |
+| `get_message_store_entry` | | Payload persisted by a Persist step |
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
 | `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false` |
+
+Content tools (`get_resource`, `get_message_attachment`, `get_message_store_entry`) return
+`{size, text | base64, truncated}`; `max_bytes` (default 64 KB, max 1 MB) limits the size.
 
 Every tool has a JSON schema with `additionalProperties: false`: a misspelt argument is an
 error, never silently ignored. `tools/list` returns the schemas and MCP annotations
@@ -114,19 +127,21 @@ malformed request).
 
 ## Typical agent loop
 
-1. `list_artifacts` / `get_runtime_status` to understand the current state.
-2. Edit files of the iFlow in the local repository (inside `--root`).
-3. `upload_artifact` with the artifact directory.
-4. `deploy`; on `failed`, read `error` (the tenant's runtime error), fix and go back to 3.
-5. Note the current time, send a test message to the iFlow endpoint, then
-   `list_message_logs` with `artifact_id`, `since` = that time and `wait_seconds` (e.g. 60).
-   For a `FAILED` message the result contains `errorText`; `get_message_log` adds custom
-   header properties and attachments. Fix and go back to 3.
-6. `set_parameters` + `deploy` to change externalised configuration.
+1. `download_artifact` once to get the iFlow into the local repository (inside `--root`),
+   or start from files that are already there.
+2. Edit the files; `upload_artifact`; `validate_artifact` (and `check_guidelines`).
+3. `deploy`; on `failed`, read `error` (the tenant's runtime error), fix and go back to 2.
+4. `list_service_endpoints` for the URL; note the time and send a test message.
+5. `list_message_logs` with `artifact_id`, `since` = that time and `wait_seconds` (e.g. 60).
+   For a `FAILED` message the result contains `errorText`.
+6. `get_message_steps` shows the failing step (`modelStepId`, as in the `.iflw` BPMN);
+   `get_message_log` lists custom headers, attachments and persisted messages, which
+   `get_message_attachment` / `get_message_store_entry` download. Fix and go back to 2.
+7. `set_parameters` + `deploy` to change externalised configuration.
 
-Message logs contain business data (headers, error texts with payload fragments). Error texts
-are truncated (4 KB in lists, 16 KB in `get_message_log`, flagged with `errorTruncated`) to
-keep tool results small.
+Message logs, attachments and persisted messages contain business data. Error texts are
+truncated (4 KB in lists, 16 KB in `get_message_log`, flagged with `errorTruncated`) to keep
+tool results small. Use a development tenant with test data for agents.
 
 ## Safety
 

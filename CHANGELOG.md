@@ -14,8 +14,11 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact.
-- Message processing logs: `logs` (query, `--wait` for final status, error texts) and
-  `logs get` (error text, custom headers, adapter attributes, attachments).
+- Message processing logs: `logs` (query, `--wait` for final status, error texts),
+  `logs get` (error text, custom headers, adapter attributes, attachments, persisted messages),
+  `logs steps` (failing step), `logs attachment`, `logs payload`.
+- `validate` and `guidelines` (tenant check and design guidelines), `endpoints`,
+  `resources`, `download`, `status --runtime-status ERROR`.
 - MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
   upload, deploy, undeploy and Partner Directory deploy.
 - Settings via flags, `CPICTL_*` environment variables and `$HOME/cpictl.yaml`.

@@ -329,3 +329,101 @@ func odataDateTime(t time.Time) string {
 func queryEscape(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
+
+// AttachmentContent downloads the content of an MPL attachment.
+// Endpoint: MessageProcessingLogAttachments('{Id}')/$value.
+func (m *MessageLogs) AttachmentContent(attachmentID string) ([]byte, error) {
+	return getValue(m.exe, fmt.Sprintf("/api/v1/MessageProcessingLogAttachments(%s)/$value", odataString(attachmentID)), "Download log attachment")
+}
+
+// MessageStoreEntry is a message persisted by a Persist step or the JMS/data store.
+type MessageStoreEntry struct {
+	ID             string    `json:"id"`
+	MessageStoreID string    `json:"messageStoreId,omitempty"`
+	TimeStamp      time.Time `json:"timeStamp"`
+	HasAttachments bool      `json:"hasAttachments,omitempty"`
+}
+
+// MessageStoreEntries lists the persisted messages of a message.
+func (m *MessageLogs) MessageStoreEntries(guid string) ([]MessageStoreEntry, error) {
+	var rows []struct {
+		Id             string `json:"Id"`
+		MessageStoreId string `json:"MessageStoreId"`
+		TimeStamp      string `json:"TimeStamp"`
+		HasAttachments bool   `json:"HasAttachments"`
+	}
+	if err := m.list(guid, "MessageStoreEntries", &rows); err != nil {
+		return nil, err
+	}
+	out := make([]MessageStoreEntry, 0, len(rows))
+	for _, r := range rows {
+		ts, _ := ParseODataTime(r.TimeStamp)
+		out = append(out, MessageStoreEntry{ID: r.Id, MessageStoreID: r.MessageStoreId, TimeStamp: ts, HasAttachments: r.HasAttachments})
+	}
+	return out, nil
+}
+
+// MessageStoreEntryContent downloads a persisted message payload.
+// Endpoint: MessageStoreEntries('{Id}')/$value.
+func (m *MessageLogs) MessageStoreEntryContent(entryID string) ([]byte, error) {
+	return getValue(m.exe, fmt.Sprintf("/api/v1/MessageStoreEntries(%s)/$value", odataString(entryID)), "Download message store entry")
+}
+
+// MessageRun is one processing run of a message.
+type MessageRun struct {
+	ID           string    `json:"id"`
+	Start        time.Time `json:"start"`
+	Stop         time.Time `json:"stop"`
+	OverallState string    `json:"overallState,omitempty"`
+	LogLevel     string    `json:"logLevel,omitempty"`
+}
+
+// MessageRunStep is one processing step of a run.
+type MessageRunStep struct {
+	StepID      string    `json:"stepId"`
+	ModelStepID string    `json:"modelStepId,omitempty"`
+	Activity    string    `json:"activity,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	Error       string    `json:"error,omitempty"`
+	BranchID    string    `json:"branchId,omitempty"`
+	Start       time.Time `json:"start"`
+	Stop        time.Time `json:"stop"`
+}
+
+// Runs lists the processing runs of a message.
+// Endpoint: MessageProcessingLogs('{guid}')/Runs.
+func (m *MessageLogs) Runs(guid string) ([]MessageRun, error) {
+	var rows []struct {
+		Id, RunStart, RunStop, OverallState, LogLevel string
+	}
+	if err := m.list(guid, "Runs", &rows); err != nil {
+		return nil, err
+	}
+	out := make([]MessageRun, 0, len(rows))
+	for _, r := range rows {
+		start, _ := ParseODataTime(r.RunStart)
+		stop, _ := ParseODataTime(r.RunStop)
+		out = append(out, MessageRun{ID: r.Id, Start: start, Stop: stop, OverallState: r.OverallState, LogLevel: r.LogLevel})
+	}
+	return out, nil
+}
+
+// RunSteps lists the steps of a processing run.
+// Endpoint: MessageProcessingLogRuns('{RunId}')/RunSteps.
+func (m *MessageLogs) RunSteps(runID string) ([]MessageRunStep, error) {
+	var rows []struct {
+		StepId, ModelStepId, Activity, Status, Error, BranchId, StepStart, StepStop string
+	}
+	urlPath := fmt.Sprintf("/api/v1/MessageProcessingLogRuns(%s)/RunSteps", odataString(runID))
+	if err := getResults(m.exe, urlPath, "Get run steps", &rows); err != nil {
+		return nil, err
+	}
+	out := make([]MessageRunStep, 0, len(rows))
+	for _, r := range rows {
+		start, _ := ParseODataTime(r.StepStart)
+		stop, _ := ParseODataTime(r.StepStop)
+		out = append(out, MessageRunStep{StepID: r.StepId, ModelStepID: r.ModelStepId, Activity: r.Activity, Status: r.Status,
+			Error: r.Error, BranchID: r.BranchId, Start: start, Stop: stop})
+	}
+	return out, nil
+}

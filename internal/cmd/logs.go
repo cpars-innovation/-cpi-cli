@@ -93,7 +93,61 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 		},
 	}
 	get.Flags().String("message-guid", "", "Message GUID")
-	c.AddCommand(get)
+
+	steps := &cobra.Command{
+		Use:          "steps",
+		Short:        "Show the processing steps of a message and the step that failed",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.GetMessageSteps(tenantExecuter(cmd), config.GetString(cmd, "message-guid"))
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			for _, r := range res.Runs {
+				for _, st := range r.Steps {
+					log.Info().Msgf("%-10s %-30s %s%s", st.Status, st.ModelStepID, st.Activity, errSuffix(st.Error))
+				}
+			}
+			if res.FailedStep != nil {
+				log.Warn().Msgf("Failed step: %s (%s)%s", res.FailedStep.ModelStepID, res.FailedStep.Activity, errSuffix(res.FailedStep.Error))
+			}
+			return nil
+		},
+	}
+	steps.Flags().String("message-guid", "", "Message GUID")
+
+	attachment := &cobra.Command{
+		Use:          "attachment",
+		Short:        "Download a log attachment (ID from 'logs get')",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.GetMessageAttachment(tenantExecuter(cmd), config.GetString(cmd, "id"), contentLimit(cmd))
+			if err != nil {
+				return err
+			}
+			return emitContent(cmd, res, res.Content)
+		},
+	}
+	attachment.Flags().String("id", "", "Attachment ID")
+	addContentFlags(attachment)
+
+	payload := &cobra.Command{
+		Use:          "payload",
+		Short:        "Download a persisted message (message store entry ID from 'logs get')",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.GetMessageStoreEntry(tenantExecuter(cmd), config.GetString(cmd, "id"), contentLimit(cmd))
+			if err != nil {
+				return err
+			}
+			return emitContent(cmd, res, res.Content)
+		},
+	}
+	payload.Flags().String("id", "", "Message store entry ID")
+	addContentFlags(payload)
+
+	c.AddCommand(get, steps, attachment, payload)
 	return c
 }
 

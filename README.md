@@ -66,16 +66,19 @@ defaults per command. Details: [docs/configuration.md](docs/configuration.md).
 cpictl packages
 cpictl artifacts --package-id Orders
 
-# Change an iFlow locally, upload it (created or updated only if the content differs) and deploy
+# Get an iFlow into a local folder, change it, upload it (only if the content differs), check and deploy
+cpictl download --artifact-id OrderIntake --dir ./OrderIntake
 cpictl update artifact --artifact-id OrderIntake --package-id Orders --dir-artifact ./OrderIntake
+cpictl validate --artifact-id OrderIntake
 cpictl deploy --artifact-ids OrderIntake
 
 # Did it start? If not, the tenant's error message is in the output
 cpictl status --artifact-ids OrderIntake
 
-# Send a test message, then wait for its processing log and read the error if it failed
+# Send a test message to its URL, wait for the processing log, find the failing step
+cpictl endpoints --artifact-id OrderIntake
 cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
-cpictl logs get --message-guid <guid>
+cpictl logs steps --message-guid <guid>
 
 # Change externalised parameters and activate them
 cpictl params set --artifact-id OrderIntake --param ReceiverHost=orders.example.com
@@ -92,9 +95,10 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 
 | Area | Commands |
 |------|----------|
-| Inspect | `packages`, `artifacts`, `status` |
-| Monitoring | `logs`, `logs get` (message processing logs) |
-| Designtime | `update artifact`, `update package` |
+| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources` |
+| Monitoring | `logs`, `logs get`, `logs steps`, `logs attachment`, `logs payload` |
+| Quality | `validate`, `guidelines` |
+| Designtime | `download`, `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
@@ -107,7 +111,8 @@ All commands and flags: [docs/commands.md](docs/commands.md) (generated from the
 
 ## Output and exit codes
 
-By default cpictl writes human-readable logs to stderr and nothing to stdout.
+By default cpictl writes human-readable logs to stderr and nothing to stdout (except
+commands that download content, such as `resources get`, which print the content).
 With `--output json` stdout receives exactly one JSON document and stderr receives JSON log lines:
 
 ```json
@@ -151,9 +156,10 @@ claude mcp add cpi \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
-Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `list_message_logs`,
-`get_message_log`, `get_parameters`, `set_parameters`, `upload_artifact`, `deploy`,
-`undeploy`, `pd_deploy`.
+Tools cover the whole loop: `download_artifact`, `upload_artifact`, `validate_artifact`,
+`check_guidelines`, `deploy`, `get_runtime_status`, `list_service_endpoints`,
+`list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
+`get_message_store_entry`, parameters, resources, `undeploy` and `pd_deploy`.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
 See [docs/mcp.md](docs/mcp.md).
 
@@ -165,6 +171,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Command reference](docs/commands.md) | All commands and flags |
 | [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
 | [Partner Directory](docs/partner-directory.md) | `pd-snapshot`, `pd-deploy`, full sync |
 | [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, scripting with exit codes |

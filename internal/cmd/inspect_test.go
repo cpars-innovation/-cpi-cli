@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -60,4 +62,44 @@ func TestLogsCommands(t *testing.T) {
 	res = runMain(t, append([]string{"logs", "get", "--message-guid", "g1", "--output", "json"}, basicAuth(mock)...)...)
 	require.Equal(t, 0, res.code, res.stderr)
 	assert.Contains(t, res.stdout, `"messageGuid": "g1"`)
+}
+
+func TestContentCommands(t *testing.T) {
+	now := time.Now()
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1", Runtime: &cpitest.Runtime{Version: "1", Status: "ERROR"}, ErrorInfo: "boom",
+			EndpointURL: "https://tenant/http/a",
+			Resources:   map[string]cpitest.Resource{"s.groovy": {Type: "groovy", Content: []byte("println 1")}}},
+	})
+	mock.MessageLogSteps = [][]cpitest.MessageLog{{{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now,
+		Attachments: map[string]string{"in.xml": "<in/>"},
+		Steps:       []cpitest.Step{{StepID: "s1", ModelStepID: "Mapping_1", Status: "FAILED", Error: "bad"}}}}}
+
+	// text mode: resource content goes to stdout
+	res := runMain(t, append([]string{"resources", "get", "--artifact-id", "A", "--name", "s.groovy", "--type", "groovy"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Equal(t, "println 1", res.stdout)
+
+	out := filepath.Join(t.TempDir(), "in.xml")
+	res = runMain(t, append([]string{"logs", "attachment", "--id", "att-g1-in.xml", "--out", out, "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "<in/>", string(data))
+
+	res = runMain(t, append([]string{"logs", "steps", "--message-guid", "g1", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, `"modelStepId": "Mapping_1"`)
+
+	res = runMain(t, append([]string{"status", "--runtime-status", "ERROR", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, `"errorInfo": "boom"`)
+
+	res = runMain(t, append([]string{"endpoints", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, "https://tenant/http/a")
+
+	res = runMain(t, append([]string{"validate", "--artifact-id", "A", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, `"status": "PASSED"`)
 }

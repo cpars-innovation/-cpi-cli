@@ -54,6 +54,21 @@ type Artifact struct {
 	// ConfigUpdateStatus overrides the 202 of a parameter update.
 	ConfigUpdateStatus int
 
+	// ValidationResult is the body of ValidateIntegrationDesigntimeArtifact
+	// (default "Check execution result: Passed").
+	ValidationResult string
+	// GuidelineStatuses are returned by the execution list after an execute
+	// call, one per GET (last repeats); Guidelines are the results.
+	GuidelineStatuses []string
+	Guidelines        []map[string]any
+	guidelineRuns     int
+	guidelineGets     int
+	// EndpointURL makes the deployed artifact appear in ServiceEndpoints.
+	EndpointURL string
+	// Resources: name -> type and content; Zip is the $value download.
+	Resources map[string]Resource
+	Zip       []byte
+
 	triggered      bool
 	runtimeGets    int
 	taskGets       int
@@ -66,13 +81,26 @@ type Package struct {
 	ID, Name, Version string
 }
 
+// Resource is an iFlow resource of the mock tenant.
+type Resource struct {
+	Type    string
+	Content []byte
+}
+
 // MessageLog is a message processing log of the mock tenant.
 type MessageLog struct {
 	Guid, Artifact, Status string
 	Start, End             time.Time
 	ErrorText              string
 	Headers                map[string]string
-	Attachments            []string // names
+	Attachments            map[string]string // name -> content (ids att-<guid>-<name>)
+	StoreEntries           map[string]string // id -> payload
+	Steps                  []Step
+}
+
+// Step is a processing step of a message (one run per message).
+type Step struct {
+	StepID, ModelStepID, Activity, Status, Error string
 }
 
 // Tenant is a mock CPI tenant.
@@ -132,15 +160,22 @@ func (m *Tenant) Count(prefix string) int {
 }
 
 var (
-	reDesign  = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts\(Id='([^']+)',Version='active'\)$`)
-	reDeploy  = regexp.MustCompile(`^/api/v1/Deploy(\w+)DesigntimeArtifact$`)
-	reTask    = regexp.MustCompile(`^/api/v1/BuildAndDeployStatus\(TaskId='task-([^']+)'\)$`)
-	reRuntime = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)$`)
-	rePkgArts = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)/(\w+)DesigntimeArtifacts$`)
-	reConfigs = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Configurations$`)
-	reConfig  = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$links/Configurations\('([^']+)'\)$`)
-	reMPL     = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
-	reErrInfo = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
+	reDesign          = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts\(Id='([^']+)',Version='active'\)$`)
+	reDeploy          = regexp.MustCompile(`^/api/v1/Deploy(\w+)DesigntimeArtifact$`)
+	reTask            = regexp.MustCompile(`^/api/v1/BuildAndDeployStatus\(TaskId='task-([^']+)'\)$`)
+	reRuntime         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)$`)
+	rePkgArts         = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)/(\w+)DesigntimeArtifacts$`)
+	reConfigs         = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Configurations$`)
+	reConfig          = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$links/Configurations\('([^']+)'\)$`)
+	reMPL             = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
+	reAttValue        = regexp.MustCompile(`^/api/v1/MessageProcessingLogAttachments\('([^']+)'\)/\$value$`)
+	reStoreValue      = regexp.MustCompile(`^/api/v1/MessageStoreEntries\('([^']+)'\)/\$value$`)
+	reRunSteps        = regexp.MustCompile(`^/api/v1/MessageProcessingLogRuns\('([^']+)'\)/RunSteps$`)
+	reGuidelineList   = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/DesignGuidelineExecutionResults$`)
+	reGuidelineResult = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/DesignGuidelineExecutionResults\('([^']+)'\)$`)
+	reResources       = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Resources(\(Name='([^']+)',ResourceType='([^']+)'\)/\$value)?$`)
+	reDesignValue     = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$value$`)
+	reErrInfo         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
 
 func mplJSON(l MessageLog) map[string]any {
@@ -253,13 +288,170 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"d": map[string]any{"results": []map[string]string{{"AdapterId": "HTTPS", "Name": "Status", "Value": "200"}}}})
 		case "/Attachments":
 			rows := []map[string]any{}
-			for i, n := range l.Attachments {
-				rows = append(rows, map[string]any{"Id": fmt.Sprintf("att-%d", i), "Name": n, "ContentType": "text/plain", "PayloadSize": 10, "TimeStamp": odataDate(l.End)})
+			for _, n := range sortedKeys(l.Attachments) {
+				rows = append(rows, map[string]any{"Id": "att-" + l.Guid + "-" + n, "Name": n, "ContentType": "text/plain",
+					"PayloadSize": len(l.Attachments[n]), "TimeStamp": odataDate(l.End)})
 			}
 			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		case "/MessageStoreEntries":
+			rows := []map[string]any{}
+			for _, id := range sortedKeys(l.StoreEntries) {
+				rows = append(rows, map[string]any{"Id": id, "MessageGuid": l.Guid, "MessageStoreId": "store", "TimeStamp": odataDate(l.End), "HasAttachments": false})
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		case "/Runs":
+			writeJSON(w, map[string]any{"d": map[string]any{"results": []map[string]any{
+				{"Id": "run-" + l.Guid, "RunStart": odataDate(l.Start), "RunStop": odataDate(l.End), "OverallState": l.Status}}}})
 		default:
 			notFound(w)
 		}
+
+	case r.Method == http.MethodGet && reAttValue.MatchString(path):
+		id := reAttValue.FindStringSubmatch(path)[1]
+		for _, step := range m.MessageLogSteps {
+			for _, l := range step {
+				for name, content := range l.Attachments {
+					if "att-"+l.Guid+"-"+name == id {
+						_, _ = w.Write([]byte(content))
+						return
+					}
+				}
+			}
+		}
+		notFound(w)
+
+	case r.Method == http.MethodGet && reStoreValue.MatchString(path):
+		id := reStoreValue.FindStringSubmatch(path)[1]
+		for _, step := range m.MessageLogSteps {
+			for _, l := range step {
+				if content, ok := l.StoreEntries[id]; ok {
+					_, _ = w.Write([]byte(content))
+					return
+				}
+			}
+		}
+		notFound(w)
+
+	case r.Method == http.MethodGet && reRunSteps.MatchString(path):
+		guid := strings.TrimPrefix(reRunSteps.FindStringSubmatch(path)[1], "run-")
+		l := m.findMessageLog(guid)
+		if l == nil {
+			notFound(w)
+			return
+		}
+		rows := []map[string]any{}
+		for _, st := range l.Steps {
+			rows = append(rows, map[string]any{"StepId": st.StepID, "ModelStepId": st.ModelStepID, "Activity": st.Activity,
+				"Status": st.Status, "Error": st.Error, "StepStart": odataDate(l.Start), "StepStop": odataDate(l.End)})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodPost && path == "/api/v1/ValidateIntegrationDesigntimeArtifact":
+		a := m.Artifacts[strings.Trim(r.URL.Query().Get("Id"), "'")]
+		if a == nil || a.DesignVersion == "" {
+			notFound(w)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		result := a.ValidationResult
+		if result == "" {
+			result = "Check execution result: Passed"
+		}
+		_, _ = w.Write([]byte(result))
+
+	case r.Method == http.MethodPost && path == "/api/v1/ExecuteIntegrationDesigntimeArtifactsGuidelines":
+		a := m.Artifacts[strings.Trim(r.URL.Query().Get("Id"), "'")]
+		if a == nil || a.DesignVersion == "" {
+			notFound(w)
+			return
+		}
+		a.guidelineRuns++
+		a.guidelineGets = 0
+		writeJSON(w, map[string]any{"d": map[string]any{"ExecutionId": fmt.Sprintf("exec-%d", a.guidelineRuns)}})
+
+	case r.Method == http.MethodGet && reGuidelineList.MatchString(path):
+		a := m.Artifacts[reGuidelineList.FindStringSubmatch(path)[1]]
+		if a == nil {
+			notFound(w)
+			return
+		}
+		rows := []map[string]any{}
+		if a.guidelineRuns > 0 && len(a.GuidelineStatuses) > 0 {
+			rows = append(rows, map[string]any{"ExecutionId": fmt.Sprintf("exec-%d", a.guidelineRuns), "ArtifactVersion": a.DesignVersion,
+				"ExecutionStatus": pick(a.GuidelineStatuses, a.guidelineGets), "ExecutionTime": fmt.Sprint(time.Now().UnixMilli())})
+			a.guidelineGets++
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && reGuidelineResult.MatchString(path):
+		mm := reGuidelineResult.FindStringSubmatch(path)
+		a := m.Artifacts[mm[1]]
+		if a == nil {
+			notFound(w)
+			return
+		}
+		status := ""
+		if len(a.GuidelineStatuses) > 0 {
+			status = a.GuidelineStatuses[len(a.GuidelineStatuses)-1]
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"ExecutionId": mm[2], "ExecutionStatus": status,
+			"DesignGuidelines": map[string]any{"results": a.Guidelines}}})
+
+	case r.Method == http.MethodGet && path == "/api/v1/ServiceEndpoints":
+		rows := []map[string]any{}
+		filter := r.URL.Query().Get("$filter")
+		for _, id := range sortedKeys(m.Artifacts) {
+			a := m.Artifacts[id]
+			if a.EndpointURL == "" || (filter != "" && filter != "Name eq '"+id+"'") {
+				continue
+			}
+			rows = append(rows, map[string]any{"Name": id, "Id": id + "$endpointAddress=x", "Title": id, "Version": a.DesignVersion, "Protocol": "REST",
+				"EntryPoints": map[string]any{"results": []map[string]string{{"Name": id, "Url": a.EndpointURL, "Type": "PROD"}}}})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && path == "/api/v1/IntegrationRuntimeArtifacts":
+		filter := r.URL.Query().Get("$filter")
+		rows := []map[string]any{}
+		for _, id := range sortedKeys(m.Artifacts) {
+			rt := m.Artifacts[id].Runtime
+			if rt == nil || (filter != "" && !strings.Contains(filter, "'"+rt.Status+"'")) {
+				continue
+			}
+			rows = append(rows, map[string]any{"Id": id, "Version": rt.Version, "Name": id, "Type": "INTEGRATION_FLOW", "Status": rt.Status, "DeployedOn": odataDate(rt.DeployedOn)})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && reResources.MatchString(path):
+		mm := reResources.FindStringSubmatch(path)
+		a := m.Artifacts[mm[1]]
+		if a == nil {
+			notFound(w)
+			return
+		}
+		if mm[2] == "" {
+			rows := []map[string]any{}
+			for _, n := range sortedKeys(a.Resources) {
+				rows = append(rows, map[string]any{"Name": n, "ResourceType": a.Resources[n].Type, "ResourceSize": len(a.Resources[n].Content)})
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+			return
+		}
+		res, ok := a.Resources[mm[3]]
+		if !ok || res.Type != mm[4] {
+			notFound(w)
+			return
+		}
+		_, _ = w.Write(res.Content)
+
+	case r.Method == http.MethodGet && reDesignValue.MatchString(path):
+		mm := reDesignValue.FindStringSubmatch(path)
+		a := m.Artifacts[mm[2]]
+		if a == nil || a.Zip == nil || a.Type != mm[1] {
+			notFound(w)
+			return
+		}
+		_, _ = w.Write(a.Zip)
 
 	case r.Method == http.MethodGet && path == "/api/v1/IntegrationPackages":
 		results := []map[string]string{}

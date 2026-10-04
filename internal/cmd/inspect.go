@@ -23,13 +23,23 @@ func NewStatusCommand() *cobra.Command {
 		Use:          "status",
 		Short:        "Show runtime status, version and errors of artifacts",
 		SilenceUsage: true,
-		Example:      `  cpictl status --artifact-ids MyIFlow,MyMapping --output json`,
+		Long: `Show the runtime status of artifacts. With --artifact-ids only those
+artifacts are shown (including NOT_DEPLOYED ones); without, all deployed
+artifacts, optionally filtered with --runtime-status (e.g. ERROR).`,
+		Example: `  cpictl status --artifact-ids MyIFlow,MyMapping --output json
+  cpictl status --runtime-status ERROR`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ids := nonEmpty(str.TrimSlice(config.GetStringSlice(cmd, "artifact-ids")))
+			var statuses []ops.RuntimeStatus
 			if len(ids) == 0 {
-				return output.Usagef("required flag \"artifact-ids\" not set")
+				var err error
+				statuses, err = ops.ListRuntimeArtifacts(tenantExecuter(cmd), nonEmpty(config.GetStringSlice(cmd, "runtime-status")))
+				if err != nil {
+					return err
+				}
+			} else {
+				statuses = ops.GetRuntimeStatus(tenantExecuter(cmd), ids)
 			}
-			statuses := ops.GetRuntimeStatus(tenantExecuter(cmd), ids)
 			output.SetResult(cmd.Context(), map[string]any{"artifacts": statuses})
 			var errs []error
 			for _, s := range statuses {
@@ -46,7 +56,8 @@ func NewStatusCommand() *cobra.Command {
 			return errors.Join(errs...)
 		},
 	}
-	c.Flags().StringSlice("artifact-ids", nil, "Comma separated list of artifact IDs")
+	c.Flags().StringSlice("artifact-ids", nil, "Comma separated list of artifact IDs (default: all deployed artifacts)")
+	c.Flags().StringSlice("runtime-status", nil, "Without --artifact-ids: only artifacts in these statuses (STARTED, STARTING, ERROR, STOPPING)")
 	return c
 }
 

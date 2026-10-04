@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -100,8 +101,10 @@ func TestProtocol(t *testing.T) {
 		names = append(names, tool.Name)
 		assert.Equal(t, "object", tool.InputSchema["type"], tool.Name)
 	}
-	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log", "get_parameters",
-		"set_parameters", "upload_artifact", "deploy", "undeploy", "pd_deploy"}, names)
+	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
+		"get_message_steps", "get_message_attachment", "get_message_store_entry", "list_runtime_artifacts", "list_service_endpoints",
+		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact",
+		"get_parameters", "set_parameters", "upload_artifact", "deploy", "undeploy", "pd_deploy"}, names)
 
 	assert.Nil(t, resp["3"].Error)
 	assert.Equal(t, codeMethodNotFound, resp["4"].Error.Code)
@@ -241,4 +244,51 @@ func TestMessageLogTools(t *testing.T) {
 	assert.Contains(t, detail.Content[0].Text, `"OrderId"`)
 	assert.Equal(t, "usage", toolResult(t, resp["3"]).StructuredContent.ErrorCategory)
 	assert.Equal(t, "usage", toolResult(t, resp["4"]).StructuredContent.ErrorCategory)
+}
+
+func TestContentTools(t *testing.T) {
+	now := time.Now()
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	w, _ := zw.Create("META-INF/MANIFEST.MF")
+	_, _ = w.Write([]byte("Manifest-Version: 1.0\n"))
+	require.NoError(t, zw.Close())
+
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1", EndpointURL: "https://tenant/http/a", Zip: zipBuf.Bytes(),
+			ValidationResult: "Check execution result: Failed - receiver missing",
+			Runtime:          &cpitest.Runtime{Version: "1", Status: "ERROR"}, ErrorInfo: "boom",
+			Resources: map[string]cpitest.Resource{"s.groovy": {Type: "groovy", Content: []byte("x=1")}}},
+	})
+	mock.MessageLogSteps = [][]cpitest.MessageLog{{{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now,
+		Attachments: map[string]string{"in.xml": "<in/>"}, StoreEntries: map[string]string{"e1": "<persisted/>"},
+		Steps: []cpitest.Step{{StepID: "s1", ModelStepID: "Mapping_1", Status: "FAILED", Error: "bad"}}}}}
+	root := t.TempDir()
+
+	resp := session(t, mock, root,
+		call(1, "validate_artifact", map[string]any{"artifact_id": "A"}),
+		call(2, "list_service_endpoints", map[string]any{"artifact_id": "A"}),
+		call(3, "list_runtime_artifacts", map[string]any{"statuses": []string{"ERROR"}}),
+		call(4, "get_resource", map[string]any{"artifact_id": "A", "name": "s.groovy", "type": "groovy"}),
+		call(5, "download_artifact", map[string]any{"artifact_id": "A", "dir": "work/A"}),
+		call(6, "download_artifact", map[string]any{"artifact_id": "A", "dir": "../outside"}),
+		call(7, "get_message_steps", map[string]any{"message_guid": "g1"}),
+		call(8, "get_message_attachment", map[string]any{"attachment_id": "att-g1-in.xml"}),
+		call(9, "get_message_store_entry", map[string]any{"entry_id": "e1", "max_bytes": 5}),
+		call(10, "get_resource", map[string]any{"artifact_id": "A", "name": "s.groovy", "type": "groovy", "max_bytes": 99999999}),
+	)
+	v := toolResult(t, resp["1"])
+	assert.Equal(t, "failed", v.StructuredContent.ErrorCategory)
+	assert.Contains(t, v.Content[0].Text, "receiver missing")
+	assert.Contains(t, toolResult(t, resp["2"]).Content[0].Text, "https://tenant/http/a")
+	assert.Contains(t, toolResult(t, resp["3"]).Content[0].Text, `"errorInfo":"boom"`)
+	assert.Contains(t, toolResult(t, resp["4"]).Content[0].Text, `"text":"x=1"`)
+	assert.True(t, toolResult(t, resp["5"]).StructuredContent.OK)
+	assert.FileExists(t, filepath.Join(root, "work", "A", "META-INF", "MANIFEST.MF"))
+	assert.Equal(t, "usage", toolResult(t, resp["6"]).StructuredContent.ErrorCategory)
+	assert.Contains(t, toolResult(t, resp["7"]).Content[0].Text, `"modelStepId":"Mapping_1"`)
+	assert.Contains(t, toolResult(t, resp["8"]).Content[0].Text, `"text":"<in/>"`, "XML stays readable (no HTML escaping)")
+	entry := toolResult(t, resp["9"]).Content[0].Text
+	assert.Contains(t, entry, `"truncated":true`)
+	assert.Equal(t, "usage", toolResult(t, resp["10"]).StructuredContent.ErrorCategory)
 }

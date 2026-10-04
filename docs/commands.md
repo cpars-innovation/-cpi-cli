@@ -11,8 +11,14 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`configure`](#configure) | Set artifact parameters from YAML files and optionally deploy |
 | [`configure pull`](#configure-pull) | Write current tenant parameter values into configure YAML files |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
+| [`download`](#download) | Download a designtime artifact and extract it into a directory |
+| [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
+| [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
 | [`logs`](#logs) | Query message processing logs |
+| [`logs attachment`](#logs-attachment) | Download a log attachment (ID from 'logs get') |
 | [`logs get`](#logs-get) | Show one message: status, error text, custom headers, attachments |
+| [`logs payload`](#logs-payload) | Download a persisted message (message store entry ID from 'logs get') |
+| [`logs steps`](#logs-steps) | Show the processing steps of a message and the step that failed |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
@@ -21,6 +27,8 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
 | [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
 | [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
+| [`resources`](#resources) | List the resources (scripts, mappings, schemas, ...) of an integration flow |
+| [`resources get`](#resources-get) | Download one resource of an integration flow |
 | [`snapshot`](#snapshot) | Save all integration packages of the tenant to a Git repository |
 | [`snapshot restore`](#snapshot-restore) | Create or update integration packages on the tenant from a Git repository |
 | [`status`](#status) | Show runtime status, version and errors of artifacts |
@@ -31,6 +39,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`update`](#update) | Create or update designtime artifacts and packages |
 | [`update artifact`](#update-artifact) | Create or update a designtime artifact from a local directory |
 | [`update package`](#update-package) | Create or update an integration package from a JSON file |
+| [`validate`](#validate) | Validate an integration flow on the tenant (like Check in the Web UI) |
 
 ## Global flags
 
@@ -201,6 +210,73 @@ Configuration:
       --max-check-limit int    Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
 ```
 
+## download
+
+Download a designtime artifact and extract it into a directory
+
+**Usage:** `cpictl download [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string     Artifact ID
+      --artifact-type string   Artifact type: Integration, MessageMapping, ScriptCollection, ValueMapping (default "Integration")
+      --dir string             Target directory (must be empty unless --overwrite)
+      --overwrite              Replace the content of a non-empty target directory
+      --version string         Designtime version (default "active")
+```
+
+**Examples:**
+
+```
+  cpictl download --artifact-id OrderIntake --dir ./OrderIntake
+  cpictl download --artifact-id OrderMapping --artifact-type MessageMapping --dir ./OrderMapping --overwrite
+```
+
+## endpoints
+
+List the URLs of deployed integration flows
+
+**Usage:** `cpictl endpoints [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Only endpoints of this integration flow
+```
+
+**Examples:**
+
+```
+  cpictl endpoints --artifact-id OrderIntake
+```
+
+## guidelines
+
+Check an integration flow against the design guidelines activated on the tenant
+
+```
+Run the design guidelines that the tenant administrator activated against an
+integration flow and wait for the result. Violations (not compliant, not
+skipped) give exit code 5.
+```
+
+**Usage:** `cpictl guidelines [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow ID
+      --timeout duration     Maximum time to wait for the result (default 2m0s)
+      --version string       Designtime version (default "active")
+```
+
+**Examples:**
+
+```
+  cpictl guidelines --artifact-id OrderIntake --output json
+```
+
 ## logs
 
 Query message processing logs
@@ -243,11 +319,51 @@ Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED,
   cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG
 ```
 
+## logs attachment
+
+Download a log attachment (ID from 'logs get')
+
+**Usage:** `cpictl logs attachment [flags]`
+
+**Flags:**
+
+```
+      --id string       Attachment ID
+      --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string      Write the content to this file instead of stdout / the JSON result
+```
+
 ## logs get
 
 Show one message: status, error text, custom headers, attachments
 
 **Usage:** `cpictl logs get [flags]`
+
+**Flags:**
+
+```
+      --message-guid string   Message GUID
+```
+
+## logs payload
+
+Download a persisted message (message store entry ID from 'logs get')
+
+**Usage:** `cpictl logs payload [flags]`
+
+**Flags:**
+
+```
+      --id string       Message store entry ID
+      --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string      Write the content to this file instead of stdout / the JSON result
+```
+
+## logs steps
+
+Show the processing steps of a message and the step that failed
+
+**Usage:** `cpictl logs steps [flags]`
 
 **Flags:**
 
@@ -266,10 +382,10 @@ The server uses the same tenant settings as every other command (flags,
 CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
-Tools: list_packages, list_artifacts, get_runtime_status, list_message_logs,
-get_message_log, get_parameters,
-set_parameters, upload_artifact, deploy, undeploy (requires confirm=true),
-pd_deploy (dry run unless dry_run=false).
+Tools: list/get packages, artifacts, resources and parameters; download, upload,
+validate, guideline check, deploy, undeploy (requires confirm=true); runtime
+status and endpoints; message logs, steps, attachments and persisted messages;
+pd_deploy (dry run unless dry_run=false). See docs/mcp.md.
 
 Local paths given to tools are resolved against --root and may not leave it.
 ```
@@ -509,6 +625,48 @@ See docs/partner-directory.md for the file format and full sync safety rules.
   cpictl pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"
 ```
 
+## resources
+
+List the resources (scripts, mappings, schemas, ...) of an integration flow
+
+**Usage:** `cpictl resources [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow ID
+      --version string       Designtime version (default "active")
+```
+
+**Examples:**
+
+```
+  cpictl resources --artifact-id OrderIntake
+  cpictl resources get --artifact-id OrderIntake --name script1.groovy --type groovy
+```
+
+## resources get
+
+Download one resource of an integration flow
+
+```
+Download one resource. In text mode the content is written to stdout (or
+--out); with --output json it is part of the result document.
+```
+
+**Usage:** `cpictl resources get [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow ID
+      --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --name string          Resource name, e.g. script1.groovy
+      --out string           Write the content to this file instead of stdout / the JSON result
+      --type string          Resource type, e.g. groovy, xslt, mmap, xsd, wsdl, jar
+      --version string       Designtime version (default "active")
+```
+
 ## snapshot
 
 Save all integration packages of the tenant to a Git repository
@@ -553,18 +711,26 @@ Configuration:
 
 Show runtime status, version and errors of artifacts
 
+```
+Show the runtime status of artifacts. With --artifact-ids only those
+artifacts are shown (including NOT_DEPLOYED ones); without, all deployed
+artifacts, optionally filtered with --runtime-status (e.g. ERROR).
+```
+
 **Usage:** `cpictl status [flags]`
 
 **Flags:**
 
 ```
-      --artifact-ids strings   Comma separated list of artifact IDs
+      --artifact-ids strings     Comma separated list of artifact IDs (default: all deployed artifacts)
+      --runtime-status strings   Without --artifact-ids: only artifacts in these statuses (STARTED, STARTING, ERROR, STOPPING)
 ```
 
 **Examples:**
 
 ```
   cpictl status --artifact-ids MyIFlow,MyMapping --output json
+  cpictl status --runtime-status ERROR
 ```
 
 ## sync
@@ -713,4 +879,23 @@ Configuration:
 
 ```
       --package-file string   Path to location of package file (config: update.package.packageFile)
+```
+
+## validate
+
+Validate an integration flow on the tenant (like Check in the Web UI)
+
+**Usage:** `cpictl validate [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow ID
+      --version string       Designtime version (default "active")
+```
+
+**Examples:**
+
+```
+  cpictl validate --artifact-id OrderIntake
 ```

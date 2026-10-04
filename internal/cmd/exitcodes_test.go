@@ -152,6 +152,11 @@ func TestExitCodes(t *testing.T) {
 			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
 			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
 		}},
+		{"deploy failed: validation failed", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
+				ValidationResult: "Check execution result: Failed"}})
+			return append([]string{"validate", "--artifact-id", "A"}, basicAuth(m)...)
+		}},
 		{"timeout: deploy still starting", func(t *testing.T) []string {
 			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
 				AfterDeploy: []*cpitest.Runtime{{Version: "1", Status: "STARTING", DeployedOn: now}}}})
