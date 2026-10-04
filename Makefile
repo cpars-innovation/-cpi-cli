@@ -1,15 +1,15 @@
-# Makefile for FlashPipe
-# Cross-platform build system for FlashPipe CLI
+# Makefile for cpictl
+# Cross-platform build system for the cpictl CLI
 
 # Variables
-BINARY_NAME := flashpipex
+BINARY_NAME := cpictl
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +"%Y-%m-%d_%H:%M:%S" 2>/dev/null || powershell -Command "Get-Date -Format 'yyyy-MM-dd_HH:mm:ss'")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
 # Directories
 DIST_DIR := bin
-CMD_DIR := cmd/flashpipe
+CMD_DIR := cmd/cpictl
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
@@ -28,7 +28,7 @@ endif
 
 .PHONY: help
 help: ## Show this help message
-	@echo "FlashPipe Build System"
+	@echo "cpictl Build System"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  all            - Clean, test, and build for current platform"
@@ -37,7 +37,8 @@ help: ## Show this help message
 	@echo "  build-linux    - Build for Linux amd64"
 	@echo "  build-darwin   - Build for macOS (Intel and Apple Silicon)"
 	@echo "  build-all      - Build for all platforms"
-	@echo "  test           - Run tests"
+	@echo "  test           - Run offline tests (no tenant access)"
+	@echo "  test-integration - Run tenant integration tests (WRITES TO A REAL TENANT)"
 	@echo "  test-coverage  - Run tests with coverage report"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  install        - Install to GOPATH/bin"
@@ -100,6 +101,11 @@ test:
 	go test -v ./...
 	@echo "Tests complete"
 
+.PHONY: test-integration
+test-integration:
+	@echo "Running tenant integration tests (requires FLASHPIPE_* tenant env vars)..."
+	go test -tags integration -v ./...
+
 .PHONY: test-coverage
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -146,7 +152,7 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(DIST_DIR) 2>/dev/null || true
 	@rm -f $(BINARY_NAME)$(EXE_EXT) 2>/dev/null || true
-	@rm -f flashpipe$(EXE_EXT) 2>/dev/null || true
+	@rm -f flashpipe$(EXE_EXT) flashpipex$(EXE_EXT) 2>/dev/null || true
 	@rm -f coverage.out coverage.html 2>/dev/null || true
 	@echo "Clean complete"
 

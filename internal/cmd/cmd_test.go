@@ -1,3 +1,8 @@
+//go:build integration
+
+// Tenant integration tests: these create, deploy and delete content on a real
+// SAP Integration Suite tenant. Run explicitly with `go test -tags integration`.
+
 package cmd
 
 import (
@@ -6,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/file"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/file"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +36,7 @@ func TestCPICommands(t *testing.T) {
 	updateCmd := NewUpdateCommand()
 	updateCmd.AddCommand(NewArtifactCommand())
 	updateCmd.AddCommand(NewPackageCommand())
-	rootCmd := NewCmdRoot()
+	rootCmd := NewCmdRoot("test")
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(NewDeployCommand())
 	rootCmd.AddCommand(NewSyncCommand())
@@ -300,7 +305,7 @@ func TestAPIMCommands(t *testing.T) {
 	product := api.NewAPIProduct(exe)
 	println("---------- Setting up test - end ----------")
 
-	rootCmd := NewCmdRoot()
+	rootCmd := NewCmdRoot("test")
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
 	syncCmd.AddCommand(NewAPIProductCommand())

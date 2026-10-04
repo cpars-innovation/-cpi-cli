@@ -1,4 +1,4 @@
-module github.com/engswee/flashpipe
+module github.com/cpars-innovation/-cpi-cli
 
 go 1.25.0
 

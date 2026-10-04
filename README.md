@@ -1,8 +1,20 @@
+# cpictl
+
+`cpictl` is a fork of [FlashPipe](https://github.com/engswee/flashpipe) maintained by cpars innovation.
+It keeps FlashPipe's commands and configuration (`FLASHPIPE_*` environment variables, `flashpipe.yaml`)
+and adds safety fixes and agent-friendly output. The original FlashPipe README follows.
+
+Build: `make build` (binary in `bin/cpictl`), or
+`go build -ldflags "-X main.Version=$(git describe --tags --always)" -o bin/cpictl ./cmd/cpictl`.
+
+Tests: `go test ./...` runs offline. Tenant integration tests are behind a build tag and
+**write to a real tenant**: `go test -tags integration ./...`.
+
+---
 <img src="https://github.com/engswee/flashpipe/raw/main/docs/images/logo/flashpipe_logo_wording.png" alt="FlashPipe Logo" width="200" height="140"/>
 
 ## The CI/CD Companion for SAP Integration Suite
 
-[![Build and Deploy](https://github.com/engswee/flashpipe/actions/workflows/go-prod.yml/badge.svg)](https://github.com/engswee/flashpipe/actions/workflows/go-prod.yml)
 [![GitHub license](https://img.shields.io/github/license/engswee/flashpipe)](https://github.com/engswee/flashpipe/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/engswee/flashpipe.svg)](https://github.com/engswee/flashpipe/releases/latest)
 [![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/engswee/flashpipe)](https://hub.docker.com/r/engswee/flashpipe/tags?page=1&ordering=last_updated)

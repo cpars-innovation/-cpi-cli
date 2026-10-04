@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/engswee/flashpipe/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 	"github.com/rs/zerolog/log"
 )
 

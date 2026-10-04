@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/engswee/flashpipe/internal/file"
-	"github.com/engswee/flashpipe/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 )
 
 type Integration struct {

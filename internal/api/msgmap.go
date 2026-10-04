@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/engswee/flashpipe/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 )
 
 type MessageMapping struct {

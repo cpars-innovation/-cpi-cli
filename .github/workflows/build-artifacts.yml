@@ -46,47 +46,47 @@ jobs:
       - name: Upload Windows AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-windows-amd64
-          path: bin/flashpipex-windows-amd64.exe
+          name: cpictl-windows-amd64
+          path: bin/cpictl-windows-amd64.exe
           if-no-files-found: error
           retention-days: 90
 
       - name: Upload Linux AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-linux-amd64
-          path: bin/flashpipex-linux-amd64
+          name: cpictl-linux-amd64
+          path: bin/cpictl-linux-amd64
           if-no-files-found: error
           retention-days: 90
 
       - name: Upload Linux ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-linux-arm64
-          path: bin/flashpipex-linux-arm64
+          name: cpictl-linux-arm64
+          path: bin/cpictl-linux-arm64
           if-no-files-found: error
           retention-days: 90
 
       - name: Upload macOS AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-darwin-amd64
-          path: bin/flashpipex-darwin-amd64
+          name: cpictl-darwin-amd64
+          path: bin/cpictl-darwin-amd64
           if-no-files-found: error
           retention-days: 90
 
       - name: Upload macOS ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-darwin-arm64
-          path: bin/flashpipex-darwin-arm64
+          name: cpictl-darwin-arm64
+          path: bin/cpictl-darwin-arm64
           if-no-files-found: error
           retention-days: 90
 
       - name: Upload all binaries as single archive
         uses: actions/upload-artifact@v4
         with:
-          name: flashpipex-all-platforms
+          name: cpictl-all-platforms
           path: bin/*
           if-no-files-found: error
           retention-days: 90

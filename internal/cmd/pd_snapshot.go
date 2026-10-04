@@ -2,12 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/repo"
-	"github.com/engswee/flashpipe/internal/str"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/repo"
+	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -54,11 +51,9 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
   # Snapshot only specific PIDs
   flashpipe pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runPDSnapshot(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

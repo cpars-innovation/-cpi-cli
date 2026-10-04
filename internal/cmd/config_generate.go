@@ -2,18 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/file"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func NewConfigGenerateCommand() *cobra.Command {
@@ -48,11 +45,9 @@ Features:
   # Combine package and artifact filters
   flashpipe config-generate --package-filter "DeviceManagement" --artifact-filter "MDMEquipmentMutationOutbound"`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runConfigGenerate(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

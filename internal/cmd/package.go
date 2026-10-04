@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/sync"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/sync"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -24,11 +21,9 @@ Configuration:
   Settings can be loaded from the global config file (--config) under the
   'update.package' section. CLI flags override config file settings.`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runUpdatePackage(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

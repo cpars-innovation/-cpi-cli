@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/engswee/flashpipe/internal/file"
-	"github.com/engswee/flashpipe/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"os"

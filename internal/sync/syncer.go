@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/file"
-	"github.com/engswee/flashpipe/internal/httpclnt"
-	"github.com/engswee/flashpipe/internal/str"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 )

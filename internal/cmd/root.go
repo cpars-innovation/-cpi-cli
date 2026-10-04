@@ -5,27 +5,25 @@ import (
 	"os"
 	"strings"
 
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/logger"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/logger"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
-func NewCmdRoot() *cobra.Command {
-	var version = "3.7.0" // FLASHPIPE_VERSION
-
+func NewCmdRoot(version string) *cobra.Command {
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd := &cobra.Command{
-		Use:     "flashpipe",
+		Use:     "cpictl",
 		Version: version,
-		Short:   "FlashPipe - The CI/CD Companion for SAP Integration Suite",
-		Long: `FlashPipe - The CI/CD Companion for SAP Integration Suite
+		Short:   "cpictl - CI/CD and automation CLI for SAP Integration Suite",
+		Long: `cpictl - CI/CD and automation CLI for SAP Integration Suite
 
-FlashPipe is a CLI that is used to simplify the Build-To-Deploy cycle
-for SAP Integration Suite by providing CI/CD capabilities for
-automating time-consuming manual tasks like:
+cpictl (a fork of FlashPipe) is a CLI that is used to simplify the
+Build-To-Deploy cycle for SAP Integration Suite by providing CI/CD
+capabilities for automating time-consuming manual tasks like:
 - synchronising integration artifacts to Git
 - creating/updating integration artifacts to SAP Integration Suite
 - deploying integration artifacts on SAP Integration Suite`,
@@ -58,9 +56,10 @@ automating time-consuming manual tasks like:
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
+func Execute(version, buildTime string) {
 
-	rootCmd := NewCmdRoot()
+	rootCmd := NewCmdRoot(version)
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cpictl version {{.Version}} (built %s)\n", buildTime))
 	rootCmd.AddCommand(NewDeployCommand())
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())

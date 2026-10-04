@@ -2,20 +2,17 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/repo"
-	"github.com/engswee/flashpipe/internal/str"
-	"github.com/engswee/flashpipe/internal/sync"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/repo"
+	"github.com/cpars-innovation/-cpi-cli/internal/str"
+	"github.com/cpars-innovation/-cpi-cli/internal/sync"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func NewAPIProxyCommand() *cobra.Command {
@@ -55,11 +52,9 @@ Configuration:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runSyncAPIProxy(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

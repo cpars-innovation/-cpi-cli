@@ -8,11 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/deploy"
-	"github.com/engswee/flashpipe/internal/models"
-	flashpipeSync "github.com/engswee/flashpipe/internal/sync"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/deploy"
+	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	flashpipeSync "github.com/cpars-innovation/-cpi-cli/internal/sync"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -599,27 +599,8 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 		return fmt.Errorf("serviceDetails.Host is empty - check CPI credentials in config file")
 	}
 
-	log.Info().Msgf("DEBUG: ServiceDetails before InitHTTPExecuter:")
-	log.Info().Msgf("  Host: %s", serviceDetails.Host)
-	log.Info().Msgf("  OauthHost: %s", serviceDetails.OauthHost)
-	log.Info().Msgf("  OauthClientId: %s", serviceDetails.OauthClientId)
-	log.Info().Msgf("  OauthPath: %s", serviceDetails.OauthPath)
-	log.Info().Msgf("  Userid: %s", serviceDetails.Userid)
-
-	log.Debug().Msgf("Initializing HTTP executer with host: %s", serviceDetails.Host)
 	exe := api.InitHTTPExecuter(serviceDetails)
-	if exe == nil {
-		return fmt.Errorf("failed to initialize HTTP executer")
-	}
-
-	log.Info().Msgf("DEBUG: exe after InitHTTPExecuter is NOT nil")
-
 	synchroniser := flashpipeSync.New(exe)
-	if synchroniser == nil {
-		return fmt.Errorf("failed to initialize synchroniser")
-	}
-
-	log.Info().Msgf("DEBUG: synchroniser created successfully")
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
@@ -719,10 +700,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 		}
 
 		// Call internal sync function
-		log.Debug().Msgf("DEBUG: About to call SingleArtifactToTenant for %s", finalArtifactID)
-		log.Debug().Msgf("  synchroniser: %v", synchroniser)
-		log.Debug().Msgf("  finalPackageID: %s", finalPackageID)
-		log.Debug().Msgf("  artifactType: %s", artifactType)
+		log.Debug().Msgf("Updating %s (type %s) in package %s", finalArtifactID, artifactType, finalPackageID)
 
 		err := synchroniser.SingleArtifactToTenant(finalArtifactID, finalArtifactName, artifactType,
 			finalPackageID, tempArtifactDir, workDir, "", nil)

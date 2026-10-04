@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/engswee/flashpipe/internal/models"
+	"github.com/cpars-innovation/-cpi-cli/internal/models"
 	"gopkg.in/yaml.v3"
 )
 

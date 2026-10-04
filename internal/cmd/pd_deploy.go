@@ -2,15 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
-	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/repo"
-	"github.com/engswee/flashpipe/internal/str"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/repo"
+	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"strings"
 )
 
 func NewPDDeployCommand() *cobra.Command {
@@ -62,11 +59,9 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
   # Dry run to see what would be changed
   flashpipe pd-deploy --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runPDDeploy(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

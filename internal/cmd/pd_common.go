@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/engswee/flashpipe/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 

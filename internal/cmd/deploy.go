@@ -2,16 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/str"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/engswee/flashpipe/internal/analytics"
-	"github.com/engswee/flashpipe/internal/api"
-	"github.com/engswee/flashpipe/internal/config"
-	"github.com/engswee/flashpipe/internal/str"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
 )
 
 func NewDeployCommand() *cobra.Command {
@@ -37,11 +35,9 @@ Configuration:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			startTime := time.Now()
 			if err = runDeploy(cmd); err != nil {
 				cmd.SilenceUsage = true
 			}
-			analytics.Log(cmd, err, startTime)
 			return
 		},
 	}

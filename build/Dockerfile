@@ -10,4 +10,4 @@ ARG USER_HOME_DIR="/root"
 
 COPY build/gitconfig ${USER_HOME_DIR}/.gitconfig
 
-COPY output/flashpipe /usr/bin/flashpipe
+COPY output/cpictl /usr/bin/cpictl
