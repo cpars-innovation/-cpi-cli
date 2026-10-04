@@ -11,3 +11,9 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+   ----------------------------------------------------------------------------
+
+   cpictl is a modified fork of FlashPipe (https://github.com/engswee/flashpipe),
+   via https://github.com/PaulNetze/flashpipe, maintained by cpars innovation.
+   Files have been modified from the original; see the git history for details.
