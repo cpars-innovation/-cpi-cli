@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
@@ -37,10 +38,10 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
   export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
   export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
   export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  flashpipe pd-deploy
+  cpictl pd-deploy
 
   # Deploy with explicit credentials and custom path
-  flashpipe pd-deploy \
+  cpictl pd-deploy \
     --tmn-host "your-tenant.hana.ondemand.com" \
     --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
     --oauth-clientid "your-client-id" \
@@ -48,16 +49,16 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
     --resources-path "./partner-directory"
 
   # Deploy in add-only mode (don't update existing parameters)
-  flashpipe pd-deploy --replace=false
+  cpictl pd-deploy --replace=false
 
   # Deploy with full sync (delete remote parameters not in local)
-  flashpipe pd-deploy --full-sync
+  cpictl pd-deploy --full-sync
 
   # Deploy only specific PIDs
-  flashpipe pd-deploy --pids "SAP_SYSTEM_001,CUSTOMER_API"
+  cpictl pd-deploy --pids "SAP_SYSTEM_001,CUSTOMER_API"
 
   # Dry run to see what would be changed
-  flashpipe pd-deploy --dry-run`,
+  cpictl pd-deploy --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if err = runPDDeploy(cmd); err != nil {
 				cmd.SilenceUsage = true
@@ -88,11 +89,11 @@ func runPDDeploy(cmd *cobra.Command) error {
 	log.Info().Msg("Executing Partner Directory Deploy command")
 
 	// Support reading from config file under 'pd-deploy' key
-	resourcesPath := getConfigStringWithFallback(cmd, "resources-path", "pd-deploy.resources-path")
-	replace := getConfigBoolWithFallback(cmd, "replace", "pd-deploy.replace")
-	fullSync := getConfigBoolWithFallback(cmd, "full-sync", "pd-deploy.full-sync")
-	dryRun := getConfigBoolWithFallback(cmd, "dry-run", "pd-deploy.dry-run")
-	pids := getConfigStringSliceWithFallback(cmd, "pids", "pd-deploy.pids")
+	resourcesPath := config.GetStringWithFallback(cmd, "resources-path", "pd-deploy.resources-path")
+	replace := config.GetBoolWithFallback(cmd, "replace", "pd-deploy.replace")
+	fullSync := config.GetBoolWithFallback(cmd, "full-sync", "pd-deploy.full-sync")
+	dryRun := config.GetBoolWithFallback(cmd, "dry-run", "pd-deploy.dry-run")
+	pids := config.GetStringSliceWithFallback(cmd, "pids", "pd-deploy.pids")
 
 	log.Info().Msgf("Resources Path: %s", resourcesPath)
 	log.Info().Msgf("Replace Mode: %v", replace)

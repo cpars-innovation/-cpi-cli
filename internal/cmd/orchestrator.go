@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -49,7 +48,7 @@ type ProcessingStats struct {
 	FailedArtifactDeploys     map[string]bool `json:"failedArtifactDeploys"`
 }
 
-func NewFlashpipeOrchestratorCommand() *cobra.Command {
+func NewOrchestratorCommand() *cobra.Command {
 	var (
 		packagesDir         string
 		deployConfig        string
@@ -57,7 +56,6 @@ func NewFlashpipeOrchestratorCommand() *cobra.Command {
 		packageFilter       string
 		artifactFilter      string
 		keepTemp            bool
-		debugMode           bool
 		configPattern       string
 		mergeConfigs        bool
 		updateMode          bool
@@ -87,11 +85,10 @@ Configuration Sources:
   The --deploy-config flag accepts:
   - Single file:      ./001-deploy-config.yml
   - Folder:           ./configs (processes all matching files alphabetically)
-  - Remote URL:       https://raw.githubusercontent.com/org/repo/main/config.yml
+  - Remote URL:       https://raw.githubusercontent.com/org/repo/main/config.yml (public, no authentication)
 
-  Use --orchestrator-config to load all settings from a YAML file:
-  - Sets all flags from YAML
-  - CLI flags override YAML settings
+  All flags can also be set in the global config file (--config) under
+  the 'orchestrator' key; CLI flags override config file settings.
 
 Operation Modes:
   --update          Update and deploy artifacts (default)
@@ -109,13 +106,13 @@ Configuration:
   Settings can be loaded from the global config file (--config) under the
   'orchestrator' section. CLI flags override config file settings.`,
 		Example: `  # Update and deploy with config from global flashpipe.yaml
-  flashpipe orchestrator --update
+  cpictl orchestrator --update
 
   # Load specific config file
-  flashpipe orchestrator --config ./my-config.yml --update
+  cpictl orchestrator --config ./my-config.yml --update
 
   # Override settings via CLI flags
-  flashpipe orchestrator --config ./my-config.yml \
+  cpictl orchestrator --config ./my-config.yml \
     --deployment-prefix DEV --parallel-deployments 5`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Determine operation mode
@@ -188,7 +185,7 @@ Configuration:
 			}
 
 			return runOrchestrator(cmd, mode, packagesDir, deployConfig,
-				deploymentPrefix, packageFilter, artifactFilter, keepTemp, debugMode,
+				deploymentPrefix, packageFilter, artifactFilter, keepTemp,
 				configPattern, mergeConfigs, deployRetries, deployDelaySeconds, parallelDeployments)
 		},
 	}
@@ -200,7 +197,6 @@ Configuration:
 	orchestratorCmd.Flags().StringVar(&packageFilter, "package-filter", "", "Comma-separated list of packages to include (config: orchestrator.packageFilter)")
 	orchestratorCmd.Flags().StringVar(&artifactFilter, "artifact-filter", "", "Comma-separated list of artifacts to include (config: orchestrator.artifactFilter)")
 	orchestratorCmd.Flags().BoolVar(&keepTemp, "keep-temp", false, "Keep temporary directory after execution (config: orchestrator.keepTemp)")
-	orchestratorCmd.Flags().BoolVar(&debugMode, "debug", false, "Enable debug logging")
 	orchestratorCmd.Flags().StringVar(&configPattern, "config-pattern", "*.y*ml", "File pattern for config files in folders (config: orchestrator.configPattern)")
 	orchestratorCmd.Flags().BoolVar(&mergeConfigs, "merge-configs", false, "Merge multiple configs into single deployment (config: orchestrator.mergeConfigs)")
 	orchestratorCmd.Flags().BoolVar(&updateMode, "update", false, "Update and deploy artifacts")
@@ -214,10 +210,10 @@ Configuration:
 }
 
 func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deployConfigPath,
-	deploymentPrefix, packageFilterStr, artifactFilterStr string, keepTemp, debugMode bool,
+	deploymentPrefix, packageFilterStr, artifactFilterStr string, keepTemp bool,
 	configPattern string, mergeConfigs bool, deployRetries, deployDelaySeconds, parallelDeployments int) error {
 
-	log.Info().Msg("Starting flashpipe orchestrator")
+	log.Info().Msg("Starting orchestrator")
 	log.Info().Msgf("Deployment Strategy: Two-phase with parallel deployment")
 	log.Info().Msgf("  Phase 1: Update all artifacts")
 	log.Info().Msgf("  Phase 2: Deploy all artifacts in parallel (max %d concurrent)", parallelDeployments)
@@ -243,15 +239,8 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 	// Setup config loader
 	configLoader := deploy.NewConfigLoader()
-	configLoader.Debug = debugMode
+	configLoader.Debug = viper.GetBool("debug")
 	configLoader.FilePattern = configPattern
-
-	// Get auth settings from viper/config for remote URLs
-	if viper.IsSet("host") {
-		// Use CPI credentials from global config if deploying from URL
-		configLoader.Username = config.GetString(cmd, "username")
-		configLoader.Password = config.GetString(cmd, "password")
-	}
 
 	if err := configLoader.DetectSource(deployConfigPath); err != nil {
 		return output.Usage(fmt.Errorf("failed to detect config source: %w", err))
@@ -268,7 +257,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	// Create temporary work directory if needed
 	var workDir string
 	if mode != ModeDeployOnly {
-		tempDir, err := os.MkdirTemp("", "flashpipe-orchestrator-*")
+		tempDir, err := os.MkdirTemp("", "cpictl-orchestrator-*")
 		if err != nil {
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}

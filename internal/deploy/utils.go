@@ -1,7 +1,6 @@
 package deploy
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -226,56 +225,4 @@ func FindParametersFile(artifactDir string) string {
 
 	// Return default path even if it doesn't exist
 	return possiblePaths[0]
-}
-
-// GetManifestHeaders reads headers from MANIFEST.MF file
-func GetManifestHeaders(manifestPath string) (map[string]string, error) {
-	metadata := make(map[string]string)
-
-	if !FileExists(manifestPath) {
-		return metadata, nil
-	}
-
-	file, err := os.Open(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open MANIFEST.MF: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	var currentKey string
-	var currentValue strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if strings.Contains(trimmed, ":") && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			// New key-value pair
-			if currentKey != "" {
-				metadata[currentKey] = strings.TrimSpace(currentValue.String())
-			}
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) == 2 {
-				currentKey = strings.TrimSpace(parts[0])
-				currentValue.Reset()
-				currentValue.WriteString(strings.TrimSpace(parts[1]))
-			}
-		} else if currentKey != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
-			// Continuation line
-			currentValue.WriteString(" ")
-			currentValue.WriteString(strings.TrimSpace(line))
-		}
-	}
-
-	// Add the last entry
-	if currentKey != "" {
-		metadata[currentKey] = strings.TrimSpace(currentValue.String())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read MANIFEST.MF: %w", err)
-	}
-
-	return metadata, nil
 }

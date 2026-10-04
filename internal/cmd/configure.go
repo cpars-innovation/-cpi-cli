@@ -111,19 +111,19 @@ Configuration:
   Settings can be loaded from the global config file (--config) under the
   'configure' section. CLI flags override config file settings.`,
 		Example: `  # Configure artifacts from a config file
-  flashpipe configure --config-path ./config/dev-config.yml
+  cpictl configure --config-path ./config/dev-config.yml
 
   # Configure and deploy
-  flashpipe configure --config-path ./config/prod-config.yml
+  cpictl configure --config-path ./config/prod-config.yml
 
   # Dry run to see what would be changed
-  flashpipe configure --config-path ./config.yml --dry-run
+  cpictl configure --config-path ./config.yml --dry-run
 
   # Apply deployment prefix
-  flashpipe configure --config-path ./config.yml --deployment-prefix DEV_
+  cpictl configure --config-path ./config.yml --deployment-prefix DEV_
 
   # Disable batch processing
-  flashpipe configure --config-path ./config.yml --disable-batch`,
+  cpictl configure --config-path ./config.yml --disable-batch`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load from viper config if available (CLI flags override config file)
 			if !cmd.Flags().Changed("config-path") && viper.IsSet("configure.configPath") {

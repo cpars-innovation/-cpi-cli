@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,8 +24,8 @@ func NewConfigurePullCommand() *cobra.Command {
 		Short:        "Pull artifact parameters into configuration YAML files",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			outputDir = getConfigStringWithFallback(cmd, "output-dir", "configure.pull.outputDir")
-			packageIDs = getConfigStringSliceWithFallback(cmd, "package-ids", "configure.pull.packageIds")
+			outputDir = config.GetStringWithFallback(cmd, "output-dir", "configure.pull.outputDir")
+			packageIDs = config.GetStringSliceWithFallback(cmd, "package-ids", "configure.pull.packageIds")
 			return runConfigurePull(cmd, outputDir, packageIDs)
 		},
 	}

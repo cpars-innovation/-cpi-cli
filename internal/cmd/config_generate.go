@@ -34,19 +34,19 @@ Features:
   - Smart merging of new and existing configurations
   - Filter by specific packages or artifacts`,
 		Example: `  # Generate config with defaults
-  flashpipe config-generate
+  cpictl config-generate
 
   # Specify custom directories
   cpictl config-generate --packages-dir ./my-packages --output-file ./my-config.yml
 
   # Generate config for specific packages only
-  flashpipe config-generate --package-filter "DeviceManagement,GenericPipeline"
+  cpictl config-generate --package-filter "DeviceManagement,GenericPipeline"
 
   # Generate config for specific artifacts only
-  flashpipe config-generate --artifact-filter "MDMEquipmentMutationOutbound,GenericBroadcaster"
+  cpictl config-generate --artifact-filter "MDMEquipmentMutationOutbound,GenericBroadcaster"
 
   # Combine package and artifact filters
-  flashpipe config-generate --package-filter "DeviceManagement" --artifact-filter "MDMEquipmentMutationOutbound"`,
+  cpictl config-generate --package-filter "DeviceManagement" --artifact-filter "MDMEquipmentMutationOutbound"`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if err = runConfigGenerate(cmd); err != nil {
 				cmd.SilenceUsage = true

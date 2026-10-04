@@ -2,7 +2,6 @@ package cpi
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
@@ -20,17 +19,13 @@ func TestDesigntime_Compare(t *testing.T) {
 	}
 	exe := httpclnt.New("", "", "", "", "dummy", "dummy", "localhost", "http", 8081, true)
 
+	outDir := t.TempDir()
 	for key, value := range artifacts {
 		dt := NewDesigntimeArtifact(key, exe)
-		compare(value, dt, t)
-	}
-
-	err := os.RemoveAll("../../output/download")
-	if err != nil {
-		t.Fatalf("Directory removal failed with error - %v", err)
+		compare(value, dt, outDir, t)
 	}
 }
-func compare(id string, dt DesigntimeArtifact, t *testing.T) {
+func compare(id string, dt DesigntimeArtifact, outDir string, t *testing.T) {
 	// Diff artifact content
 	srcDir := fmt.Sprintf("../../test/testdata/artifacts/update/%v", id)
 	tgtDir := fmt.Sprintf("../../test/testdata/artifacts/create/%v", id)
@@ -41,7 +36,7 @@ func compare(id string, dt DesigntimeArtifact, t *testing.T) {
 	assert.True(t, dirDiffer, "Directory contents do not differ")
 
 	// Copy to output folder
-	destinationDir := fmt.Sprintf("../../output/download/%v", id)
+	destinationDir := fmt.Sprintf("%v/%v", outDir, id)
 	err = dt.CopyContent(srcDir, destinationDir)
 	if err != nil {
 		t.Fatalf("CopyContent failed with error - %v", err)

@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"slices"
 )
 
 func NewPDSnapshotCommand() *cobra.Command {
@@ -35,10 +37,10 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
   export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
   export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
   export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  flashpipe pd-snapshot
+  cpictl pd-snapshot
 
   # Snapshot with explicit credentials and custom path
-  flashpipe pd-snapshot \
+  cpictl pd-snapshot \
     --tmn-host "your-tenant.hana.ondemand.com" \
     --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
     --oauth-clientid "your-client-id" \
@@ -46,10 +48,10 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
     --resources-path "./partner-directory"
 
   # Snapshot in add-only mode (don't overwrite existing values)
-  flashpipe pd-snapshot --replace=false
+  cpictl pd-snapshot --replace=false
 
   # Snapshot only specific PIDs
-  flashpipe pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"`,
+  cpictl pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if err = runPDSnapshot(cmd); err != nil {
 				cmd.SilenceUsage = true
@@ -76,9 +78,9 @@ func runPDSnapshot(cmd *cobra.Command) error {
 	log.Info().Msg("Executing Partner Directory Snapshot command")
 
 	// Support reading from config file under 'pd-snapshot' key
-	resourcesPath := getConfigStringWithFallback(cmd, "resources-path", "pd-snapshot.resources-path")
-	replace := getConfigBoolWithFallback(cmd, "replace", "pd-snapshot.replace")
-	pids := getConfigStringSliceWithFallback(cmd, "pids", "pd-snapshot.pids")
+	resourcesPath := config.GetStringWithFallback(cmd, "resources-path", "pd-snapshot.resources-path")
+	replace := config.GetBoolWithFallback(cmd, "replace", "pd-snapshot.replace")
+	pids := config.GetStringSliceWithFallback(cmd, "pids", "pd-snapshot.pids")
 
 	log.Info().Msgf("Resources Path: %s", resourcesPath)
 	log.Info().Msgf("Replace Mode: %v", replace)
@@ -139,7 +141,7 @@ func snapshotStringParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerD
 	if len(pidsFilter) > 0 {
 		filtered := make([]cpi.StringParameter, 0)
 		for _, param := range parameters {
-			if contains(pidsFilter, param.Pid) {
+			if slices.Contains(pidsFilter, param.Pid) {
 				filtered = append(filtered, param)
 			}
 		}
@@ -185,7 +187,7 @@ func snapshotBinaryParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerD
 	if len(pidsFilter) > 0 {
 		filtered := make([]cpi.BinaryParameter, 0)
 		for _, param := range parameters {
-			if contains(pidsFilter, param.Pid) {
+			if slices.Contains(pidsFilter, param.Pid) {
 				filtered = append(filtered, param)
 			}
 		}

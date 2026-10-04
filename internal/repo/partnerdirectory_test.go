@@ -660,26 +660,6 @@ func TestFileExists(t *testing.T) {
 	assert.False(t, fileExists(filepath.Join(tempDir, "nonexistent.txt")))
 }
 
-func TestDirExists(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "pd-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Create a file
-	testFile := filepath.Join(tempDir, "test.txt")
-	err = os.WriteFile(testFile, []byte("test"), 0644)
-	require.NoError(t, err)
-
-	// Create a directory
-	testDir := filepath.Join(tempDir, "testdir")
-	err = os.MkdirAll(testDir, 0755)
-	require.NoError(t, err)
-
-	assert.True(t, dirExists(testDir))
-	assert.False(t, dirExists(testFile)) // File should return false
-	assert.False(t, dirExists(filepath.Join(tempDir, "nonexistent")))
-}
-
 func TestIsValidContentType(t *testing.T) {
 	tests := []struct {
 		ext   string
