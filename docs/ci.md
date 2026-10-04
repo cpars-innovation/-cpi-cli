@@ -59,7 +59,7 @@ steps:
   - checkout: git://Tools/cpicli      # or a GitHub service connection
   - task: GoTool@0
     inputs:
-      version: "1.25"
+      version: "1.26"
   - script: make -C cpicli build
   - script: |
       ./cpicli/bin/cpictl deploy --artifact-ids "$(ARTIFACT_IDS)" --output json > result.json

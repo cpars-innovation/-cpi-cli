@@ -31,7 +31,7 @@ see [NOTICE](NOTICE).
 
 ## Install
 
-Requires Go 1.25 or later.
+Requires Go 1.26 or later.
 
 ```bash
 git clone https://github.com/cpars-innovation/cpicli.git
