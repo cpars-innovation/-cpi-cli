@@ -70,6 +70,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewPackagesCommand())
 	rootCmd.AddCommand(NewArtifactsCommand())
 	rootCmd.AddCommand(NewParamsCommand())
+	rootCmd.AddCommand(NewMCPCommand(version))
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
 	syncCmd.AddCommand(NewAPIProductCommand())
@@ -144,7 +145,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 	}
 
 	// --help/--version and commands without RunE produce no result document
-	if format == output.FormatJSON && (started || err != nil) {
+	ownsStdout := cmd != nil && cmd.Annotations[annotationNoEnvelope] == "true" && started
+	if format == output.FormatJSON && (started || err != nil) && !ownsStdout {
 		env := output.Envelope{Command: commandName(cmd), OK: code == exitcode.OK, ExitCode: code, Result: output.Result(ctx)}
 		if err != nil {
 			env.Error = err.Error()

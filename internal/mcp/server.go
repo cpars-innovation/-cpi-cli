@@ -1,0 +1,297 @@
+// Package mcp implements a Model Context Protocol server (stdio transport,
+// JSON-RPC 2.0, one message per line) that exposes cpicli operations as tools.
+package mcp
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"slices"
+	"sync"
+
+	"github.com/cpars-innovation/cpicli/internal/exitcode"
+	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/rs/zerolog/log"
+)
+
+// SupportedProtocolVersions lists the MCP revisions this server speaks,
+// newest first.
+var SupportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// Tool is one MCP tool.
+type Tool struct {
+	Name        string         `json:"name"`
+	Title       string         `json:"title,omitempty"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+	// Handler executes the tool. args are the raw "arguments" object.
+	Handler func(ctx context.Context, args json.RawMessage) (any, error) `json:"-"`
+}
+
+// Server is an MCP server.
+type Server struct {
+	Name         string
+	Version      string
+	Instructions string
+	tools        []Tool
+
+	writeMu sync.Mutex
+	out     io.Writer
+
+	callsMu sync.Mutex
+	calls   map[string]context.CancelFunc
+}
+
+// NewServer returns a server exposing tools.
+func NewServer(name, version, instructions string, tools []Tool) *Server {
+	return &Server{Name: name, Version: version, Instructions: instructions, tools: tools, calls: map[string]context.CancelFunc{}}
+}
+
+type request struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type response struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  any             `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
+}
+
+const (
+	codeParseError     = -32700
+	codeInvalidRequest = -32600
+	codeMethodNotFound = -32601
+	codeInvalidParams  = -32602
+)
+
+// Serve reads requests from r and writes responses to w until r is closed or
+// ctx is cancelled. Tool calls run concurrently; each can be cancelled with
+// notifications/cancelled.
+func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
+	s.out = w
+	reader := bufio.NewReaderSize(r, 1<<20)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	lines := make(chan []byte)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(bytes.TrimSpace(line)) > 0 {
+				select {
+				case lines <- line:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					readErr <- err
+				}
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case line, ok := <-lines:
+			if !ok {
+				select {
+				case err := <-readErr:
+					return err
+				default:
+					return nil
+				}
+			}
+			s.dispatch(ctx, line, &wg)
+		}
+	}
+}
+
+func (s *Server) dispatch(ctx context.Context, line []byte, wg *sync.WaitGroup) {
+	var req request
+	if err := json.Unmarshal(line, &req); err != nil {
+		s.write(response{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{Code: codeParseError, Message: "parse error: " + err.Error()}})
+		return
+	}
+	isNotification := len(req.ID) == 0
+	if req.JSONRPC != "2.0" || req.Method == "" {
+		if !isNotification {
+			s.reply(req.ID, nil, &rpcError{Code: codeInvalidRequest, Message: "invalid JSON-RPC 2.0 request"})
+		}
+		return
+	}
+
+	switch req.Method {
+	case "initialize":
+		s.reply(req.ID, s.initialize(req.Params), nil)
+	case "ping":
+		s.reply(req.ID, map[string]any{}, nil)
+	case "tools/list":
+		s.reply(req.ID, map[string]any{"tools": s.tools}, nil)
+	case "tools/call":
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, rpcErr := s.callTool(ctx, req.ID, req.Params)
+			s.reply(req.ID, result, rpcErr)
+		}()
+	case "notifications/cancelled":
+		var p struct {
+			RequestID json.RawMessage `json:"requestId"`
+		}
+		if json.Unmarshal(req.Params, &p) == nil {
+			s.callsMu.Lock()
+			if cancel, ok := s.calls[string(p.RequestID)]; ok {
+				cancel()
+			}
+			s.callsMu.Unlock()
+		}
+	default:
+		if !isNotification { // notifications such as notifications/initialized need no answer
+			s.reply(req.ID, nil, &rpcError{Code: codeMethodNotFound, Message: "method not found: " + req.Method})
+		}
+	}
+}
+
+func (s *Server) initialize(params json.RawMessage) any {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(params, &p)
+	version := SupportedProtocolVersions[0]
+	if slices.Contains(SupportedProtocolVersions, p.ProtocolVersion) {
+		version = p.ProtocolVersion
+	}
+	return map[string]any{
+		"protocolVersion": version,
+		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+		"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
+		"instructions":    s.Instructions,
+	}
+}
+
+// ToolResult is the structured content of every tool call result.
+type ToolResult struct {
+	OK bool `json:"ok"`
+	// ErrorCategory mirrors the CLI exit codes: usage, auth, tenant_http,
+	// failed, timeout, partial, error.
+	ErrorCategory string `json:"errorCategory,omitempty"`
+	ExitCode      int    `json:"exitCode"`
+	Error         string `json:"error,omitempty"`
+	Result        any    `json:"result"`
+}
+
+// Category returns the error category name of an exit code.
+func Category(code int) string {
+	switch code {
+	case exitcode.OK:
+		return ""
+	case exitcode.Usage:
+		return "usage"
+	case exitcode.Auth:
+		return "auth"
+	case exitcode.TenantHTTP:
+		return "tenant_http"
+	case exitcode.DeployFailed:
+		return "failed"
+	case exitcode.Timeout:
+		return "timeout"
+	case exitcode.Partial:
+		return "partial"
+	}
+	return "error"
+}
+
+func (s *Server) callTool(ctx context.Context, id json.RawMessage, params json.RawMessage) (any, *rpcError) {
+	var p struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &rpcError{Code: codeInvalidParams, Message: "invalid tools/call params: " + err.Error()}
+	}
+	idx := slices.IndexFunc(s.tools, func(t Tool) bool { return t.Name == p.Name })
+	if idx < 0 {
+		return nil, &rpcError{Code: codeInvalidParams, Message: "unknown tool: " + p.Name}
+	}
+	if len(p.Arguments) == 0 || string(p.Arguments) == "null" {
+		p.Arguments = json.RawMessage("{}")
+	}
+
+	callCtx, cancel := context.WithCancel(ctx)
+	s.callsMu.Lock()
+	s.calls[string(id)] = cancel
+	s.callsMu.Unlock()
+	defer func() {
+		s.callsMu.Lock()
+		delete(s.calls, string(id))
+		s.callsMu.Unlock()
+		cancel()
+	}()
+
+	log.Info().Str("tool", p.Name).Msg("Tool call started")
+	value, err := safeCall(callCtx, s.tools[idx], p.Arguments)
+	code := output.ExitCode(err)
+	res := ToolResult{OK: err == nil, ExitCode: code, ErrorCategory: Category(code), Result: value}
+	if err != nil {
+		res.Error = err.Error()
+		log.Warn().Str("tool", p.Name).Int("exitCode", code).Msg(err.Error())
+	}
+	text, mErr := json.Marshal(res)
+	if mErr != nil {
+		return nil, &rpcError{Code: codeInvalidParams, Message: "failed to encode result: " + mErr.Error()}
+	}
+	return map[string]any{
+		"content":           []map[string]any{{"type": "text", "text": string(text)}},
+		"structuredContent": res,
+		"isError":           err != nil,
+	}, nil
+}
+
+func safeCall(ctx context.Context, tool Tool, args json.RawMessage) (v any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("internal error in tool %s: %v", tool.Name, r)
+		}
+	}()
+	return tool.Handler(ctx, args)
+}
+
+func (s *Server) reply(id json.RawMessage, result any, rpcErr *rpcError) {
+	resp := response{JSONRPC: "2.0", ID: id, Error: rpcErr}
+	if rpcErr == nil {
+		resp.Result = result
+	}
+	s.write(resp)
+}
+
+func (s *Server) write(resp response) {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Error().Msgf("failed to encode response: %v", err)
+		return
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, _ = s.out.Write(append(data, '\n'))
+}

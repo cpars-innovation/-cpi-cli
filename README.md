@@ -29,7 +29,39 @@ Every command accepts `--output text|json` (default `text`, env `FLASHPIPE_OUTPU
 | 6 | Timeout (polling budget exhausted) |
 | 7 | Partial failure (some items succeeded) |
 
-`cpictl undeploy --artifact-ids A,B` removes runtime artifacts and waits until they are gone.
+### Commands added in cpictl
+
+| Command | Purpose |
+|---------|---------|
+| `undeploy --artifact-ids A,B` | Remove runtime artifacts and wait until they are gone |
+| `status --artifact-ids A,B` | Runtime status, version, deployedOn, error message |
+| `packages` / `artifacts --package-id P` | List packages / designtime artifacts |
+| `params get --artifact-id A` / `params set --artifact-id A --param k=v` | Read / change externalised parameters |
+| `mcp` | MCP server for AI agents (see below) |
+
+### MCP server
+
+`cpictl mcp` runs a Model Context Protocol server on stdio. It uses the same tenant
+settings as the CLI (flags, `FLASHPIPE_*` env vars, `flashpipe.yaml`); stdout carries only
+the protocol, logs go to stderr as JSON lines. Local paths are confined to `--root`.
+
+Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `get_parameters`,
+`set_parameters`, `upload_artifact`, `deploy`, `undeploy` (requires `confirm: true`),
+`pd_deploy` (dry run unless `dry_run: false`). Every tool result has
+`{ok, errorCategory, exitCode, error, result}` with the same categories as the exit codes.
+
+Claude Code: `claude mcp add cpi -e FLASHPIPE_TMN_HOST=... -e FLASHPIPE_OAUTH_HOST=... -e FLASHPIPE_OAUTH_CLIENTID=... -e FLASHPIPE_OAUTH_CLIENTSECRET=... -- cpictl mcp --root /path/to/repo`
+
+Generic client config:
+
+```json
+{"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
+  "env": {"FLASHPIPE_TMN_HOST": "...", "FLASHPIPE_OAUTH_HOST": "...",
+          "FLASHPIPE_OAUTH_CLIENTID": "...", "FLASHPIPE_OAUTH_CLIENTSECRET": "..."}}}}
+```
+
+Code layout: `pkg/cpi` (tenant API client), `pkg/ops` (operations with structured
+results, shared by CLI and MCP), `internal/cmd` (CLI), `internal/mcp` (MCP server).
 
 `config-generate` now takes the target file via `--output-file`; a non-format value passed to
 `--output` is still accepted as the file path (deprecated).
