@@ -16,7 +16,7 @@ func NewUndeployCommand() *cobra.Command {
 
 	undeployCmd := &cobra.Command{
 		Use:          "undeploy",
-		Short:        "Undeploy runtime artifacts",
+		Short:        "Remove artifacts from runtime and wait until they are gone",
 		SilenceUsage: true,
 		Long: `Undeploy artifacts from the runtime of an SAP Integration Suite tenant.
 

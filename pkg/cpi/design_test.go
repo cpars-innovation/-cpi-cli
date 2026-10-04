@@ -28,9 +28,9 @@ type DesigntimeSuite struct {
 func TestDesigntimeBasicAuth(t *testing.T) {
 	suite.Run(t, &DesigntimeSuite{
 		serviceDetails: &ServiceDetails{
-			Host:     os.Getenv("FLASHPIPE_TMN_HOST"),
-			Userid:   os.Getenv("FLASHPIPE_TMN_USERID"),
-			Password: os.Getenv("FLASHPIPE_TMN_PASSWORD"),
+			Host:     os.Getenv("CPICTL_TMN_HOST"),
+			Userid:   os.Getenv("CPICTL_TMN_USERID"),
+			Password: os.Getenv("CPICTL_TMN_PASSWORD"),
 		},
 	})
 }
@@ -38,11 +38,11 @@ func TestDesigntimeBasicAuth(t *testing.T) {
 func TestDesigntimeOauth(t *testing.T) {
 	suite.Run(t, &DesigntimeSuite{
 		serviceDetails: &ServiceDetails{
-			Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
-			OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-			OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-			OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
-			OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
+			Host:              os.Getenv("CPICTL_TMN_HOST"),
+			OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+			OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+			OauthClientId:     os.Getenv("CPICTL_OAUTH_CLIENTID"),
+			OauthClientSecret: os.Getenv("CPICTL_OAUTH_CLIENTSECRET"),
 		},
 	})
 }
@@ -60,11 +60,11 @@ func (suite *DesigntimeSuite) SetupSuite() {
 	}
 
 	// Setup viper in case debug logs are required
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix("CPICTL")
 	viper.AutomaticEnv()
 	logger.InitConsoleLogger(viper.GetBool("debug"))
 
-	setupPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	setupPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 	println("========== Setting up suite - end ==========")
 }
 
@@ -81,7 +81,7 @@ func (suite *DesigntimeSuite) TearDownTest() {
 func (suite *DesigntimeSuite) TearDownSuite() {
 	println("========== Tearing down suite - start ==========")
 
-	tearDownPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	tearDownPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 
 	// Remove all the runtime artifacts
 	for _, value := range suite.artifacts {
@@ -98,7 +98,7 @@ func (suite *DesigntimeSuite) TearDownSuite() {
 func (suite *DesigntimeSuite) Test_CreateUpdateDeployDelete() {
 	for artifactType, artifactId := range suite.artifacts {
 		dt := NewDesigntimeArtifact(artifactType, suite.exe)
-		createUpdateDeployDelete(artifactId, strings.ReplaceAll(artifactId, "_", " "), "FlashPipeIntegrationTest", dt, artifactType, suite.T())
+		createUpdateDeployDelete(artifactId, strings.ReplaceAll(artifactId, "_", " "), "CpictlIntegrationTest", dt, artifactType, suite.T())
 	}
 }
 

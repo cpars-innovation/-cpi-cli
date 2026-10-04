@@ -21,7 +21,7 @@ func tenantExecuter(cmd *cobra.Command) *httpclnt.HTTPExecuter {
 func NewStatusCommand() *cobra.Command {
 	c := &cobra.Command{
 		Use:          "status",
-		Short:        "Show runtime status of artifacts",
+		Short:        "Show runtime status, version and errors of artifacts",
 		SilenceUsage: true,
 		Example:      `  cpictl status --artifact-ids MyIFlow,MyMapping --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -97,12 +97,12 @@ func NewArtifactsCommand() *cobra.Command {
 func NewParamsCommand() *cobra.Command {
 	params := &cobra.Command{
 		Use:   "params",
-		Short: "Read or change configuration parameters of an integration flow",
+		Short: "Read or change externalised parameters of an integration flow",
 	}
 
 	get := &cobra.Command{
 		Use:          "get",
-		Short:        "Show configuration parameters",
+		Short:        "Show the parameters of an integration flow",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := config.GetString(cmd, "artifact-id")
@@ -125,7 +125,7 @@ func NewParamsCommand() *cobra.Command {
 
 	set := &cobra.Command{
 		Use:          "set",
-		Short:        "Set configuration parameters (deploy afterwards to activate)",
+		Short:        "Set parameters of an integration flow (deploy afterwards to activate)",
 		SilenceUsage: true,
 		Example:      `  cpictl params set --artifact-id MyIFlow --param Host=example.com --param Port=443`,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -31,12 +31,12 @@ type cliRun struct {
 }
 
 // runMain executes the CLI exactly like main() does (minus os.Exit), with an
-// isolated HOME so that no flashpipe.yaml and no tenant env vars are used.
+// isolated HOME so that no cpictl.yaml and no tenant env vars are used.
 func runMain(t *testing.T, args ...string) cliRun {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "FLASHPIPE_") {
+		if strings.HasPrefix(kv, "CPICTL_") || strings.HasPrefix(kv, "FLASHPIPE_") {
 			t.Setenv(strings.SplitN(kv, "=", 2)[0], "")
 		}
 	}
@@ -236,19 +236,30 @@ func TestVersionFlag(t *testing.T) {
 	assert.Equal(t, "cpictl version test (built test)\n", res.stdout)
 }
 
-func TestConfigGenerateLegacyOutputFlag(t *testing.T) {
+func TestConfigGenerateWorksOffline(t *testing.T) {
 	dir := setupPackagesDir(t)
-	legacy := filepath.Join(dir, "legacy.yml")
-	res := runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output", legacy,
-		"--tmn-host", "localhost", "--tmn-userid", "u", "--tmn-password", "p")
+	out := filepath.Join(dir, "cfg.yml")
+	// no tenant settings at all: config-generate does not talk to a tenant
+	res := runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output-file", out, "--output", "json")
 	require.Equal(t, 0, res.code, res.stderr)
-	assert.FileExists(t, legacy)
-	assert.Contains(t, res.stderr, "deprecated")
-
-	newPath := filepath.Join(dir, "new.yml")
-	res = runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output-file", newPath,
-		"--output", "json", "--tmn-host", "localhost", "--tmn-userid", "u", "--tmn-password", "p")
-	require.Equal(t, 0, res.code, res.stderr)
-	assert.FileExists(t, newPath)
+	assert.FileExists(t, out)
 	assert.Contains(t, res.stdout, `"outputFile"`)
+
+	// --output is the format flag only
+	res = runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output", out)
+	assert.Equal(t, 2, res.code)
+}
+
+func TestLegacyFlashPipeSettingsAreReported(t *testing.T) {
+	res := runMain(t, "deploy", "--artifact-ids", "A", "--output", "json")
+	assert.Equal(t, 2, res.code)
+	assert.NotContains(t, res.stdout, "FLASHPIPE")
+
+	t.Setenv("FLASHPIPE_TMN_HOST", "tenant.example.com")
+	var stdout, stderr bytes.Buffer
+	viper.Reset()
+	code := Run(context.Background(), []string{"deploy", "--artifact-ids", "A", "--output", "json"}, &stdout, &stderr, "test", "test")
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stdout.String(), "FLASHPIPE_* environment variables are not read")
+	assert.Contains(t, stdout.String(), "FLASHPIPE_TMN_HOST")
 }

@@ -19,7 +19,7 @@ func NewSnapshotCommand() *cobra.Command {
 
 	snapshotCmd := &cobra.Command{
 		Use:          "snapshot",
-		Short:        "Snapshot integration packages from tenant to Git",
+		Short:        "Save all integration packages of the tenant to a Git repository",
 		SilenceUsage: true,
 		Long: `Snapshot all editable integration packages from SAP Integration Suite
 tenant to a Git repository.

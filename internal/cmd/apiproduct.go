@@ -18,7 +18,7 @@ import (
 func NewAPIProductCommand() *cobra.Command {
 	apiproductCmd := &cobra.Command{
 		Use:   "apiproduct",
-		Short: "Sync API Management products between tenant and Git",
+		Short: "Synchronise API Management products between tenant and Git",
 		Long: `Synchronise API Management products between SAP Integration Suite
 tenant and a Git repository.
 

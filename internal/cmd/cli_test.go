@@ -10,7 +10,7 @@ import (
 )
 
 // runCLI executes the CLI against a mock tenant with an isolated HOME (no
-// flashpipe.yaml) and returns stdout, stderr and the command error.
+// cpictl.yaml) and returns stdout, stderr and the command error.
 func runCLI(t *testing.T, mock *cpitest.Tenant, args ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

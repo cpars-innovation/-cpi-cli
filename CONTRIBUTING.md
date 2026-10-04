@@ -35,5 +35,6 @@ Review the diff of regenerated files before committing.
 
 ## Upstream
 
-`upstream` points to https://github.com/engswee/flashpipe. Changes are taken over by
-cherry-pick only; never rebase onto upstream.
+cpictl contains code from [FlashPipe](https://github.com/engswee/flashpipe) (remote
+`upstream`). Fixes from there are taken over by cherry-pick only; never rebase onto it.
+Keep the attribution in NOTICE and in the copyright headers of files that came from it.

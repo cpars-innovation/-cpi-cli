@@ -7,8 +7,8 @@ deploy it, read the runtime error, fix, repeat.
 - Transport: stdio, JSON-RPC 2.0, one message per line.
   Protocol versions `2025-06-18`, `2025-03-26`, `2024-11-05`.
 - stdout carries only protocol messages. Logs are JSON lines on stderr.
-- Tenant settings are the same as for the CLI (flags, `FLASHPIPE_*` environment variables,
-  `flashpipe.yaml`), see [configuration.md](configuration.md). One server = one tenant.
+- Tenant settings are the same as for the CLI (flags, `CPICTL_*` environment variables,
+  `cpictl.yaml`), see [configuration.md](configuration.md). One server = one tenant.
 
 ## Setup
 
@@ -16,10 +16,10 @@ deploy it, read the runtime error, fix, repeat.
 
 ```bash
 claude mcp add cpi \
-  -e FLASHPIPE_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com \
-  -e FLASHPIPE_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com \
-  -e FLASHPIPE_OAUTH_CLIENTID=... \
-  -e FLASHPIPE_OAUTH_CLIENTSECRET=... \
+  -e CPICTL_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com \
+  -e CPICTL_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com \
+  -e CPICTL_OAUTH_CLIENTID=... \
+  -e CPICTL_OAUTH_CLIENTSECRET=... \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
@@ -34,10 +34,10 @@ See [examples/mcp.json](examples/mcp.json):
       "command": "/path/to/bin/cpictl",
       "args": ["mcp", "--root", "/path/to/integration-repo"],
       "env": {
-        "FLASHPIPE_TMN_HOST": "mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com",
-        "FLASHPIPE_OAUTH_HOST": "mytenant.authentication.eu10.hana.ondemand.com",
-        "FLASHPIPE_OAUTH_CLIENTID": "...",
-        "FLASHPIPE_OAUTH_CLIENTSECRET": "..."
+        "CPICTL_TMN_HOST": "mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com",
+        "CPICTL_OAUTH_HOST": "mytenant.authentication.eu10.hana.ondemand.com",
+        "CPICTL_OAUTH_CLIENTID": "...",
+        "CPICTL_OAUTH_CLIENTSECRET": "..."
       }
     }
   }

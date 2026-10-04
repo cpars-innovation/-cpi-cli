@@ -15,7 +15,7 @@ func NewPDSnapshotCommand() *cobra.Command {
 
 	pdSnapshotCmd := &cobra.Command{
 		Use:   "pd-snapshot",
-		Short: "Download partner directory parameters from SAP CPI",
+		Short: "Download Partner Directory parameters into local files",
 		Long: `Download all partner directory parameters from SAP CPI and save them locally.
 
 This command retrieves both string and binary parameters from the SAP CPI Partner Directory
@@ -31,23 +31,8 @@ The snapshot operation supports two modes:
   - Replace mode (default): Overwrites existing local files
   - Add-only mode: Only adds new parameters, preserves existing values
 
-Authentication is performed using OAuth 2.0 client credentials flow or Basic Auth.`,
-		Example: `  # Snapshot with OAuth (environment variables)
-  export FLASHPIPE_TMN_HOST="your-tenant.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
-  export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  cpictl pd-snapshot
-
-  # Snapshot with explicit credentials and custom path
-  cpictl pd-snapshot \
-    --tmn-host "your-tenant.hana.ondemand.com" \
-    --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
-    --oauth-clientid "your-client-id" \
-    --oauth-clientsecret "your-client-secret" \
-    --resources-path "./partner-directory"
-
-  # Snapshot in add-only mode (don't overwrite existing values)
+See docs/partner-directory.md for the file format and full sync safety rules.`,
+		Example: `  # Snapshot in add-only mode (don't overwrite existing values)
   cpictl pd-snapshot --replace=false
 
   # Snapshot only specific PIDs

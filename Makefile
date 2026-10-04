@@ -103,7 +103,7 @@ test:
 
 .PHONY: test-integration
 test-integration:
-	@echo "Running tenant integration tests (requires FLASHPIPE_* tenant env vars)..."
+	@echo "Running tenant integration tests (requires CPICTL_* tenant env vars)..."
 	go test -tags integration -v ./...
 
 .PHONY: test-coverage

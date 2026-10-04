@@ -27,11 +27,11 @@ type APIProductSuite struct {
 func TestAPIProductOauth(t *testing.T) {
 	suite.Run(t, &APIProductSuite{
 		serviceDetails: &ServiceDetails{
-			Host:              os.Getenv("FLASHPIPE_APIPORTAL_HOST"),
-			OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-			OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-			OauthClientId:     os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"),
-			OauthClientSecret: os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"),
+			Host:              os.Getenv("CPICTL_APIPORTAL_HOST"),
+			OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+			OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+			OauthClientId:     os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"),
+			OauthClientSecret: os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"),
 		},
 	})
 }
@@ -41,7 +41,7 @@ func (suite *APIProductSuite) SetupSuite() {
 	suite.exe = InitHTTPExecuter(suite.serviceDetails)
 
 	// Setup viper in case debug logs are required
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix("CPICTL")
 	viper.AutomaticEnv()
 	logger.InitConsoleLogger(viper.GetBool("debug"))
 

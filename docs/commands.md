@@ -2,45 +2,45 @@
 
 <!-- Generated from the CLI by `go test ./internal/cmd -run TestCommandReference -update`. Do not edit. -->
 
-Every flag can also be set with an environment variable (`FLASHPIPE_` + flag name in upper case, `-` replaced by `_`) or as a top-level key in the config file. See [configuration.md](configuration.md).
+Every flag can also be set with an environment variable (`CPICTL_` + flag name in upper case, `-` replaced by `_`) or as a top-level key in the config file. See [configuration.md](configuration.md).
 
 | Command | Description |
 |---------|-------------|
 | [`artifacts`](#artifacts) | List designtime artifacts of a package |
-| [`config-generate`](#config-generate) | Generate or update deployment configuration |
-| [`configure`](#configure) | Configure SAP CPI artifact parameters |
-| [`configure pull`](#configure-pull) | Pull artifact parameters into configuration YAML files |
-| [`deploy`](#deploy) | Deploy designtime artifact to runtime |
-| [`mcp`](#mcp) | Run an MCP server (stdio) exposing CPI tools to AI agents |
-| [`orchestrator`](#orchestrator) | Orchestrate SAP CPI artifact updates and deployments |
+| [`config-generate`](#config-generate) | Generate or refresh the orchestrator deployment config from a packages directory |
+| [`configure`](#configure) | Set artifact parameters from YAML files and optionally deploy |
+| [`configure pull`](#configure-pull) | Write current tenant parameter values into configure YAML files |
+| [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
+| [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
+| [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
-| [`params`](#params) | Read or change configuration parameters of an integration flow |
-| [`params get`](#params-get) | Show configuration parameters |
-| [`params set`](#params-set) | Set configuration parameters (deploy afterwards to activate) |
-| [`pd-deploy`](#pd-deploy) | Deploy partner directory parameters to SAP CPI |
-| [`pd-snapshot`](#pd-snapshot) | Download partner directory parameters from SAP CPI |
-| [`snapshot`](#snapshot) | Snapshot integration packages from tenant to Git |
-| [`snapshot restore`](#snapshot-restore) | Restore integration packages from Git to tenant |
-| [`status`](#status) | Show runtime status of artifacts |
-| [`sync`](#sync) | Sync designtime artifacts between tenant and Git |
-| [`sync apiproduct`](#sync-apiproduct) | Sync API Management products between tenant and Git |
-| [`sync apiproxy`](#sync-apiproxy) | Sync API Management proxies (with dependent artifacts) between tenant and Git |
-| [`undeploy`](#undeploy) | Undeploy runtime artifacts |
-| [`update`](#update) | Create/update artifacts or integration package |
-| [`update artifact`](#update-artifact) | Create/update artifacts |
-| [`update package`](#update-package) | Create/update integration package |
+| [`params`](#params) | Read or change externalised parameters of an integration flow |
+| [`params get`](#params-get) | Show the parameters of an integration flow |
+| [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
+| [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
+| [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
+| [`snapshot`](#snapshot) | Save all integration packages of the tenant to a Git repository |
+| [`snapshot restore`](#snapshot-restore) | Create or update integration packages on the tenant from a Git repository |
+| [`status`](#status) | Show runtime status, version and errors of artifacts |
+| [`sync`](#sync) | Synchronise the artifacts of a package between tenant and Git |
+| [`sync apiproduct`](#sync-apiproduct) | Synchronise API Management products between tenant and Git |
+| [`sync apiproxy`](#sync-apiproxy) | Synchronise API Management proxies (with dependent artifacts) between tenant and Git |
+| [`undeploy`](#undeploy) | Remove artifacts from runtime and wait until they are gone |
+| [`update`](#update) | Create or update designtime artifacts and packages |
+| [`update artifact`](#update-artifact) | Create or update a designtime artifact from a local directory |
+| [`update package`](#update-package) | Create or update an integration package from a JSON file |
 
 ## Global flags
 
 ```
-      --config string               config file (default is $HOME/flashpipe.yaml)
+      --config string               config file (default is $HOME/cpictl.yaml)
       --debug                       Show debug logs
       --oauth-clientid string       Client ID for using OAuth
       --oauth-clientsecret string   Client Secret for using OAuth
-      --oauth-host string           Host for OAuth token server excluding https:// 
+      --oauth-host string           OAuth token server host
       --oauth-path string           Path for OAuth token server (default "/oauth/token")
       --output string               Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines (default "text")
-      --tmn-host string             Host for tenant management node of Cloud Integration or API Portal node of APIM excluding https://
+      --tmn-host string             Tenant host of Cloud Integration (or API portal host for API Management)
       --tmn-password string         Password for Basic Auth
       --tmn-userid string           User ID for Basic Auth
 ```
@@ -59,7 +59,7 @@ List designtime artifacts of a package
 
 ## config-generate
 
-Generate or update deployment configuration
+Generate or refresh the orchestrator deployment config from a packages directory
 
 ```
 Generate or update deployment configuration from package directory structure.
@@ -108,54 +108,21 @@ Features:
 
 ## configure
 
-Configure SAP CPI artifact parameters
+Set artifact parameters from YAML files and optionally deploy
 
 ```
-Configure parameters for SAP CPI artifacts using YAML configuration files.
+Set externalised parameters of many artifacts from YAML files and optionally
+deploy them afterwards.
 
-This command:
-  - Updates configuration parameters for Integration artifacts
-  - Supports batch operations for efficient parameter updates
-  - Optionally deploys artifacts after configuration
-  - Two-phase operation: Configure all artifacts, then deploy if requested
-  - Supports deployment prefixes for multi-environment scenarios
+Phase 1 writes the parameters (OData $batch by default, falling back to single
+requests), phase 2 deploys artifacts marked with deploy: true, package by
+package with up to --parallel-deployments concurrent deployments.
 
-Configuration File Structure:
-  The YAML file should define packages and artifacts with their parameters:
+--config-path accepts a file or a folder (all *.yml/*.yaml files, not
+recursive). Generate files with the current tenant values with
+'cpictl configure pull'. File format: docs/configure.md.
 
-  deploymentPrefix: "DEV_"  # Optional
-  packages:
-    - integrationSuiteId: "MyPackage"
-      displayName: "My Integration Package"
-      deploy: false  # Deploy all artifacts in this package after configuration
-      artifacts:
-        - artifactId: "MyFlow"
-          displayName: "My Integration Flow"
-          type: "Integration"
-          version: "active"  # Optional, defaults to "active"
-          deploy: true       # Deploy this specific artifact after configuration
-          parameters:
-            - key: "DatabaseURL"
-              value: "jdbc:mysql://localhost:3306/mydb"
-            - key: "MaxRetries"
-              value: "5"
-          batch:
-            enabled: true    # Use batch operations (default: true)
-            batchSize: 90    # Parameters per batch (default: 90)
-
-Operation Modes:
-  1. Configure Only: Updates parameters without deployment (default)
-  2. Configure + Deploy: Updates parameters then deploys artifacts (when deploy: true)
-
-Batch Processing:
-  - By default, uses OData $batch for efficient parameter updates
-  - Configurable batch size (default: 90 parameters per request)
-  - Falls back to individual requests if batch fails
-  - Can be disabled globally with --disable-batch flag
-
-Configuration:
-  Settings can be loaded from the global config file (--config) under the
-  'configure' section. CLI flags override config file settings.
+All flags can be set in the config file under 'configure'.
 ```
 
 **Usage:** `cpictl configure [flags]`
@@ -196,7 +163,7 @@ Configuration:
 
 ## configure pull
 
-Pull artifact parameters into configuration YAML files
+Write current tenant parameter values into configure YAML files
 
 **Usage:** `cpictl configure pull [flags]`
 
@@ -209,7 +176,7 @@ Pull artifact parameters into configuration YAML files
 
 ## deploy
 
-Deploy designtime artifact to runtime
+Deploy designtime artifacts and wait for the result
 
 ```
 Deploy artifact from designtime to
@@ -234,13 +201,13 @@ Configuration:
 
 ## mcp
 
-Run an MCP server (stdio) exposing CPI tools to AI agents
+Run the MCP server (stdio) for AI agents
 
 ```
 Run a Model Context Protocol server on stdin/stdout.
 
 The server uses the same tenant settings as every other command (flags,
-FLASHPIPE_* environment variables or flashpipe.yaml). stdout carries the
+CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
 Tools: list_packages, list_artifacts, get_runtime_status, get_parameters,
@@ -265,13 +232,13 @@ Local paths given to tools are resolved against --root and may not leave it.
 ```
   # Claude Code / any MCP client configuration
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
-    "env": {"FLASHPIPE_TMN_HOST": "...", "FLASHPIPE_OAUTH_HOST": "...",
-            "FLASHPIPE_OAUTH_CLIENTID": "...", "FLASHPIPE_OAUTH_CLIENTSECRET": "..."}}}}
+    "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
+            "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}
 ```
 
 ## orchestrator
 
-Orchestrate SAP CPI artifact updates and deployments
+Update and deploy many packages from a local directory tree
 
 ```
 Orchestrate the complete deployment lifecycle for SAP CPI artifacts.
@@ -335,7 +302,7 @@ Configuration:
 **Examples:**
 
 ```
-  # Update and deploy with config from global flashpipe.yaml
+  # Update and deploy with config from global cpictl.yaml
   cpictl orchestrator --update
 
   # Load specific config file
@@ -354,11 +321,11 @@ List integration packages
 
 ## params
 
-Read or change configuration parameters of an integration flow
+Read or change externalised parameters of an integration flow
 
 ## params get
 
-Show configuration parameters
+Show the parameters of an integration flow
 
 **Usage:** `cpictl params get [flags]`
 
@@ -371,7 +338,7 @@ Show configuration parameters
 
 ## params set
 
-Set configuration parameters (deploy afterwards to activate)
+Set parameters of an integration flow (deploy afterwards to activate)
 
 **Usage:** `cpictl params set [flags]`
 
@@ -392,7 +359,7 @@ Set configuration parameters (deploy afterwards to activate)
 
 ## pd-deploy
 
-Deploy partner directory parameters to SAP CPI
+Upload Partner Directory parameters from local files
 
 ```
 Upload all partner directory parameters from local files to SAP CPI.
@@ -411,7 +378,7 @@ The deploy operation supports several modes:
   - Add-only mode: Only creates new parameters, skips existing ones
   - Full sync mode: Deletes remote parameters not present locally (local is source of truth)
 
-Authentication is performed using OAuth 2.0 client credentials flow or Basic Auth.
+See docs/partner-directory.md for the file format and full sync safety rules.
 ```
 
 **Usage:** `cpictl pd-deploy [flags]`
@@ -429,21 +396,6 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 **Examples:**
 
 ```
-  # Deploy with OAuth (environment variables)
-  export FLASHPIPE_TMN_HOST="your-tenant.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
-  export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  cpictl pd-deploy
-
-  # Deploy with explicit credentials and custom path
-  cpictl pd-deploy \
-    --tmn-host "your-tenant.hana.ondemand.com" \
-    --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
-    --oauth-clientid "your-client-id" \
-    --oauth-clientsecret "your-client-secret" \
-    --resources-path "./partner-directory"
-
   # Deploy in add-only mode (don't update existing parameters)
   cpictl pd-deploy --replace=false
 
@@ -459,7 +411,7 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 
 ## pd-snapshot
 
-Download partner directory parameters from SAP CPI
+Download Partner Directory parameters into local files
 
 ```
 Download all partner directory parameters from SAP CPI and save them locally.
@@ -477,7 +429,7 @@ The snapshot operation supports two modes:
   - Replace mode (default): Overwrites existing local files
   - Add-only mode: Only adds new parameters, preserves existing values
 
-Authentication is performed using OAuth 2.0 client credentials flow or Basic Auth.
+See docs/partner-directory.md for the file format and full sync safety rules.
 ```
 
 **Usage:** `cpictl pd-snapshot [flags]`
@@ -493,21 +445,6 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 **Examples:**
 
 ```
-  # Snapshot with OAuth (environment variables)
-  export FLASHPIPE_TMN_HOST="your-tenant.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
-  export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  cpictl pd-snapshot
-
-  # Snapshot with explicit credentials and custom path
-  cpictl pd-snapshot \
-    --tmn-host "your-tenant.hana.ondemand.com" \
-    --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
-    --oauth-clientid "your-client-id" \
-    --oauth-clientsecret "your-client-secret" \
-    --resources-path "./partner-directory"
-
   # Snapshot in add-only mode (don't overwrite existing values)
   cpictl pd-snapshot --replace=false
 
@@ -517,7 +454,7 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 
 ## snapshot
 
-Snapshot integration packages from tenant to Git
+Save all integration packages of the tenant to a Git repository
 
 ```
 Snapshot all editable integration packages from SAP Integration Suite
@@ -543,7 +480,7 @@ Configuration:
 
 ## snapshot restore
 
-Restore integration packages from Git to tenant
+Create or update integration packages on the tenant from a Git repository
 
 ```
 Restore all editable integration packages from a Git repository to SAP Integration Suite tenant.
@@ -557,7 +494,7 @@ Configuration:
 
 ## status
 
-Show runtime status of artifacts
+Show runtime status, version and errors of artifacts
 
 **Usage:** `cpictl status [flags]`
 
@@ -575,7 +512,7 @@ Show runtime status of artifacts
 
 ## sync
 
-Sync designtime artifacts between tenant and Git
+Synchronise the artifacts of a package between tenant and Git
 
 ```
 Synchronise designtime artifacts between SAP Integration Suite
@@ -600,7 +537,7 @@ Configuration:
 
 ## sync apiproduct
 
-Sync API Management products between tenant and Git
+Synchronise API Management products between tenant and Git
 
 ```
 Synchronise API Management products between SAP Integration Suite
@@ -615,7 +552,7 @@ Configuration:
 
 ## sync apiproxy
 
-Sync API Management proxies (with dependent artifacts) between tenant and Git
+Synchronise API Management proxies (with dependent artifacts) between tenant and Git
 
 ```
 Synchronise API Management proxies (with dependent artifacts) between SAP Integration Suite
@@ -630,7 +567,7 @@ Configuration:
 
 ## undeploy
 
-Undeploy runtime artifacts
+Remove artifacts from runtime and wait until they are gone
 
 ```
 Undeploy artifacts from the runtime of an SAP Integration Suite tenant.
@@ -663,7 +600,7 @@ Configuration:
 
 ## update
 
-Create/update artifacts or integration package
+Create or update designtime artifacts and packages
 
 ```
 Create or update artifacts and/or integration package on the
@@ -672,7 +609,7 @@ SAP Integration Suite tenant.
 
 ## update artifact
 
-Create/update artifacts
+Create or update a designtime artifact from a local directory
 
 ```
 Create or update artifacts on the
@@ -702,7 +639,7 @@ Configuration:
 
 ## update package
 
-Create/update integration package
+Create or update an integration package from a JSON file
 
 ```
 Create or update integration package on the

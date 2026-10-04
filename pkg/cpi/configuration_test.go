@@ -25,9 +25,9 @@ type ConfigurationSuite struct {
 func TestConfigurationBasicAuth(t *testing.T) {
 	suite.Run(t, &ConfigurationSuite{
 		serviceDetails: &ServiceDetails{
-			Host:     os.Getenv("FLASHPIPE_TMN_HOST"),
-			Userid:   os.Getenv("FLASHPIPE_TMN_USERID"),
-			Password: os.Getenv("FLASHPIPE_TMN_PASSWORD"),
+			Host:     os.Getenv("CPICTL_TMN_HOST"),
+			Userid:   os.Getenv("CPICTL_TMN_USERID"),
+			Password: os.Getenv("CPICTL_TMN_PASSWORD"),
 		},
 	})
 }
@@ -35,11 +35,11 @@ func TestConfigurationBasicAuth(t *testing.T) {
 func TestConfigurationOauth(t *testing.T) {
 	suite.Run(t, &ConfigurationSuite{
 		serviceDetails: &ServiceDetails{
-			Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
-			OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-			OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-			OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
-			OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
+			Host:              os.Getenv("CPICTL_TMN_HOST"),
+			OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+			OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+			OauthClientId:     os.Getenv("CPICTL_OAUTH_CLIENTID"),
+			OauthClientSecret: os.Getenv("CPICTL_OAUTH_CLIENTSECRET"),
 		},
 	})
 }
@@ -49,13 +49,13 @@ func (suite *ConfigurationSuite) SetupSuite() {
 	suite.exe = InitHTTPExecuter(suite.serviceDetails)
 
 	// Setup viper in case debug logs are required
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix("CPICTL")
 	viper.AutomaticEnv()
 	logger.InitConsoleLogger(viper.GetBool("debug"))
 
-	setupPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	setupPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 
-	setupArtifact(suite.T(), "Integration_Test_IFlow", "FlashPipeIntegrationTest", "../../test/testdata/artifacts/update/Integration_Test_IFlow", "Integration", suite.exe)
+	setupArtifact(suite.T(), "Integration_Test_IFlow", "CpictlIntegrationTest", "../../test/testdata/artifacts/update/Integration_Test_IFlow", "Integration", suite.exe)
 	println("========== Setting up suite - end ==========")
 }
 
@@ -72,7 +72,7 @@ func (suite *ConfigurationSuite) TearDownTest() {
 func (suite *ConfigurationSuite) TearDownSuite() {
 	println("========== Tearing down suite - start ==========")
 
-	tearDownPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	tearDownPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 	println("========== Tearing down suite - end ==========")
 }
 

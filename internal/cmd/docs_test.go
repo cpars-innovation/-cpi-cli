@@ -29,7 +29,7 @@ func renderCommandReference(root *cobra.Command) string {
 	var b strings.Builder
 	b.WriteString("# Command reference\n\n")
 	b.WriteString("<!-- Generated from the CLI by `go test ./internal/cmd -run TestCommandReference -update`. Do not edit. -->\n\n")
-	b.WriteString("Every flag can also be set with an environment variable (`FLASHPIPE_` + flag name in upper case, `-` replaced by `_`) or as a top-level key in the config file. ")
+	b.WriteString("Every flag can also be set with an environment variable (`CPICTL_` + flag name in upper case, `-` replaced by `_`) or as a top-level key in the config file. ")
 	b.WriteString("See [configuration.md](configuration.md).\n\n")
 
 	var cmds []*cobra.Command

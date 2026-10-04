@@ -74,7 +74,7 @@ func TestDocsExamples(t *testing.T) {
 		require.NoError(t, json.Unmarshal(data, &cfg))
 		server := cfg.MCPServers["cpi-dev"]
 		assert.Equal(t, "mcp", server.Args[0])
-		assert.Contains(t, server.Env, "FLASHPIPE_TMN_HOST")
+		assert.Contains(t, server.Env, "CPICTL_TMN_HOST")
 	})
 
 	t.Run("partner-directory", func(t *testing.T) {

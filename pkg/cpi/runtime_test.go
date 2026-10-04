@@ -25,9 +25,9 @@ type RuntimeSuite struct {
 func TestRuntimeBasicAuth(t *testing.T) {
 	suite.Run(t, &RuntimeSuite{
 		serviceDetails: &ServiceDetails{
-			Host:     os.Getenv("FLASHPIPE_TMN_HOST"),
-			Userid:   os.Getenv("FLASHPIPE_TMN_USERID"),
-			Password: os.Getenv("FLASHPIPE_TMN_PASSWORD"),
+			Host:     os.Getenv("CPICTL_TMN_HOST"),
+			Userid:   os.Getenv("CPICTL_TMN_USERID"),
+			Password: os.Getenv("CPICTL_TMN_PASSWORD"),
 		},
 	})
 }
@@ -35,11 +35,11 @@ func TestRuntimeBasicAuth(t *testing.T) {
 func TestRuntimeOauth(t *testing.T) {
 	suite.Run(t, &RuntimeSuite{
 		serviceDetails: &ServiceDetails{
-			Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
-			OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-			OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-			OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
-			OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
+			Host:              os.Getenv("CPICTL_TMN_HOST"),
+			OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+			OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+			OauthClientId:     os.Getenv("CPICTL_OAUTH_CLIENTID"),
+			OauthClientSecret: os.Getenv("CPICTL_OAUTH_CLIENTSECRET"),
 		},
 	})
 }
@@ -49,16 +49,16 @@ func (suite *RuntimeSuite) SetupSuite() {
 	suite.exe = InitHTTPExecuter(suite.serviceDetails)
 
 	// Setup viper in case debug logs are required
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix("CPICTL")
 	viper.AutomaticEnv()
 	logger.InitConsoleLogger(viper.GetBool("debug"))
 
-	setupPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	setupPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 
-	setupArtifact(suite.T(), "Integration_Test_IFlow", "FlashPipeIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_IFlow", "Integration", suite.exe)
+	setupArtifact(suite.T(), "Integration_Test_IFlow", "CpictlIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_IFlow", "Integration", suite.exe)
 	setupRuntime(suite.T(), "Integration_Test_IFlow", "Integration", suite.exe)
 
-	setupArtifact(suite.T(), "Integration_Test_Message_Mapping", "FlashPipeIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_Message_Mapping", "MessageMapping", suite.exe)
+	setupArtifact(suite.T(), "Integration_Test_Message_Mapping", "CpictlIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_Message_Mapping", "MessageMapping", suite.exe)
 	setupRuntime(suite.T(), "Integration_Test_Message_Mapping", "MessageMapping", suite.exe)
 	println("========== Setting up suite - end ==========")
 }
@@ -76,7 +76,7 @@ func (suite *RuntimeSuite) TearDownTest() {
 func (suite *RuntimeSuite) TearDownSuite() {
 	println("========== Tearing down suite - start ==========")
 
-	tearDownPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	tearDownPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 
 	tearDownRuntime(suite.T(), "Integration_Test_IFlow", suite.exe)
 	tearDownRuntime(suite.T(), "Integration_Test_Message_Mapping", suite.exe)

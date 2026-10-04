@@ -14,6 +14,10 @@
 
    ----------------------------------------------------------------------------
 
-   cpictl is a modified fork of FlashPipe (https://github.com/engswee/flashpipe),
-   via https://github.com/PaulNetze/flashpipe, maintained by cpars innovation.
-   Files have been modified from the original; see the git history for details.
+   cpictl
+   Copyright 2026 cpars innovation
+
+   This product contains software originally developed as FlashPipe
+   (https://github.com/engswee/flashpipe), Copyright 2021-2025 Eng Swee Yeoh,
+   licensed under the Apache License, Version 2.0. The original files have been
+   modified; see the git history for details.

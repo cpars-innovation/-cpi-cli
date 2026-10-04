@@ -1,19 +1,19 @@
 # cpictl global config file
-# Use as $HOME/flashpipe.yaml or pass with --config cpictl.yaml.
+# Use as $HOME/cpictl.yaml or pass with --config cpictl.yaml.
 #
-# Precedence: flag > FLASHPIPE_* environment variable > top-level key > command section > default.
+# Precedence: flag > CPICTL_* environment variable > top-level key > command section > default.
 # ${VAR} is NOT expanded in this file: keep secrets in environment variables
-# (FLASHPIPE_OAUTH_CLIENTSECRET, FLASHPIPE_TMN_PASSWORD) and leave them out of here.
+# (CPICTL_OAUTH_CLIENTSECRET, CPICTL_TMN_PASSWORD) and leave them out of here.
 
 # --- Tenant connection --------------------------------------------------------
 tmn-host: mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
 oauth-host: mytenant.authentication.eu10.hana.ondemand.com
-# oauth-clientid: set FLASHPIPE_OAUTH_CLIENTID
-# oauth-clientsecret: set FLASHPIPE_OAUTH_CLIENTSECRET
+# oauth-clientid: set CPICTL_OAUTH_CLIENTID
+# oauth-clientsecret: set CPICTL_OAUTH_CLIENTSECRET
 
 # Basic Auth instead of OAuth:
-# tmn-userid: set FLASHPIPE_TMN_USERID
-# tmn-password: set FLASHPIPE_TMN_PASSWORD
+# tmn-userid: set CPICTL_TMN_USERID
+# tmn-password: set CPICTL_TMN_PASSWORD
 
 # output: json          # default output format for all commands
 # debug: false

@@ -17,11 +17,11 @@ const annotationNoEnvelope = "cpicli/no-envelope"
 func NewMCPCommand(version string) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "mcp",
-		Short: "Run an MCP server (stdio) exposing CPI tools to AI agents",
+		Short: "Run the MCP server (stdio) for AI agents",
 		Long: `Run a Model Context Protocol server on stdin/stdout.
 
 The server uses the same tenant settings as every other command (flags,
-FLASHPIPE_* environment variables or flashpipe.yaml). stdout carries the
+CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
 Tools: list_packages, list_artifacts, get_runtime_status, get_parameters,
@@ -31,8 +31,8 @@ pd_deploy (dry run unless dry_run=false).
 Local paths given to tools are resolved against --root and may not leave it.`,
 		Example: `  # Claude Code / any MCP client configuration
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
-    "env": {"FLASHPIPE_TMN_HOST": "...", "FLASHPIPE_OAUTH_HOST": "...",
-            "FLASHPIPE_OAUTH_CLIENTID": "...", "FLASHPIPE_OAUTH_CLIENTSECRET": "..."}}}}`,
+    "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
+            "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}`,
 		SilenceUsage: true,
 		Annotations:  map[string]string{annotationNoEnvelope: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {

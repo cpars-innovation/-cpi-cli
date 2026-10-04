@@ -25,9 +25,9 @@ type PackageSuite struct {
 func TestPackageBasicAuth(t *testing.T) {
 	suite.Run(t, &PackageSuite{
 		serviceDetails: &ServiceDetails{
-			Host:     os.Getenv("FLASHPIPE_TMN_HOST"),
-			Userid:   os.Getenv("FLASHPIPE_TMN_USERID"),
-			Password: os.Getenv("FLASHPIPE_TMN_PASSWORD"),
+			Host:     os.Getenv("CPICTL_TMN_HOST"),
+			Userid:   os.Getenv("CPICTL_TMN_USERID"),
+			Password: os.Getenv("CPICTL_TMN_PASSWORD"),
 		},
 	})
 }
@@ -35,11 +35,11 @@ func TestPackageBasicAuth(t *testing.T) {
 func TestPackageOauth(t *testing.T) {
 	suite.Run(t, &PackageSuite{
 		serviceDetails: &ServiceDetails{
-			Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
-			OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-			OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-			OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
-			OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
+			Host:              os.Getenv("CPICTL_TMN_HOST"),
+			OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+			OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+			OauthClientId:     os.Getenv("CPICTL_OAUTH_CLIENTID"),
+			OauthClientSecret: os.Getenv("CPICTL_OAUTH_CLIENTSECRET"),
 		},
 	})
 }
@@ -49,13 +49,13 @@ func (suite *PackageSuite) SetupSuite() {
 	suite.exe = InitHTTPExecuter(suite.serviceDetails)
 
 	// Setup viper in case debug logs are required
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix("CPICTL")
 	viper.AutomaticEnv()
 	logger.InitConsoleLogger(viper.GetBool("debug"))
 
-	setupPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
+	setupPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
 
-	setupArtifact(suite.T(), "Integration_Test_IFlow", "FlashPipeIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_IFlow", "Integration", suite.exe)
+	setupArtifact(suite.T(), "Integration_Test_IFlow", "CpictlIntegrationTest", "../../test/testdata/artifacts/create/Integration_Test_IFlow", "Integration", suite.exe)
 	println("========== Setting up suite - end ==========")
 }
 
@@ -72,19 +72,19 @@ func (suite *PackageSuite) TearDownTest() {
 func (suite *PackageSuite) TearDownSuite() {
 	println("========== Tearing down suite - start ==========")
 
-	tearDownPackage(suite.T(), "FlashPipeIntegrationTest", suite.exe)
-	tearDownPackage(suite.T(), "FlashPipeIntegrationTestCreate", suite.exe)
+	tearDownPackage(suite.T(), "CpictlIntegrationTest", suite.exe)
+	tearDownPackage(suite.T(), "CpictlIntegrationTestCreate", suite.exe)
 	println("========== Tearing down suite - end ==========")
 }
 
 func (suite *PackageSuite) TestIntegrationPackage_CreateUpdateDelete() {
-	const packageId = "FlashPipeIntegrationTestCreate"
+	const packageId = "CpictlIntegrationTestCreate"
 	ip := NewIntegrationPackage(suite.exe)
 
 	jsonData := new(PackageSingleData)
 	jsonData.Root.Id = packageId
-	jsonData.Root.Name = "FlashPipe Integration Test Create"
-	jsonData.Root.ShortText = "FlashPipe Integration Test Create"
+	jsonData.Root.Name = "cpictl Integration Test Create"
+	jsonData.Root.ShortText = "cpictl Integration Test Create"
 	jsonData.Root.Mode = "EDIT_ALLOWED"
 	// Create
 	err := ip.Create(jsonData)
@@ -93,8 +93,8 @@ func (suite *PackageSuite) TestIntegrationPackage_CreateUpdateDelete() {
 	}
 
 	// Update
-	jsonData.Root.Name = "FlashPipe Integration Test Update"
-	jsonData.Root.ShortText = "FlashPipe Integration Test Update"
+	jsonData.Root.Name = "cpictl Integration Test Update"
+	jsonData.Root.ShortText = "cpictl Integration Test Update"
 	jsonData.Root.Mode = "EDIT_ALLOWED"
 	err = ip.Update(jsonData)
 	if err != nil {
@@ -125,7 +125,7 @@ func (suite *PackageSuite) TestIntegrationPackage_CreateUpdateDelete() {
 func (suite *PackageSuite) TestIntegrationPackage_GetArtifacts() {
 	ip := NewIntegrationPackage(suite.exe)
 
-	artifacts, err := ip.GetAllArtifacts("FlashPipeIntegrationTest")
+	artifacts, err := ip.GetAllArtifacts("CpictlIntegrationTest")
 	if err != nil {
 		suite.T().Fatalf("GetAllArtifacts failed with error - %v", err)
 	}

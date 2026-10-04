@@ -15,7 +15,7 @@ func NewPDDeployCommand() *cobra.Command {
 
 	pdDeployCmd := &cobra.Command{
 		Use:   "pd-deploy",
-		Short: "Deploy partner directory parameters to SAP CPI",
+		Short: "Upload Partner Directory parameters from local files",
 		Long: `Upload all partner directory parameters from local files to SAP CPI.
 
 This command reads partner directory parameters from a local directory structure
@@ -32,23 +32,8 @@ The deploy operation supports several modes:
   - Add-only mode: Only creates new parameters, skips existing ones
   - Full sync mode: Deletes remote parameters not present locally (local is source of truth)
 
-Authentication is performed using OAuth 2.0 client credentials flow or Basic Auth.`,
-		Example: `  # Deploy with OAuth (environment variables)
-  export FLASHPIPE_TMN_HOST="your-tenant.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_HOST="your-tenant.authentication.eu10.hana.ondemand.com"
-  export FLASHPIPE_OAUTH_CLIENTID="your-client-id"
-  export FLASHPIPE_OAUTH_CLIENTSECRET="your-client-secret"
-  cpictl pd-deploy
-
-  # Deploy with explicit credentials and custom path
-  cpictl pd-deploy \
-    --tmn-host "your-tenant.hana.ondemand.com" \
-    --oauth-host "your-tenant.authentication.eu10.hana.ondemand.com" \
-    --oauth-clientid "your-client-id" \
-    --oauth-clientsecret "your-client-secret" \
-    --resources-path "./partner-directory"
-
-  # Deploy in add-only mode (don't update existing parameters)
+See docs/partner-directory.md for the file format and full sync safety rules.`,
+		Example: `  # Deploy in add-only mode (don't update existing parameters)
   cpictl pd-deploy --replace=false
 
   # Deploy with full sync (delete remote parameters not in local)

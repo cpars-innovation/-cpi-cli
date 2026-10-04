@@ -19,8 +19,9 @@ import (
 func NewConfigGenerateCommand() *cobra.Command {
 
 	configCmd := &cobra.Command{
-		Use:   "config-generate",
-		Short: "Generate or update deployment configuration",
+		Use:         "config-generate",
+		Annotations: map[string]string{annotationOffline: "true"},
+		Short:       "Generate or refresh the orchestrator deployment config from a packages directory",
 		Long: `Generate or update deployment configuration from package directory structure.
 
 This command scans the packages directory and generates/updates a deployment configuration
@@ -57,9 +58,6 @@ Features:
 
 	configCmd.Flags().String("packages-dir", "./packages",
 		"Path to packages directory")
-	// The file used to be selected with --output, which is now the global
-	// output format flag. A value other than text/json is still accepted as
-	// the file path for backward compatibility (see runConfigGenerate).
 	configCmd.Flags().String("output-file", "./001-deploy-config.yml",
 		"Path to output configuration file")
 	configCmd.Flags().StringSlice("package-filter", nil,
@@ -73,13 +71,6 @@ Features:
 func runConfigGenerate(cmd *cobra.Command) error {
 	packagesDir := config.GetString(cmd, "packages-dir")
 	outputFile := config.GetString(cmd, "output-file")
-	if legacy := config.GetString(cmd, "output"); legacy != output.FormatText && legacy != output.FormatJSON {
-		if cmd.Flags().Changed("output-file") {
-			return output.Usagef("--output %q is not an output format; use --output-file for the config file path", legacy)
-		}
-		log.Warn().Msgf("Using --output %q as the config file path is deprecated, use --output-file", legacy)
-		outputFile = legacy
-	}
 	packageFilter := config.GetStringSlice(cmd, "package-filter")
 	artifactFilter := config.GetStringSlice(cmd, "artifact-filter")
 

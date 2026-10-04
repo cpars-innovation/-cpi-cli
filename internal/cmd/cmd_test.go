@@ -22,11 +22,11 @@ func TestCPICommands(t *testing.T) {
 	// ------------ Set up ------------
 	println("---------- Setting up test - start ----------")
 	exe := cpi.InitHTTPExecuter(&cpi.ServiceDetails{
-		Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
-		OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-		OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-		OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
-		OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
+		Host:              os.Getenv("CPICTL_TMN_HOST"),
+		OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+		OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+		OauthClientId:     os.Getenv("CPICTL_OAUTH_CLIENTID"),
+		OauthClientSecret: os.Getenv("CPICTL_OAUTH_CLIENTSECRET"),
 	})
 	ip := cpi.NewIntegrationPackage(exe)
 	dt := cpi.NewDesigntimeArtifact("Integration", exe)
@@ -47,7 +47,7 @@ func TestCPICommands(t *testing.T) {
 	// 1 - Create integration package
 	var args []string
 	args = append(args, "update", "package")
-	args = append(args, "--package-file", "../../test/testdata/FlashPipeIntegrationTest.json")
+	args = append(args, "--package-file", "../../test/testdata/CpictlIntegrationTest.json")
 
 	_, _, err := ExecuteCommandC(rootCmd, args...)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestCPICommands(t *testing.T) {
 	}
 
 	// Check package was created
-	_, _, packageExists, err := ip.Get("FlashPipeIntegrationTest")
+	_, _, packageExists, err := ip.Get("CpictlIntegrationTest")
 	if err != nil {
 		t.Fatalf("Get integration package failed with error %v", err)
 	}
@@ -66,8 +66,8 @@ func TestCPICommands(t *testing.T) {
 	args = append(args, "update", "artifact")
 	args = append(args, "--artifact-id", "Integration_Test_IFlow")
 	args = append(args, "--artifact-name", "Integration Test IFlow")
-	args = append(args, "--package-id", "FlashPipeIntegrationTest")
-	args = append(args, "--package-name", "FlashPipe Integration Test")
+	args = append(args, "--package-id", "CpictlIntegrationTest")
+	args = append(args, "--package-name", "cpictl Integration Test")
 	args = append(args, "--dir-artifact", "../../test/testdata/artifacts/create/Integration_Test_IFlow")
 	args = append(args, "--dir-work", "../../output/update/work")
 
@@ -105,7 +105,7 @@ func TestCPICommands(t *testing.T) {
 	// 4 - Sync to Git
 	args = nil
 	args = append(args, "sync")
-	args = append(args, "--package-id", "FlashPipeIntegrationTest")
+	args = append(args, "--package-id", "CpictlIntegrationTest")
 	args = append(args, "--dir-git-repo", "../../")
 	args = append(args, "--dir-artifacts", "../../output/sync/artifact")
 	args = append(args, "--dir-work", "../../output/sync/git/work")
@@ -118,19 +118,19 @@ func TestCPICommands(t *testing.T) {
 	}
 	assert.True(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/META-INF/MANIFEST.MF"), "MANIFEST.MF does not exist")
 	assert.False(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/src/main/resources/parameters.prop"), "parameters.prop exists")
-	assert.True(t, file.Exists("../../output/sync/artifact/FlashPipeIntegrationTest.json"), "FlashPipeIntegrationTest.json does not exist")
+	assert.True(t, file.Exists("../../output/sync/artifact/CpictlIntegrationTest.json"), "CpictlIntegrationTest.json does not exist")
 
 	// 5 - Update integration package
 	args = nil
 	args = append(args, "update", "package")
-	args = append(args, "--package-file", "../../test/testdata/FlashPipeIntegrationTest_Update.json")
+	args = append(args, "--package-file", "../../test/testdata/CpictlIntegrationTest_Update.json")
 
 	_, _, err = ExecuteCommandC(rootCmd, args...)
 	if err != nil {
 		t.Fatalf("update package failed with error %v", err)
 	}
 	// Check package was updated
-	packageData, _, _, err := ip.Get("FlashPipeIntegrationTest")
+	packageData, _, _, err := ip.Get("CpictlIntegrationTest")
 	if err != nil {
 		t.Fatalf("Get integration package failed with error %v", err)
 	}
@@ -141,8 +141,8 @@ func TestCPICommands(t *testing.T) {
 	args = append(args, "update", "artifact")
 	args = append(args, "--artifact-id", "Integration_Test_IFlow")
 	args = append(args, "--artifact-name", "Integration Test IFlow")
-	args = append(args, "--package-id", "FlashPipeIntegrationTest")
-	args = append(args, "--package-name", "FlashPipe Integration Test")
+	args = append(args, "--package-id", "CpictlIntegrationTest")
+	args = append(args, "--package-name", "cpictl Integration Test")
 	args = append(args, "--dir-artifact", "../../test/testdata/artifacts/update/Integration_Test_IFlow")
 	args = append(args, "--dir-work", "../../output/update/work")
 
@@ -181,7 +181,7 @@ func TestCPICommands(t *testing.T) {
 	// 8 - Sync updates to Git
 	args = nil
 	args = append(args, "sync")
-	args = append(args, "--package-id", "FlashPipeIntegrationTest")
+	args = append(args, "--package-id", "CpictlIntegrationTest")
 	args = append(args, "--dir-git-repo", "../../")
 	args = append(args, "--dir-artifacts", "../../output/sync/artifact")
 	args = append(args, "--dir-work", "../../output/sync/git/work")
@@ -194,7 +194,7 @@ func TestCPICommands(t *testing.T) {
 	}
 	assert.True(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/META-INF/MANIFEST.MF"), "MANIFEST.MF does not exist")
 	assert.True(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/src/main/resources/parameters.prop"), "parameters.prop does not exist")
-	packageDataFromTenant, err := cpi.GetPackageDetails("../../output/sync/artifact/FlashPipeIntegrationTest.json")
+	packageDataFromTenant, err := cpi.GetPackageDetails("../../output/sync/artifact/CpictlIntegrationTest.json")
 	if err != nil {
 		t.Fatalf("Unable to read integration package file with error %v", err)
 	}
@@ -205,7 +205,7 @@ func TestCPICommands(t *testing.T) {
 	args = append(args, "snapshot")
 	args = append(args, "--dir-git-repo", "../../output/snapshot/repo")
 	args = append(args, "--dir-work", "../../output/snapshot/work")
-	args = append(args, "--ids-include", "FlashPipeIntegrationTest")
+	args = append(args, "--ids-include", "CpictlIntegrationTest")
 	args = append(args, "--sync-package-details")
 	args = append(args, "--git-skip-commit")
 
@@ -213,13 +213,13 @@ func TestCPICommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("snapshot failed with error %v", err)
 	}
-	assert.True(t, file.Exists("../../output/snapshot/repo/FlashPipeIntegrationTest/Integration_Test_IFlow/META-INF/MANIFEST.MF"), "MANIFEST.MF does not exist")
-	assert.True(t, file.Exists("../../output/snapshot/repo/FlashPipeIntegrationTest/Integration_Test_IFlow/src/main/resources/parameters.prop"), "parameters.prop does not exist")
+	assert.True(t, file.Exists("../../output/snapshot/repo/CpictlIntegrationTest/Integration_Test_IFlow/META-INF/MANIFEST.MF"), "MANIFEST.MF does not exist")
+	assert.True(t, file.Exists("../../output/snapshot/repo/CpictlIntegrationTest/Integration_Test_IFlow/src/main/resources/parameters.prop"), "parameters.prop does not exist")
 
 	// 10 - Sync updates to tenant
 	args = nil
 	args = append(args, "sync")
-	args = append(args, "--package-id", "FlashPipeIntegrationTest")
+	args = append(args, "--package-id", "CpictlIntegrationTest")
 	args = append(args, "--dir-git-repo", "../../test/testdata/artifacts/create")
 	args = append(args, "--dir-artifacts", "")
 	args = append(args, "--target", "tenant")
@@ -229,7 +229,7 @@ func TestCPICommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync to tenant failed with error %v", err)
 	}
-	artifacts, err := ip.GetAllArtifacts("FlashPipeIntegrationTest")
+	artifacts, err := ip.GetAllArtifacts("CpictlIntegrationTest")
 	if err != nil {
 		t.Fatalf("GetAllArtifacts failed with error - %v", err)
 	}
@@ -240,7 +240,7 @@ func TestCPICommands(t *testing.T) {
 	assert.Equal(t, "1.0.0", cpi.FindArtifactById("Integration_Test_Value_Mapping", artifacts).Version, "Integration_Test_Value_Mapping was not updated to version 1.0.0")
 
 	// 11 - Restore snapshot to tenant
-	err = ip.Delete("FlashPipeIntegrationTest")
+	err = ip.Delete("CpictlIntegrationTest")
 	if err != nil {
 		t.Logf("WARNING - Delete package failed with error %v", err)
 	}
@@ -248,13 +248,13 @@ func TestCPICommands(t *testing.T) {
 	args = append(args, "snapshot", "restore")
 	args = append(args, "--dir-git-repo", "../../output/snapshot/repo")
 	args = append(args, "--dir-work", "../../output/restore/work")
-	args = append(args, "--ids-include", "FlashPipeIntegrationTest")
+	args = append(args, "--ids-include", "CpictlIntegrationTest")
 
 	_, _, err = ExecuteCommandC(rootCmd, args...)
 	if err != nil {
 		t.Fatalf("snapshot restore failed with error %v", err)
 	}
-	artifacts, err = ip.GetAllArtifacts("FlashPipeIntegrationTest")
+	artifacts, err = ip.GetAllArtifacts("CpictlIntegrationTest")
 	if err != nil {
 		t.Fatalf("GetAllArtifacts failed with error - %v", err)
 	}
@@ -263,7 +263,7 @@ func TestCPICommands(t *testing.T) {
 
 	// ------------ Clean up ------------
 	println("---------- Tearing down test - start ----------")
-	err = ip.Delete("FlashPipeIntegrationTest")
+	err = ip.Delete("CpictlIntegrationTest")
 	if err != nil {
 		t.Logf("WARNING - Delete package failed with error %v", err)
 	}
@@ -295,11 +295,11 @@ func TestAPIMCommands(t *testing.T) {
 	// ------------ Set up ------------
 	println("---------- Setting up test - start ----------")
 	exe := cpi.InitHTTPExecuter(&cpi.ServiceDetails{
-		Host:              os.Getenv("FLASHPIPE_APIPORTAL_HOST"),
-		OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
-		OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
-		OauthClientId:     os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"),
-		OauthClientSecret: os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"),
+		Host:              os.Getenv("CPICTL_APIPORTAL_HOST"),
+		OauthHost:         os.Getenv("CPICTL_OAUTH_HOST"),
+		OauthPath:         os.Getenv("CPICTL_OAUTH_PATH"),
+		OauthClientId:     os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"),
+		OauthClientSecret: os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"),
 	})
 	proxy := cpi.NewAPIProxy(exe)
 	product := cpi.NewAPIProduct(exe)
@@ -314,9 +314,9 @@ func TestAPIMCommands(t *testing.T) {
 	var args []string
 	// 1 - Sync API Proxy to Git
 	args = append(args, "sync", "apiproxy")
-	args = append(args, "--tmn-host", os.Getenv("FLASHPIPE_APIPORTAL_HOST"))
-	args = append(args, "--oauth-clientid", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"))
-	args = append(args, "--oauth-clientsecret", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"))
+	args = append(args, "--tmn-host", os.Getenv("CPICTL_APIPORTAL_HOST"))
+	args = append(args, "--oauth-clientid", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"))
+	args = append(args, "--oauth-clientsecret", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"))
 	args = append(args, "--dir-git-repo", "../../")
 	args = append(args, "--dir-artifacts", "../../output/apiproxy/git/artifact")
 	args = append(args, "--dir-work", "../../output/apiproxy/git/work")
@@ -332,9 +332,9 @@ func TestAPIMCommands(t *testing.T) {
 	// 2 - Sync API Proxy to tenant
 	args = nil
 	args = append(args, "sync", "apiproxy")
-	args = append(args, "--tmn-host", os.Getenv("FLASHPIPE_APIPORTAL_HOST"))
-	args = append(args, "--oauth-clientid", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"))
-	args = append(args, "--oauth-clientsecret", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"))
+	args = append(args, "--tmn-host", os.Getenv("CPICTL_APIPORTAL_HOST"))
+	args = append(args, "--oauth-clientid", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"))
+	args = append(args, "--oauth-clientsecret", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"))
 	args = append(args, "--dir-artifacts", "../../test/testdata/apiproxy")
 	args = append(args, "--dir-work", "../../output/apiproxy/tenant/work")
 	args = append(args, "--ids-include", "Northwind_V4")
@@ -353,9 +353,9 @@ func TestAPIMCommands(t *testing.T) {
 	// 3 - Sync API Product to tenant
 	args = nil
 	args = append(args, "sync", "apiproduct")
-	args = append(args, "--tmn-host", os.Getenv("FLASHPIPE_APIPORTAL_HOST"))
-	args = append(args, "--oauth-clientid", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"))
-	args = append(args, "--oauth-clientsecret", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"))
+	args = append(args, "--tmn-host", os.Getenv("CPICTL_APIPORTAL_HOST"))
+	args = append(args, "--oauth-clientid", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"))
+	args = append(args, "--oauth-clientsecret", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"))
 	args = append(args, "--dir-artifacts", "../../test/testdata/apiproduct")
 	args = append(args, "--dir-work", "../../output/apiproduct/tenant/work")
 	args = append(args, "--ids-include", "Northwind")
@@ -374,9 +374,9 @@ func TestAPIMCommands(t *testing.T) {
 	// 4 - Sync API Product to Git
 	args = nil
 	args = append(args, "sync", "apiproduct")
-	args = append(args, "--tmn-host", os.Getenv("FLASHPIPE_APIPORTAL_HOST"))
-	args = append(args, "--oauth-clientid", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"))
-	args = append(args, "--oauth-clientsecret", os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"))
+	args = append(args, "--tmn-host", os.Getenv("CPICTL_APIPORTAL_HOST"))
+	args = append(args, "--oauth-clientid", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTID"))
+	args = append(args, "--oauth-clientsecret", os.Getenv("CPICTL_APIPORTAL_OAUTH_CLIENTSECRET"))
 	args = append(args, "--dir-git-repo", "../../")
 	args = append(args, "--dir-artifacts", "../../output/apiproduct/git/artifact")
 	args = append(args, "--dir-work", "../../output/apiproduct/git/work")

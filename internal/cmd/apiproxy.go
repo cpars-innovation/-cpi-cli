@@ -19,7 +19,7 @@ func NewAPIProxyCommand() *cobra.Command {
 	apiproxyCmd := &cobra.Command{
 		Use:     "apiproxy",
 		Aliases: []string{"apim"},
-		Short:   "Sync API Management proxies (with dependent artifacts) between tenant and Git",
+		Short:   "Synchronise API Management proxies (with dependent artifacts) between tenant and Git",
 		Long: `Synchronise API Management proxies (with dependent artifacts) between SAP Integration Suite
 tenant and a Git repository.
 

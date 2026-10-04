@@ -21,7 +21,7 @@ func NewConfigurePullCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "pull",
-		Short:        "Pull artifact parameters into configuration YAML files",
+		Short:        "Write current tenant parameter values into configure YAML files",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outputDir = config.GetStringWithFallback(cmd, "output-dir", "configure.pull.outputDir")

@@ -63,53 +63,20 @@ func NewConfigureCommand() *cobra.Command {
 
 	configureCmd := &cobra.Command{
 		Use:          "configure",
-		Short:        "Configure SAP CPI artifact parameters",
+		Short:        "Set artifact parameters from YAML files and optionally deploy",
 		SilenceUsage: true,
-		Long: `Configure parameters for SAP CPI artifacts using YAML configuration files.
+		Long: `Set externalised parameters of many artifacts from YAML files and optionally
+deploy them afterwards.
 
-This command:
-  - Updates configuration parameters for Integration artifacts
-  - Supports batch operations for efficient parameter updates
-  - Optionally deploys artifacts after configuration
-  - Two-phase operation: Configure all artifacts, then deploy if requested
-  - Supports deployment prefixes for multi-environment scenarios
+Phase 1 writes the parameters (OData $batch by default, falling back to single
+requests), phase 2 deploys artifacts marked with deploy: true, package by
+package with up to --parallel-deployments concurrent deployments.
 
-Configuration File Structure:
-  The YAML file should define packages and artifacts with their parameters:
+--config-path accepts a file or a folder (all *.yml/*.yaml files, not
+recursive). Generate files with the current tenant values with
+'cpictl configure pull'. File format: docs/configure.md.
 
-  deploymentPrefix: "DEV_"  # Optional
-  packages:
-    - integrationSuiteId: "MyPackage"
-      displayName: "My Integration Package"
-      deploy: false  # Deploy all artifacts in this package after configuration
-      artifacts:
-        - artifactId: "MyFlow"
-          displayName: "My Integration Flow"
-          type: "Integration"
-          version: "active"  # Optional, defaults to "active"
-          deploy: true       # Deploy this specific artifact after configuration
-          parameters:
-            - key: "DatabaseURL"
-              value: "jdbc:mysql://localhost:3306/mydb"
-            - key: "MaxRetries"
-              value: "5"
-          batch:
-            enabled: true    # Use batch operations (default: true)
-            batchSize: 90    # Parameters per batch (default: 90)
-
-Operation Modes:
-  1. Configure Only: Updates parameters without deployment (default)
-  2. Configure + Deploy: Updates parameters then deploys artifacts (when deploy: true)
-
-Batch Processing:
-  - By default, uses OData $batch for efficient parameter updates
-  - Configurable batch size (default: 90 parameters per request)
-  - Falls back to individual requests if batch fails
-  - Can be disabled globally with --disable-batch flag
-
-Configuration:
-  Settings can be loaded from the global config file (--config) under the
-  'configure' section. CLI flags override config file settings.`,
+All flags can be set in the config file under 'configure'.`,
 		Example: `  # Configure artifacts from a config file
   cpictl configure --config-path ./config/dev-config.yml
 

@@ -1,31 +1,32 @@
 # cpictl
 
-`cpictl` is a command line tool and MCP server for **SAP Cloud Integration (CPI)**:
-build, deploy, configure and inspect integration content on a tenant from scripts,
-CI/CD pipelines and AI agents.
+**Build, deploy and operate SAP Cloud Integration (CPI) content from the command line,
+CI/CD pipelines and AI agents.**
 
-- **One binary, two interfaces**: a regular CLI and an [MCP server](docs/mcp.md) (`cpictl mcp`)
-  that share the same operations and the same safety rules.
-- **Agent-friendly output**: `--output json` writes one result document to stdout,
-  logs go to stderr, and [exit codes](#exit-codes) tell *why* something failed.
-- **Correct deployments**: deploy waits for the build/deploy task and for the *new* runtime
-  artifact, so a redeploy is never reported as successful while the old version is still running.
-- **Safe by default**: Partner Directory full sync never deletes the parameters of a partner
-  whose local files could not be read; destructive MCP tools need an explicit confirmation.
+```bash
+cpictl update artifact --artifact-id OrderIntake --package-id Orders --dir-artifact ./OrderIntake
+cpictl deploy --artifact-ids OrderIntake
+cpictl status --artifact-ids OrderIntake --output json
+```
 
-`cpictl` started as a fork of [FlashPipe](https://github.com/engswee/flashpipe) (Apache 2.0);
-see [NOTICE](NOTICE).
-
----
+- **CLI and MCP server in one binary.** `cpictl mcp` gives AI agents the same operations,
+  with the same safety rules, as the command line.
+- **Machine-readable by design.** `--output json` returns one result document on stdout,
+  logs go to stderr, and the exit code says *why* something failed.
+- **Deployments you can trust.** `deploy` follows the tenant's build/deploy task and waits
+  for the *new* runtime artifact. A redeploy is never reported as done while the previous
+  version is still running.
+- **Safe defaults.** Partner Directory full sync never deletes a partner's parameters when its
+  local files cannot be read; destructive MCP tools need explicit confirmation.
 
 ## Contents
 
 - [Install](#install)
 - [Connect to a tenant](#connect-to-a-tenant)
-- [Quick start](#quick-start)
+- [Everyday workflow](#everyday-workflow)
 - [Commands](#commands)
 - [Output and exit codes](#output-and-exit-codes)
-- [MCP server](#mcp-server)
+- [AI agents (MCP)](#ai-agents-mcp)
 - [Documentation](#documentation)
 - [Development](#development)
 
@@ -36,65 +37,52 @@ Requires Go 1.26 or later.
 ```bash
 git clone https://github.com/cpars-innovation/cpicli.git
 cd cpicli
-make build            # -> bin/cpictl
+make build                 # -> bin/cpictl
 ./bin/cpictl --version
 ```
 
-Without make:
-
-```bash
-go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o bin/cpictl ./cmd/cpictl
-```
-
-Cross-platform builds: `make build-all` (Windows, Linux amd64/arm64, macOS).
+`make build-all` cross-compiles for Windows, Linux (amd64, arm64) and macOS.
 
 ## Connect to a tenant
 
-Every command needs the tenant host and either OAuth client credentials (recommended)
-or Basic Auth. Use environment variables for secrets:
+Create an OAuth client for the Cloud Integration API in SAP BTP
+([how](docs/configuration.md#creating-an-oauth-client-in-sap-btp)) and export its values:
 
 ```bash
-export FLASHPIPE_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
-export FLASHPIPE_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com
-export FLASHPIPE_OAUTH_CLIENTID=sb-xxxxxxxx!b1234|it!b5678
-export FLASHPIPE_OAUTH_CLIENTSECRET=...
+export CPICTL_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+export CPICTL_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com
+export CPICTL_OAUTH_CLIENTID='sb-xxxxxxxx!b1234|it!b5678'
+export CPICTL_OAUTH_CLIENTSECRET='...'
 ```
 
-The same settings can be passed as flags (`--tmn-host`, `--oauth-host`, ...) or put in a
-config file (`$HOME/flashpipe.yaml` or `--config file.yaml`), which can also hold defaults for
-each command. See [docs/configuration.md](docs/configuration.md), including how to create the
-OAuth client in SAP BTP.
+Every setting is available as a flag (`--tmn-host`), as an environment variable
+(`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml`, which can also hold
+defaults per command. Details: [docs/configuration.md](docs/configuration.md).
 
-> The `FLASHPIPE_` prefix and the `flashpipe.yaml` file name are kept for compatibility with
-> existing FlashPipe pipelines.
-
-## Quick start
+## Everyday workflow
 
 ```bash
-# What is on the tenant?
+# Look around
 cpictl packages
-cpictl artifacts --package-id MyPackage
+cpictl artifacts --package-id Orders
 
-# Upload a local iFlow directory (create or update) and deploy it
-cpictl update artifact --artifact-id MyIFlow --package-id MyPackage --dir-artifact ./MyIFlow
-cpictl deploy --artifact-ids MyIFlow
+# Change an iFlow locally, upload it (created or updated only if the content differs) and deploy
+cpictl update artifact --artifact-id OrderIntake --package-id Orders --dir-artifact ./OrderIntake
+cpictl deploy --artifact-ids OrderIntake
 
-# Check the result, read the error if it failed
-cpictl status --artifact-ids MyIFlow
+# Did it start? If not, the tenant's error message is in the output
+cpictl status --artifact-ids OrderIntake
 
-# Change externalised parameters, then deploy again to activate them
-cpictl params set --artifact-id MyIFlow --param ReceiverHost=api.example.com
-cpictl deploy --artifact-ids MyIFlow --compare-versions=false
+# Change externalised parameters and activate them
+cpictl params set --artifact-id OrderIntake --param ReceiverHost=orders.example.com
+cpictl deploy --artifact-ids OrderIntake --compare-versions=false
 
-# Remove it from runtime again
-cpictl undeploy --artifact-ids MyIFlow
+# Take it off the runtime again
+cpictl undeploy --artifact-ids OrderIntake
 ```
 
-Machine-readable output for scripts:
-
-```bash
-cpictl deploy --artifact-ids A,B --output json | jq '.result.results[] | {id, status, error}'
-```
+For many packages at once, use [`orchestrator`](docs/orchestrator.md) (update + deploy from a
+directory tree) or [`configure`](docs/configure.md) (parameters from YAML per environment).
 
 ## Commands
 
@@ -104,104 +92,101 @@ cpictl deploy --artifact-ids A,B --output json | jq '.result.results[] | {id, st
 | Designtime | `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
-| Multi-package deployments | `orchestrator`, `config-generate` |
-| Git synchronisation | `sync`, `snapshot`, `snapshot restore` |
+| Many packages | `orchestrator`, `config-generate` |
+| Git | `sync`, `snapshot`, `snapshot restore` |
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
 | AI agents | `mcp` |
 
-Full reference with all flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
+All commands and flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
 
 ## Output and exit codes
 
-`--output text` (default) writes human-readable logs to stderr and nothing to stdout.
-`--output json` writes exactly one JSON document to stdout and JSON-line logs to stderr:
+By default cpictl writes human-readable logs to stderr and nothing to stdout.
+With `--output json` stdout receives exactly one JSON document and stderr receives JSON log lines:
 
 ```json
 {
   "command": "deploy",
   "ok": false,
   "exitCode": 7,
-  "error": "1 of 2 artifact(s) failed - B: FAILED (designtime artifact B does not exist)",
+  "error": "1 of 2 artifact(s) failed - Billing: FAILED (designtime artifact Billing does not exist)",
   "result": {
     "results": [
-      {"id": "A", "type": "Integration", "taskId": "...", "status": "DEPLOYED", "version": "1.0.2"},
-      {"id": "B", "type": "Integration", "status": "FAILED", "error": "designtime artifact B does not exist"}
+      {"id": "OrderIntake", "type": "Integration", "taskId": "...", "status": "DEPLOYED", "version": "1.0.2"},
+      {"id": "Billing", "type": "Integration", "status": "FAILED", "error": "designtime artifact Billing does not exist"}
     ]
   }
 }
 ```
 
-Deploy/undeploy statuses: `DEPLOYED`, `SKIPPED` (same version already running),
-`UNDEPLOYED`, `NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.
+Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPLOYED`,
+`NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.
 
-### Exit codes
-
-| Code | Meaning | Typical reaction |
-|------|---------|------------------|
+| Exit code | Meaning | Typical reaction |
+|-----------|---------|------------------|
 | 0 | OK | |
 | 1 | Unexpected internal error | report a bug |
-| 2 | Usage or configuration error | fix flags/config |
+| 2 | Usage or configuration error | fix flags or config |
 | 3 | Authentication failed (401/403, OAuth token) | check credentials and roles |
-| 4 | Tenant HTTP error or tenant unreachable | retry later / check host |
+| 4 | Tenant HTTP error or tenant unreachable | retry, check host |
 | 5 | Deployment or validation failed on the tenant | fix the artifact |
-| 6 | Timeout (polling budget exhausted) | check status, increase `--max-check-limit` |
-| 7 | Partial failure (some items succeeded) | inspect the per-item results |
+| 6 | Timeout | check `status`, raise `--max-check-limit` |
+| 7 | Partial failure | inspect the per-item results |
 
-## MCP server
+## AI agents (MCP)
 
-`cpictl mcp` exposes the tenant to AI agents over the Model Context Protocol (stdio).
-With Claude Code:
+`cpictl mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio.
+Add it to Claude Code:
 
 ```bash
 claude mcp add cpi \
-  -e FLASHPIPE_TMN_HOST=... -e FLASHPIPE_OAUTH_HOST=... \
-  -e FLASHPIPE_OAUTH_CLIENTID=... -e FLASHPIPE_OAUTH_CLIENTSECRET=... \
-  -- /path/to/bin/cpictl mcp --root /path/to/your/integration-repo
+  -e CPICTL_TMN_HOST=... -e CPICTL_OAUTH_HOST=... \
+  -e CPICTL_OAUTH_CLIENTID=... -e CPICTL_OAUTH_CLIENTSECRET=... \
+  -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
 Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `get_parameters`,
 `set_parameters`, `upload_artifact`, `deploy`, `undeploy`, `pd_deploy`.
-See [docs/mcp.md](docs/mcp.md) for the tool contract, safety rules and other clients.
+Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
+See [docs/mcp.md](docs/mcp.md).
 
 ## Documentation
 
-| Document | Content |
-|----------|---------|
-| [docs/configuration.md](docs/configuration.md) | Connection, config file, environment variables, OAuth client setup |
-| [docs/commands.md](docs/commands.md) | Generated reference of all commands and flags |
-| [docs/mcp.md](docs/mcp.md) | MCP server: setup, tools, result format, safety |
-| [docs/orchestrator.md](docs/orchestrator.md) | Multi-package update + deploy, `config-generate` |
-| [docs/configure.md](docs/configure.md) | Parameter configuration from YAML (`configure`, `configure pull`) |
-| [docs/partner-directory.md](docs/partner-directory.md) | `pd-snapshot` / `pd-deploy`, file layout, full sync |
-| [docs/ci.md](docs/ci.md) | Using cpictl in GitHub Actions / Azure Pipelines |
-| [docs/examples/](docs/examples) | Ready-to-copy configuration files |
-| [CHANGELOG.md](CHANGELOG.md) | Changes since the FlashPipe fork |
+| | |
+|---|---|
+| [Configuration](docs/configuration.md) | Connection, config file, environment variables, OAuth client |
+| [Command reference](docs/commands.md) | All commands and flags |
+| [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
+| [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
+| [Partner Directory](docs/partner-directory.md) | `pd-snapshot`, `pd-deploy`, full sync |
+| [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, scripting with exit codes |
+| [Examples](docs/examples) | Ready-to-copy configuration files |
+| [Coming from FlashPipe](docs/migrating-from-flashpipe.md) | What changed and how to migrate |
 
 ## Development
 
 ```bash
-go test ./...                    # offline, no tenant needed (httptest mock tenant)
+go test ./...               # offline against an in-memory mock tenant, a few seconds
 go test -race ./...
-make test-integration            # WRITES TO A REAL TENANT, needs FLASHPIPE_* env vars
+make test-integration       # writes to a REAL tenant, needs CPICTL_* variables
 ```
-
-Project layout:
 
 ```
 cmd/cpictl         main package
-internal/cmd       CLI commands (cobra), output contract
-internal/mcp       MCP server and tool definitions
-pkg/ops            operations with structured results, shared by CLI and MCP
-pkg/cpi            SAP CPI OData API client
-pkg/httpclnt       HTTP client (OAuth / Basic Auth, CSRF, typed HTTP errors)
-internal/cpitest   in-memory mock tenant for tests
+internal/cmd       CLI commands, output contract
+internal/mcp       MCP server and tools
+pkg/ops            operations with structured results (shared by CLI and MCP)
+pkg/cpi            SAP Cloud Integration OData API client
+pkg/httpclnt       HTTP client: OAuth / Basic Auth, CSRF, typed errors
+internal/cpitest   mock tenant for tests
 ```
 
-Golden files: `go test ./internal/cmd -update` regenerates the exit-code goldens and
-`docs/commands.md`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party licenses are in
-[licenses/](licenses).
+Apache License 2.0, see [LICENSE](LICENSE). cpictl contains code originally developed as
+[FlashPipe](https://github.com/engswee/flashpipe) by Eng Swee Yeoh; see [NOTICE](NOTICE).
+Third-party licenses: [licenses/](licenses).

@@ -15,7 +15,7 @@ import (
 func NewArtifactCommand() *cobra.Command {
 	artifactCmd := &cobra.Command{
 		Use:   "artifact",
-		Short: "Create/update artifacts",
+		Short: "Create or update a designtime artifact from a local directory",
 		Long: `Create or update artifacts on the
 SAP Integration Suite tenant.
 

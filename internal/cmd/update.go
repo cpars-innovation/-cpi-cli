@@ -8,7 +8,7 @@ func NewUpdateCommand() *cobra.Command {
 
 	updateCmd := &cobra.Command{
 		Use:   "update",
-		Short: "Create/update artifacts or integration package",
+		Short: "Create or update designtime artifacts and packages",
 		Long: `Create or update artifacts and/or integration package on the
 SAP Integration Suite tenant.`,
 	}

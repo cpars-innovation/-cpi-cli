@@ -11,7 +11,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
-	flashpipeSync "github.com/cpars-innovation/cpicli/internal/sync"
+	artifactsync "github.com/cpars-innovation/cpicli/internal/sync"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
@@ -68,7 +68,7 @@ func NewOrchestratorCommand() *cobra.Command {
 
 	orchestratorCmd := &cobra.Command{
 		Use:          "orchestrator",
-		Short:        "Orchestrate SAP CPI artifact updates and deployments",
+		Short:        "Update and deploy many packages from a local directory tree",
 		SilenceUsage: true,
 		Long: `Orchestrate the complete deployment lifecycle for SAP CPI artifacts.
 
@@ -105,7 +105,7 @@ Deployment Strategy:
 Configuration:
   Settings can be loaded from the global config file (--config) under the
   'orchestrator' section. CLI flags override config file settings.`,
-		Example: `  # Update and deploy with config from global flashpipe.yaml
+		Example: `  # Update and deploy with config from global cpictl.yaml
   cpictl orchestrator --update
 
   # Load specific config file
@@ -504,9 +504,9 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 
 	// Use internal sync package update function
 	exe := cpi.InitHTTPExecuter(serviceDetails)
-	packageSynchroniser := flashpipeSync.NewSyncer("tenant", "CPIPackage", exe)
+	packageSynchroniser := artifactsync.NewSyncer("tenant", "CPIPackage", exe)
 
-	err = packageSynchroniser.Exec(flashpipeSync.Request{PackageFile: packageJSONPath})
+	err = packageSynchroniser.Exec(artifactsync.Request{PackageFile: packageJSONPath})
 	if err != nil {
 		log.Warn().Msgf("Package update warning (may not exist yet): %v", err)
 		// Don't return error - package might not exist yet
@@ -531,7 +531,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	}
 
 	exe := cpi.InitHTTPExecuter(serviceDetails)
-	synchroniser := flashpipeSync.New(exe)
+	synchroniser := artifactsync.New(exe)
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter

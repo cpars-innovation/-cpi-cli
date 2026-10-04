@@ -16,10 +16,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      FLASHPIPE_TMN_HOST: ${{ vars.CPI_DEV_TMN_HOST }}
-      FLASHPIPE_OAUTH_HOST: ${{ vars.CPI_DEV_OAUTH_HOST }}
-      FLASHPIPE_OAUTH_CLIENTID: ${{ secrets.CPI_DEV_OAUTH_CLIENTID }}
-      FLASHPIPE_OAUTH_CLIENTSECRET: ${{ secrets.CPI_DEV_OAUTH_CLIENTSECRET }}
+      CPICTL_TMN_HOST: ${{ vars.CPI_DEV_TMN_HOST }}
+      CPICTL_OAUTH_HOST: ${{ vars.CPI_DEV_OAUTH_HOST }}
+      CPICTL_OAUTH_CLIENTID: ${{ secrets.CPI_DEV_OAUTH_CLIENTID }}
+      CPICTL_OAUTH_CLIENTSECRET: ${{ secrets.CPI_DEV_OAUTH_CLIENTSECRET }}
     steps:
       - uses: actions/checkout@v4                # the integration content repository
 
@@ -52,7 +52,7 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  - group: cpi-dev            # FLASHPIPE_TMN_HOST, FLASHPIPE_OAUTH_HOST (+ secret client id/secret)
+  - group: cpi-dev            # CPICTL_TMN_HOST, CPICTL_OAUTH_HOST (+ secret client id/secret)
 
 steps:
   - checkout: self
@@ -64,8 +64,8 @@ steps:
   - script: |
       ./cpicli/bin/cpictl deploy --artifact-ids "$(ARTIFACT_IDS)" --output json > result.json
     env:
-      FLASHPIPE_OAUTH_CLIENTID: $(CPI_OAUTH_CLIENTID)
-      FLASHPIPE_OAUTH_CLIENTSECRET: $(CPI_OAUTH_CLIENTSECRET)
+      CPICTL_OAUTH_CLIENTID: $(CPI_OAUTH_CLIENTID)
+      CPICTL_OAUTH_CLIENTSECRET: $(CPI_OAUTH_CLIENTSECRET)
 ```
 
 Secret variables are not exported automatically in Azure Pipelines; map them with `env:` as shown.

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -24,15 +26,17 @@ func NewCmdRoot(version string) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "cpictl",
 		Version: version,
-		Short:   "cpictl - CI/CD and automation CLI for SAP Integration Suite",
-		Long: `cpictl - CI/CD and automation CLI for SAP Integration Suite
+		Short:   "Build, deploy and operate SAP Cloud Integration content",
+		Long: `cpictl builds, deploys and operates SAP Cloud Integration (CPI) content from
+the command line, CI/CD pipelines and AI agents (cpictl mcp).
 
-cpictl (a fork of FlashPipe) is a CLI that is used to simplify the
-Build-To-Deploy cycle for SAP Integration Suite by providing CI/CD
-capabilities for automating time-consuming manual tasks like:
-- synchronising integration artifacts to Git
-- creating/updating integration artifacts to SAP Integration Suite
-- deploying integration artifacts on SAP Integration Suite`,
+Tenant connection: --tmn-host plus OAuth (--oauth-host, --oauth-clientid,
+--oauth-clientsecret) or Basic Auth (--tmn-userid, --tmn-password). Every flag
+can also be set as CPICTL_<FLAG> environment variable or in $HOME/cpictl.yaml.
+
+Use --output json for one machine-readable result document on stdout.
+Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
+7 partial failure.`,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// You can bind cobra and viper in a few locations, but PersistencePreRunE on the root command works well
@@ -40,13 +44,13 @@ capabilities for automating time-consuming manual tasks like:
 		},
 	}
 
-	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/flashpipe.yaml)")
+	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/cpictl.yaml)")
 
 	// Define cobra flags, the default value has the lowest (least significant) precedence
-	rootCmd.PersistentFlags().String("tmn-host", "", "Host for tenant management node of Cloud Integration or API Portal node of APIM excluding https://")
+	rootCmd.PersistentFlags().String("tmn-host", "", "Tenant host of Cloud Integration (or API portal host for API Management)")
 	rootCmd.PersistentFlags().String("tmn-userid", "", "User ID for Basic Auth")
 	rootCmd.PersistentFlags().String("tmn-password", "", "Password for Basic Auth")
-	rootCmd.PersistentFlags().String("oauth-host", "", "Host for OAuth token server excluding https:// ")
+	rootCmd.PersistentFlags().String("oauth-host", "", "OAuth token server host")
 	rootCmd.PersistentFlags().String("oauth-clientid", "", "Client ID for using OAuth")
 	rootCmd.PersistentFlags().String("oauth-clientsecret", "", "Client Secret for using OAuth")
 	rootCmd.PersistentFlags().String("oauth-path", "/oauth/token", "Path for OAuth token server")
@@ -54,7 +58,6 @@ capabilities for automating time-consuming manual tasks like:
 	rootCmd.PersistentFlags().Bool("debug", false, "Show debug logs")
 	rootCmd.PersistentFlags().String("output", output.FormatText, "Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines")
 
-	_ = rootCmd.MarkPersistentFlagRequired("tmn-host")
 	rootCmd.MarkFlagsRequiredTogether("tmn-userid", "tmn-password")
 	rootCmd.MarkFlagsRequiredTogether("oauth-host", "oauth-clientid", "oauth-clientsecret")
 
@@ -172,9 +175,9 @@ func commandName(cmd *cobra.Command) string {
 	return strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
 }
 
-// scanOutputFormat finds --output in raw arguments (or FLASHPIPE_OUTPUT).
+// scanOutputFormat finds --output in raw arguments (or CPICTL_OUTPUT).
 func scanOutputFormat(args []string) string {
-	value := os.Getenv("FLASHPIPE_OUTPUT")
+	value := os.Getenv(envPrefix + "_OUTPUT")
 	for i, arg := range args {
 		if arg == "--" {
 			break
@@ -192,13 +195,55 @@ func scanOutputFormat(args []string) string {
 }
 
 // outputFormat returns the effective output format of a parsed command.
-// Values other than text/json only occur for config-generate, where --output
-// used to be the target file (see runConfigGenerate); they mean text.
 func outputFormat(cmd *cobra.Command) string {
 	if config.GetString(cmd, "output") == output.FormatJSON {
 		return output.FormatJSON
 	}
 	return output.FormatText
+}
+
+// envPrefix is the prefix of the environment variables bound to flags.
+const envPrefix = "CPICTL"
+
+// legacyEnvPrefix is the FlashPipe prefix, only used to warn about old settings.
+const legacyEnvPrefix = "FLASHPIPE"
+
+// annotationOffline marks commands that do not talk to a tenant.
+const annotationOffline = "cpicli/offline"
+
+// legacySettingsHint warns about FlashPipe-era settings that are no longer read.
+func legacySettingsHint(cfgFile string) string {
+	var found []string
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, legacyEnvPrefix+"_") {
+			found = append(found, name)
+		}
+	}
+	var hints []string
+	if len(found) > 0 {
+		sort.Strings(found)
+		hints = append(hints, fmt.Sprintf("FLASHPIPE_* environment variables are not read, rename them to CPICTL_* (found: %s)", strings.Join(found, ", ")))
+	}
+	if cfgFile == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			_, errOld := os.Stat(filepath.Join(home, "flashpipe.yaml"))
+			_, errNew := os.Stat(filepath.Join(home, "cpictl.yaml"))
+			if errOld == nil && errNew != nil {
+				hints = append(hints, "$HOME/flashpipe.yaml is not read, rename it to $HOME/cpictl.yaml")
+			}
+		}
+	}
+	if len(hints) == 0 {
+		return ""
+	}
+	return strings.Join(hints, "; ") + " (see docs/migrating-from-flashpipe.md)"
+}
+
+func hintSuffix(hint string) string {
+	if hint == "" {
+		return ""
+	}
+	return ". Note: " + hint
 }
 
 func initializeConfig(cmd *cobra.Command) error {
@@ -211,10 +256,10 @@ func initializeConfig(cmd *cobra.Command) error {
 		home, err := os.UserHomeDir()
 		cobra.CheckErr(err)
 
-		// Search config in home directory with name "flashpipe.yaml".
+		// Search config in home directory with name "cpictl.yaml".
 		viper.AddConfigPath(home)
 		viper.SetConfigType("yaml")
-		viper.SetConfigName("flashpipe")
+		viper.SetConfigName("cpictl")
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
@@ -224,10 +269,10 @@ func initializeConfig(cmd *cobra.Command) error {
 		}
 	}
 
-	viper.SetEnvPrefix("FLASHPIPE")
+	viper.SetEnvPrefix(envPrefix)
 
 	// Environment variables can't have dashes in them, so bind them to their equivalent
-	// keys with underscores, e.g. --artifact-id to FLASHPIPE_ARTIFACT_ID
+	// keys with underscores, e.g. --artifact-id to CPICTL_ARTIFACT_ID
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
 	// Bind to environment variables
@@ -242,15 +287,27 @@ func initializeConfig(cmd *cobra.Command) error {
 	}
 
 	format := config.GetString(cmd, "output")
-	if format != output.FormatText && format != output.FormatJSON && cmd.Name() != "config-generate" {
+	if format != output.FormatText && format != output.FormatJSON {
 		return output.Usagef("invalid value for --output = %v (allowed: text, json)", format)
 	}
 
-	if config.GetString(cmd, "oauth-host") == "" && config.GetString(cmd, "tmn-userid") == "" {
-		return output.Usagef("required flag \"tmn-userid\" (Basic Auth) or \"oauth-host\" (OAuth) not set")
+	logger.Init(cmd.ErrOrStderr(), format == output.FormatJSON, viper.GetBool("debug"))
+	legacy := legacySettingsHint(cfgFile)
+	if legacy != "" {
+		log.Warn().Msg(legacy)
 	}
 
-	logger.Init(cmd.ErrOrStderr(), outputFormat(cmd) == output.FormatJSON, viper.GetBool("debug"))
+	if cmd.Annotations[annotationOffline] != "true" {
+		hasAuth := config.GetString(cmd, "oauth-host") != "" || config.GetString(cmd, "tmn-userid") != ""
+		switch {
+		case config.GetString(cmd, "tmn-host") == "" && !hasAuth:
+			return output.Usagef("no tenant configured: set --tmn-host and OAuth (--oauth-host, --oauth-clientid, --oauth-clientsecret) or Basic Auth (--tmn-userid, --tmn-password)%s", hintSuffix(legacy))
+		case config.GetString(cmd, "tmn-host") == "":
+			return output.Usagef("required flag \"tmn-host\" not set%s", hintSuffix(legacy))
+		case !hasAuth:
+			return output.Usagef("required flag \"tmn-userid\" (Basic Auth) or \"oauth-host\" (OAuth) not set%s", hintSuffix(legacy))
+		}
+	}
 
 	return nil
 }

@@ -131,5 +131,4 @@ cpictl config-generate --packages-dir ./packages --output-file ./001-deploy-conf
 - Packages and artifacts that no longer exist on disk are removed from the file.
 - `--package-filter` / `--artifact-filter` restrict the scan.
 
-`--output-file` used to be `--output`; a non-format value passed to `--output` is still
-accepted as the file path with a deprecation warning.
+`config-generate` works offline: it needs no tenant settings.

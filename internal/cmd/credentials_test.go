@@ -25,7 +25,7 @@ func TestCredentialsFromConfigFile(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	cfg := fmt.Sprintf("tmn-host: http://%s:%d\ntmn-userid: user\ntmn-password: secret\n", host, port)
-	require.NoError(t, os.WriteFile(filepath.Join(home, "flashpipe.yaml"), []byte(cfg), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "cpictl.yaml"), []byte(cfg), 0600))
 
 	root := NewCLI("test")
 	root.SetOut(&bytes.Buffer{})
@@ -45,7 +45,7 @@ func TestDeployArtifactIDsFromConfigFile(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	cfg := fmt.Sprintf("tmn-host: http://%s:%d\ntmn-userid: user\ntmn-password: secret\ndeploy:\n  artifactIds: [A]\n", host, port)
-	require.NoError(t, os.WriteFile(filepath.Join(home, "flashpipe.yaml"), []byte(cfg), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "cpictl.yaml"), []byte(cfg), 0600))
 
 	root := NewCLI("test")
 	root.SetOut(&bytes.Buffer{})

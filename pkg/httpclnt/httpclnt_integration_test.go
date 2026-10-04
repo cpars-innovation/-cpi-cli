@@ -11,11 +11,11 @@ import (
 )
 
 func TestOauth(t *testing.T) {
-	host := os.Getenv("FLASHPIPE_TMN_HOST")
-	oauthHost := os.Getenv("FLASHPIPE_OAUTH_HOST")
-	oauthPath := os.Getenv("FLASHPIPE_OAUTH_PATH")
-	clientId := os.Getenv("FLASHPIPE_OAUTH_CLIENTID")
-	clientSecret := os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET")
+	host := os.Getenv("CPICTL_TMN_HOST")
+	oauthHost := os.Getenv("CPICTL_OAUTH_HOST")
+	oauthPath := os.Getenv("CPICTL_OAUTH_PATH")
+	clientId := os.Getenv("CPICTL_OAUTH_CLIENTID")
+	clientSecret := os.Getenv("CPICTL_OAUTH_CLIENTSECRET")
 	exe := New(oauthHost, oauthPath, clientId, clientSecret, "", "", host, "https", 443, true)
 
 	headers := map[string]string{
@@ -31,9 +31,9 @@ func TestOauth(t *testing.T) {
 }
 
 func TestBasicAuth(t *testing.T) {
-	host := os.Getenv("FLASHPIPE_TMN_HOST")
-	userId := os.Getenv("FLASHPIPE_TMN_USERID")
-	password := os.Getenv("FLASHPIPE_TMN_PASSWORD")
+	host := os.Getenv("CPICTL_TMN_HOST")
+	userId := os.Getenv("CPICTL_TMN_USERID")
+	password := os.Getenv("CPICTL_TMN_PASSWORD")
 	exe := New("", "", "", "", userId, password, host, "https", 443, true)
 
 	headers := map[string]string{

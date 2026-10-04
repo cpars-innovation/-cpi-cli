@@ -16,7 +16,7 @@ func NewDeployCommand() *cobra.Command {
 
 	deployCmd := &cobra.Command{
 		Use:          "deploy",
-		Short:        "Deploy designtime artifact to runtime",
+		Short:        "Deploy designtime artifacts and wait for the result",
 		SilenceUsage: true,
 		Long: `Deploy artifact from designtime to
 runtime of SAP Integration Suite tenant.

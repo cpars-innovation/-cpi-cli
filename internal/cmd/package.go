@@ -13,7 +13,7 @@ func NewPackageCommand() *cobra.Command {
 	packageCmd := &cobra.Command{
 		Use:     "package",
 		Aliases: []string{"pkg"},
-		Short:   "Create/update integration package",
+		Short:   "Create or update an integration package from a JSON file",
 		Long: `Create or update integration package on the
 SAP Integration Suite tenant.
 
