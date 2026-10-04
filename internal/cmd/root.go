@@ -1,12 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/exitcode"
 	"github.com/cpars-innovation/-cpi-cli/internal/logger"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -46,6 +52,7 @@ capabilities for automating time-consuming manual tasks like:
 	rootCmd.PersistentFlags().String("oauth-path", "/oauth/token", "Path for OAuth token server")
 
 	rootCmd.PersistentFlags().Bool("debug", false, "Show debug logs")
+	rootCmd.PersistentFlags().String("output", output.FormatText, "Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines")
 
 	_ = rootCmd.MarkPersistentFlagRequired("tmn-host")
 	rootCmd.MarkFlagsRequiredTogether("tmn-userid", "tmn-password")
@@ -78,20 +85,114 @@ func NewCLI(version string) *cobra.Command {
 	return rootCmd
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
+// Execute runs the CLI with the process arguments and exits with the
+// contract exit code. This is called by main.main().
 func Execute(version, buildTime string) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := Run(ctx, os.Args[1:], os.Stdout, os.Stderr, version, buildTime)
+	stop()
+	os.Exit(code)
+}
 
+// Run executes the CLI and returns the exit code (see internal/exitcode).
+// Results go to stdout, logs to stderr.
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, buildTime string) int {
 	rootCmd := NewCLI(version)
 	rootCmd.SetVersionTemplate(fmt.Sprintf("cpictl version {{.Version}} (built %s)\n", buildTime))
+	rootCmd.SetArgs(args)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return output.Usage(err) })
 
-	err := rootCmd.Execute()
+	// The format is needed before cobra has parsed the flags (e.g. to report
+	// a flag parsing error as JSON)
+	format := scanOutputFormat(args)
+	logger.Init(stderr, format == output.FormatJSON, false)
 
-	if err != nil {
-		// Display stack trace based on type of error
-		msg := logger.GetErrorDetails(err)
-		log.Fatal().Msg(msg)
+	// Errors raised before a command's RunE starts are usage/config errors
+	started := false
+	walkCommands(rootCmd, func(c *cobra.Command) {
+		if format == output.FormatJSON {
+			c.SilenceUsage = true // usage text would break the JSON-lines stderr contract
+		}
+		if run := c.RunE; run != nil {
+			c.RunE = func(cmd *cobra.Command, args []string) error {
+				started = true
+				return run(cmd, args)
+			}
+		}
+	})
+
+	ctx = output.WithResultHolder(ctx)
+	cmd, err := rootCmd.ExecuteContextC(ctx)
+	if cmd != nil {
+		if f := cmd.Flags().Lookup("output"); f != nil && f.Changed {
+			format = outputFormat(cmd)
+		}
 	}
+
+	code := output.ExitCode(err)
+	if err != nil && !started && code == exitcode.Error {
+		code = exitcode.Usage
+	}
+	if err != nil {
+		log.Error().Int("exitCode", code).Msg(logger.GetErrorDetails(err))
+	}
+
+	// --help/--version and commands without RunE produce no result document
+	if format == output.FormatJSON && (started || err != nil) {
+		env := output.Envelope{Command: commandName(cmd), OK: code == exitcode.OK, ExitCode: code, Result: output.Result(ctx)}
+		if err != nil {
+			env.Error = err.Error()
+		}
+		if werr := output.WriteEnvelope(stdout, env); werr != nil && code == exitcode.OK {
+			code = exitcode.Error
+		}
+	}
+	return code
+}
+
+func walkCommands(c *cobra.Command, fn func(*cobra.Command)) {
+	fn(c)
+	for _, sub := range c.Commands() {
+		walkCommands(sub, fn)
+	}
+}
+
+func commandName(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
+}
+
+// scanOutputFormat finds --output in raw arguments (or FLASHPIPE_OUTPUT).
+func scanOutputFormat(args []string) string {
+	value := os.Getenv("FLASHPIPE_OUTPUT")
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--output" && i+1 < len(args) {
+			value = args[i+1]
+		} else if v, ok := strings.CutPrefix(arg, "--output="); ok {
+			value = v
+		}
+	}
+	if value == output.FormatJSON {
+		return output.FormatJSON
+	}
+	return output.FormatText
+}
+
+// outputFormat returns the effective output format of a parsed command.
+// Values other than text/json only occur for config-generate, where --output
+// used to be the target file (see runConfigGenerate); they mean text.
+func outputFormat(cmd *cobra.Command) string {
+	if config.GetString(cmd, "output") == output.FormatJSON {
+		return output.FormatJSON
+	}
+	return output.FormatText
 }
 
 func initializeConfig(cmd *cobra.Command) error {
@@ -113,7 +214,7 @@ func initializeConfig(cmd *cobra.Command) error {
 	if err := viper.ReadInConfig(); err != nil {
 		// It's okay if there isn't a config file
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
+			return output.Usage(err)
 		}
 	}
 
@@ -134,11 +235,16 @@ func initializeConfig(cmd *cobra.Command) error {
 		viper.Set("debug", config.GetBool(cmd, "debug"))
 	}
 
-	if config.GetString(cmd, "oauth-host") == "" && config.GetString(cmd, "tmn-userid") == "" {
-		return fmt.Errorf("required flag \"tmn-userid\" (Basic Auth) or \"oauth-host\" (OAuth) not set")
+	format := config.GetString(cmd, "output")
+	if format != output.FormatText && format != output.FormatJSON && cmd.Name() != "config-generate" {
+		return output.Usagef("invalid value for --output = %v (allowed: text, json)", format)
 	}
 
-	logger.InitConsoleLogger(viper.GetBool("debug"))
+	if config.GetString(cmd, "oauth-host") == "" && config.GetString(cmd, "tmn-userid") == "" {
+		return output.Usagef("required flag \"tmn-userid\" (Basic Auth) or \"oauth-host\" (OAuth) not set")
+	}
+
+	logger.Init(cmd.ErrOrStderr(), outputFormat(cmd) == output.FormatJSON, viper.GetBool("debug"))
 
 	return nil
 }

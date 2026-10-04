@@ -7,6 +7,33 @@ and adds safety fixes and agent-friendly output. The original FlashPipe README f
 Build: `make build` (binary in `bin/cpictl`), or
 `go build -ldflags "-X main.Version=$(git describe --tags --always)" -o bin/cpictl ./cmd/cpictl`.
 
+### Agent / CI output contract
+
+Every command accepts `--output text|json` (default `text`, env `FLASHPIPE_OUTPUT`).
+
+- `--output json`: exactly one JSON document on **stdout**
+  (`{"command", "ok", "exitCode", "error", "result"}`), logs on **stderr** as JSON lines.
+- `--output text`: human-readable logs on stderr, nothing on stdout.
+- `deploy` / `undeploy` results contain one entry per artifact:
+  `{"id", "type", "taskId", "status", "version", "error"}` with status
+  `DEPLOYED | SKIPPED | UNDEPLOYED | NOT_DEPLOYED | FAILED | TIMEOUT`.
+
+| Exit code | Meaning |
+|-----------|---------|
+| 0 | OK |
+| 1 | Unexpected internal error |
+| 2 | Usage or configuration error |
+| 3 | Authentication failed (401/403, OAuth token) |
+| 4 | Tenant HTTP error or tenant unreachable |
+| 5 | Deployment / validation failed |
+| 6 | Timeout (polling budget exhausted) |
+| 7 | Partial failure (some items succeeded) |
+
+`cpictl undeploy --artifact-ids A,B` removes runtime artifacts and waits until they are gone.
+
+`config-generate` now takes the target file via `--output-file`; a non-format value passed to
+`--output` is still accepted as the file path (deprecated).
+
 Tests: `go test ./...` runs offline. Tenant integration tests are behind a build tag and
 **write to a real tenant**: `go test -tags integration ./...`.
 

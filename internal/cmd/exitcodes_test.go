@@ -1,0 +1,254 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cpars-innovation/-cpi-cli/internal/cpitest"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var updateGolden = flag.Bool("update", false, "update golden files in testdata/")
+
+type cliRun struct {
+	code   int
+	stdout string
+	stderr string
+}
+
+// runMain executes the CLI exactly like main() does (minus os.Exit), with an
+// isolated HOME so that no flashpipe.yaml and no tenant env vars are used.
+func runMain(t *testing.T, args ...string) cliRun {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "FLASHPIPE_") {
+			t.Setenv(strings.SplitN(kv, "=", 2)[0], "")
+		}
+	}
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), args, &stdout, &stderr, "test", "test")
+	return cliRun{code: code, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+func basicAuth(mock *cpitest.Tenant) []string {
+	host, port := mock.HostPort()
+	return []string{"--tmn-host", "http://" + host + ":" + strconv.Itoa(port), "--tmn-userid", "user", "--tmn-password", "secret"}
+}
+
+func goldenCompare(t *testing.T, name string, got []byte) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *updateGolden {
+		require.NoError(t, os.MkdirAll("testdata", 0755))
+		require.NoError(t, os.WriteFile(path, got, 0644))
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "golden file missing, run: go test ./internal/cmd -run %s -update", t.Name())
+	assert.Equal(t, string(want), string(got), "golden file %s differs (run with -update to accept)", path)
+}
+
+// TestExitCodes is the golden test for the exit code contract:
+// 0 ok, 2 usage/config, 3 auth, 4 tenant HTTP error, 5 deploy/validate failed,
+// 6 timeout, 7 partial failure. Every scenario runs with --output json and
+// also verifies the output contract: exactly one JSON document on stdout and
+// JSON lines on stderr.
+func TestExitCodes(t *testing.T) {
+	now := time.Now()
+	started := []*cpitest.Runtime{{Version: "1", Status: "STARTED", DeployedOn: now}}
+	ok := func() *cpitest.Artifact {
+		return &cpitest.Artifact{Type: "Integration", DesignVersion: "1", TaskStatuses: []string{"SUCCESS"}, AfterDeploy: started}
+	}
+	fast := []string{"--delay-length", "0", "--max-check-limit", "2"}
+
+	brokenPD := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(brokenPD, "PID1", "String.properties"), 0755))
+
+	scenarios := []struct {
+		name string
+		args func(t *testing.T) []string
+	}{
+		{"deploy ok", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": ok()})
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"deploy skipped (same version running)", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
+				Runtime: &cpitest.Runtime{Version: "1", Status: "STARTED"}}})
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"undeploy ok", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Runtime: &cpitest.Runtime{Version: "1", Status: "STARTED"}}})
+			return append(append([]string{"undeploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"usage: unknown flag", func(t *testing.T) []string {
+			return []string{"deploy", "--bogus"}
+		}},
+		{"usage: unknown command", func(t *testing.T) []string {
+			return []string{"bogus"}
+		}},
+		{"usage: missing required flag", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"deploy"}, basicAuth(m)...)
+		}},
+		{"usage: missing credentials", func(t *testing.T) []string {
+			return []string{"deploy", "--artifact-ids", "A", "--tmn-host", "localhost"}
+		}},
+		{"usage: invalid artifact type", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"deploy", "--artifact-ids", "A", "--artifact-type", "Bogus"}, basicAuth(m)...)
+		}},
+		{"usage: invalid output format", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"deploy", "--artifact-ids", "A", "--output", "xml"}, basicAuth(m)...)
+		}},
+		{"usage: configure without config path", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"configure"}, basicAuth(m)...)
+		}},
+		{"auth: tenant returns 401", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			m.StatusOverride = http.StatusUnauthorized
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"auth: oauth token request fails", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil) // no /oauth/token endpoint
+			host, port := m.HostPort()
+			hp := "http://" + host + ":" + strconv.Itoa(port)
+			return append([]string{"deploy", "--artifact-ids", "A", "--tmn-host", hp,
+				"--oauth-host", hp, "--oauth-clientid", "id", "--oauth-clientsecret", "secret"}, fast...)
+		}},
+		{"tenant http: 500", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			m.StatusOverride = http.StatusInternalServerError
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"tenant http: unreachable", func(t *testing.T) []string {
+			return append([]string{"undeploy", "--artifact-ids", "A", "--tmn-host", "http://127.0.0.1:1",
+				"--tmn-userid", "user", "--tmn-password", "secret"}, fast...)
+		}},
+		{"deploy failed: build task FAIL", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
+				TaskStatuses: []string{"FAIL"}}})
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"deploy failed: designtime artifact missing", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"timeout: deploy still starting", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
+				AfterDeploy: []*cpitest.Runtime{{Version: "1", Status: "STARTING", DeployedOn: now}}}})
+			return append(append([]string{"deploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"timeout: undeploy never completes", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Runtime: &cpitest.Runtime{Status: "STARTED"}, UndeployAfter: -1}})
+			return append(append([]string{"undeploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
+		}},
+		{"partial: deploy one of two", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": ok()})
+			return append(append([]string{"deploy", "--artifact-ids", "A,B"}, fast...), basicAuth(m)...)
+		}},
+		{"partial: pd-deploy with unreadable PID", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"pd-deploy", "--resources-path", brokenPD}, basicAuth(m)...)
+		}},
+	}
+
+	var golden strings.Builder
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			args := sc.args(t)
+			if !slices.Contains(args, "--output") {
+				args = append(args, "--output", "json")
+			}
+			res := runMain(t, args...)
+
+			if !slices.Contains(args, "json") {
+				// e.g. an invalid --output value: text mode, nothing on stdout
+				assert.Empty(t, res.stdout)
+				fmt.Fprintf(&golden, "%-45s exit=%d (text output)\n", sc.name, res.code)
+				return
+			}
+
+			// stdout: exactly one JSON envelope matching the exit code
+			var env output.Envelope
+			dec := json.NewDecoder(strings.NewReader(res.stdout))
+			require.NoError(t, dec.Decode(&env), "stdout must be a JSON document, got: %q", res.stdout)
+			assert.False(t, dec.More(), "stdout must contain exactly one JSON document")
+			assert.Equal(t, res.code, env.ExitCode)
+			assert.Equal(t, res.code == 0, env.OK)
+
+			// stderr: JSON lines only
+			for _, line := range strings.Split(strings.TrimSpace(res.stderr), "\n") {
+				if line != "" {
+					assert.True(t, json.Valid([]byte(line)), "stderr line is not JSON: %q", line)
+				}
+			}
+			fmt.Fprintf(&golden, "%-45s exit=%d command=%q\n", sc.name, res.code, env.Command)
+		})
+	}
+	goldenCompare(t, "TestExitCodes.golden", []byte(golden.String()))
+}
+
+// The JSON result document of a partially failed multi-artifact deploy.
+func TestDeployJSONResultGolden(t *testing.T) {
+	m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.2", TaskStatuses: []string{"SUCCESS"},
+			AfterDeploy: []*cpitest.Runtime{{Version: "1.0.2", Status: "STARTED", DeployedOn: time.Now()}}},
+		"C": {Type: "Integration", DesignVersion: "2.0.0", TaskStatuses: []string{"DEPLOYING"}},
+	})
+	res := runMain(t, append([]string{"deploy", "--artifact-ids", "A,B,C", "--delay-length", "0", "--max-check-limit", "2",
+		"--output", "json"}, basicAuth(m)...)...)
+	assert.Equal(t, 7, res.code)
+	goldenCompare(t, "TestDeployJSONResult.golden", []byte(res.stdout))
+}
+
+// In text mode stdout stays empty (logs go to stderr) and the exit code
+// contract is the same.
+func TestTextModeKeepsStdoutClean(t *testing.T) {
+	m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+	res := runMain(t, append([]string{"deploy", "--artifact-ids", "A", "--delay-length", "0"}, basicAuth(m)...)...)
+	assert.Equal(t, 5, res.code)
+	assert.Empty(t, res.stdout)
+	assert.Contains(t, res.stderr, "designtime artifact A does not exist")
+}
+
+func TestVersionFlag(t *testing.T) {
+	res := runMain(t, "--version")
+	assert.Equal(t, 0, res.code)
+	assert.Equal(t, "cpictl version test (built test)\n", res.stdout)
+}
+
+func TestConfigGenerateLegacyOutputFlag(t *testing.T) {
+	dir := setupPackagesDir(t)
+	legacy := filepath.Join(dir, "legacy.yml")
+	res := runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output", legacy,
+		"--tmn-host", "localhost", "--tmn-userid", "u", "--tmn-password", "p")
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.FileExists(t, legacy)
+	assert.Contains(t, res.stderr, "deprecated")
+
+	newPath := filepath.Join(dir, "new.yml")
+	res = runMain(t, "config-generate", "--packages-dir", filepath.Join(dir, "packages"), "--output-file", newPath,
+		"--output", "json", "--tmn-host", "localhost", "--tmn-userid", "u", "--tmn-password", "p")
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.FileExists(t, newPath)
+	assert.Contains(t, res.stdout, `"outputFile"`)
+}

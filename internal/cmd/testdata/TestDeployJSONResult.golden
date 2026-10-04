@@ -1,0 +1,31 @@
+{
+  "command": "deploy",
+  "ok": false,
+  "exitCode": 7,
+  "error": "2 of 3 artifact(s) failed - B: FAILED (designtime artifact B does not exist); C: TIMEOUT (deployment status of C remained unfinished after 2 checks (task status \"DEPLOYING\", runtime status \"\"))",
+  "result": {
+    "results": [
+      {
+        "id": "A",
+        "type": "Integration",
+        "taskId": "task-A",
+        "status": "DEPLOYED",
+        "version": "1.0.2"
+      },
+      {
+        "id": "B",
+        "type": "Integration",
+        "status": "FAILED",
+        "error": "designtime artifact B does not exist"
+      },
+      {
+        "id": "C",
+        "type": "Integration",
+        "taskId": "task-C",
+        "status": "TIMEOUT",
+        "version": "2.0.0",
+        "error": "deployment status of C remained unfinished after 2 checks (task status \"DEPLOYING\", runtime status \"\")"
+      }
+    ]
+  }
+}

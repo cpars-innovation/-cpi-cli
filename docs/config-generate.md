@@ -26,7 +26,7 @@ flashpipe config-generate
 # Specify custom directories
 flashpipe config-generate \
   --packages-dir ./my-packages \
-  --output ./my-config.yml
+  --output-file ./my-config.yml
 
 # Generate config for specific packages only
 flashpipe config-generate \
@@ -47,7 +47,7 @@ flashpipe config-generate \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--packages-dir` | `./packages` | Path to packages directory to scan |
-| `--output` | `./001-deploy-config.yml` | Path to output configuration file |
+| `--output-file` | `./001-deploy-config.yml` | Path to output configuration file (formerly `--output`, still accepted with a deprecation warning) |
 | `--package-filter` | (none) | Comma-separated list of package names to include |
 | `--artifact-filter` | (none) | Comma-separated list of artifact names to include |
 
@@ -234,7 +234,7 @@ Create configuration for a specific subset:
 # Generate config for QA-specific packages
 flashpipe config-generate \
   --package-filter "QATestPackage1,QATestPackage2" \
-  --output ./qa-deploy-config.yml
+  --output-file ./qa-deploy-config.yml
 ```
 
 ### Migration/Validation
@@ -243,7 +243,7 @@ Regenerate to ensure consistency:
 
 ```bash
 # Regenerate to validate current structure
-flashpipe config-generate --output ./validated-config.yml
+flashpipe config-generate --output-file ./validated-config.yml
 ```
 
 ## Best Practices

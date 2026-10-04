@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/cpars-innovation/-cpi-cli/internal/repo"
 	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
@@ -115,7 +116,11 @@ func runPDDeploy(cmd *cobra.Command) error {
 	pids = str.TrimSlice(pids)
 
 	// Execute deploy
-	if err := deployPartnerDirectory(pdAPI, pdRepo, replace, fullSync, dryRun, pids); err != nil {
+	summary, err := deployPartnerDirectory(pdAPI, pdRepo, replace, fullSync, dryRun, pids)
+	if summary != nil {
+		output.SetResult(cmd.Context(), summary)
+	}
+	if err != nil {
 		return err
 	}
 
@@ -123,20 +128,28 @@ func runPDDeploy(cmd *cobra.Command) error {
 	return nil
 }
 
-func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, fullSync bool, dryRun bool, pidsFilter []string) error {
+// pdDeploySummary is the JSON result of pd-deploy.
+type pdDeploySummary struct {
+	DryRun  bool             `json:"dryRun"`
+	String  *api.BatchResult `json:"string"`
+	Binary  *api.BatchResult `json:"binary"`
+	Deleted *api.BatchResult `json:"deleted,omitempty"`
+}
+
+func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, fullSync bool, dryRun bool, pidsFilter []string) (*pdDeploySummary, error) {
 	log.Info().Msg("Starting Partner Directory Deploy...")
 
 	// Get locally managed PIDs
 	managedPIDs, err := pdRepo.GetLocalPIDs()
 	if err != nil {
-		return fmt.Errorf("failed to get local PIDs: %w", err)
+		return nil, fmt.Errorf("failed to get local PIDs: %w", err)
 	}
 
 	// Filter managed PIDs if filter is specified
 	if len(pidsFilter) > 0 {
 		filteredPIDs := filterPIDs(managedPIDs, pidsFilter)
 		if len(filteredPIDs) == 0 {
-			return fmt.Errorf("no PIDs match the filter: %v", pidsFilter)
+			return nil, output.Usagef("no PIDs match the filter: %v", pidsFilter)
 		}
 		managedPIDs = filteredPIDs
 		log.Info().Msgf("Filtered to %d PIDs: %v", len(managedPIDs), managedPIDs)
@@ -156,13 +169,13 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	// Push string parameters
 	stringResults, err := deployStringParameters(pdAPI, pdRepo, replace, dryRun, pidsFilter)
 	if err != nil {
-		return fmt.Errorf("failed to deploy string parameters: %w", err)
+		return nil, fmt.Errorf("failed to deploy string parameters: %w", err)
 	}
 
 	// Push binary parameters
 	binaryResults, err := deployBinaryParameters(pdAPI, pdRepo, replace, dryRun, pidsFilter)
 	if err != nil {
-		return fmt.Errorf("failed to deploy binary parameters: %w", err)
+		return nil, fmt.Errorf("failed to deploy binary parameters: %w", err)
 	}
 
 	// Collected failures make the command exit non-zero (partial failure)
@@ -233,12 +246,13 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	for _, e := range binaryResults.Errors {
 		failures = append(failures, "binary: "+e)
 	}
+	summary := &pdDeploySummary{DryRun: dryRun, String: stringResults, Binary: binaryResults, Deleted: deletionResults}
 	if len(failures) > 0 {
-		return fmt.Errorf("partner directory deploy completed with %d error(s): %s",
-			len(failures), strings.Join(failures, "; "))
+		return summary, output.Partial(fmt.Errorf("partner directory deploy completed with %d error(s): %s",
+			len(failures), strings.Join(failures, "; ")))
 	}
 
-	return nil
+	return summary, nil
 }
 
 func deployStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, dryRun bool, pidsFilter []string) (*api.BatchResult, error) {

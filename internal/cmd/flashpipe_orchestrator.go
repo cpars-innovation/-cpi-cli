@@ -11,7 +11,9 @@ import (
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/cpars-innovation/-cpi-cli/internal/deploy"
+	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
 	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	flashpipeSync "github.com/cpars-innovation/-cpi-cli/internal/sync"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -29,22 +31,22 @@ const (
 
 // ProcessingStats tracks processing statistics
 type ProcessingStats struct {
-	PackagesUpdated           int
-	PackagesDeployed          int
-	PackagesFailed            int
-	PackagesFiltered          int
-	ArtifactsTotal            int
-	ArtifactsDeployedSuccess  int
-	ArtifactsDeployedFailed   int
-	ArtifactsFiltered         int
-	UpdateFailures            int
-	DeployFailures            int
-	SuccessfulPackageUpdates  map[string]bool
-	SuccessfulArtifactUpdates map[string]bool
-	SuccessfulArtifactDeploys map[string]bool
-	FailedPackageUpdates      map[string]bool
-	FailedArtifactUpdates     map[string]bool
-	FailedArtifactDeploys     map[string]bool
+	PackagesUpdated           int             `json:"packagesUpdated"`
+	PackagesDeployed          int             `json:"packagesDeployed"`
+	PackagesFailed            int             `json:"packagesFailed"`
+	PackagesFiltered          int             `json:"packagesFiltered"`
+	ArtifactsTotal            int             `json:"artifactsTotal"`
+	ArtifactsDeployedSuccess  int             `json:"artifactsDeployedSuccess"`
+	ArtifactsDeployedFailed   int             `json:"artifactsDeployedFailed"`
+	ArtifactsFiltered         int             `json:"artifactsFiltered"`
+	UpdateFailures            int             `json:"updateFailures"`
+	DeployFailures            int             `json:"deployFailures"`
+	SuccessfulPackageUpdates  map[string]bool `json:"successfulPackageUpdates"`
+	SuccessfulArtifactUpdates map[string]bool `json:"successfulArtifactUpdates"`
+	SuccessfulArtifactDeploys map[string]bool `json:"successfulArtifactDeploys"`
+	FailedPackageUpdates      map[string]bool `json:"failedPackageUpdates"`
+	FailedArtifactUpdates     map[string]bool `json:"failedArtifactUpdates"`
+	FailedArtifactDeploys     map[string]bool `json:"failedArtifactDeploys"`
 }
 
 func NewFlashpipeOrchestratorCommand() *cobra.Command {
@@ -171,7 +173,7 @@ Configuration:
 
 			// Validate required parameters
 			if deployConfig == "" {
-				return fmt.Errorf("--deploy-config is required (set via CLI flag or in config file under 'orchestrator.deployConfig')")
+				return output.Usagef("--deploy-config is required (set via CLI flag or in config file under 'orchestrator.deployConfig')")
 			}
 
 			// Set defaults for deployment settings
@@ -222,7 +224,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 	// Validate deployment prefix
 	if err := deploy.ValidateDeploymentPrefix(deploymentPrefix); err != nil {
-		return err
+		return output.Usage(err)
 	}
 
 	// Parse filters
@@ -252,13 +254,13 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	}
 
 	if err := configLoader.DetectSource(deployConfigPath); err != nil {
-		return fmt.Errorf("failed to detect config source: %w", err)
+		return output.Usage(fmt.Errorf("failed to detect config source: %w", err))
 	}
 
 	log.Info().Msgf("Loading config from: %s (type: %s)", deployConfigPath, configLoader.Source)
 	configFiles, err := configLoader.LoadConfigs()
 	if err != nil {
-		return fmt.Errorf("failed to load deployment config: %w", err)
+		return output.Usage(fmt.Errorf("failed to load deployment config: %w", err))
 	}
 
 	log.Info().Msgf("Loaded %d config file(s)", len(configFiles))
@@ -293,7 +295,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	// config file and environment are already bound to the flags.
 	serviceDetails := api.GetServiceDetails(cmd)
 	if serviceDetails.Host == "" {
-		return fmt.Errorf("CPI host (tmn-host) is required but not provided")
+		return output.Usagef("CPI host (tmn-host) is required but not provided")
 	}
 
 	log.Debug().Msg("CPI credentials successfully loaded:")
@@ -318,7 +320,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 		mergedConfig, err := deploy.MergeConfigs(configFiles)
 		if err != nil {
-			return fmt.Errorf("failed to merge configs: %w", err)
+			return output.Usage(fmt.Errorf("failed to merge configs: %w", err))
 		}
 
 		tasks, err := processPackages(mergedConfig, false, mode, packagesDir, workDir,
@@ -351,6 +353,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	}
 
 	// Phase 2: Deploy all artifacts in parallel (if not update-only mode)
+	deployments := []deployer.Result{}
 	if mode != ModeUpdateOnly && len(deploymentTasks) > 0 {
 		log.Info().Msg("")
 		log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
@@ -360,16 +363,21 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		log.Info().Msgf("Max concurrent deployments: %d", parallelDeployments)
 		log.Info().Msg("")
 
-		deployAllArtifactsParallel(cmd.Context(), deploymentTasks, parallelDeployments, deployRetries,
+		deployments = deployAllArtifactsParallel(cmd.Context(), deploymentTasks, parallelDeployments, deployRetries,
 			deployDelaySeconds, &stats, serviceDetails)
 	}
 
 	// Print summary
 	printSummary(&stats)
+	output.SetResult(cmd.Context(), orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: deployments})
 
 	// Return error if there were failures
 	if stats.PackagesFailed > 0 || stats.UpdateFailures > 0 || stats.DeployFailures > 0 {
-		return fmt.Errorf("deployment completed with failures")
+		err := fmt.Errorf("deployment completed with failures")
+		if len(stats.SuccessfulArtifactUpdates) > 0 || stats.ArtifactsDeployedSuccess > 0 {
+			return output.Partial(err)
+		}
+		return output.Failed(err)
 	}
 
 	return nil
@@ -703,7 +711,7 @@ func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
 }
 
 func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, maxConcurrent int,
-	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *api.ServiceDetails) {
+	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *api.ServiceDetails) []deployer.Result {
 
 	// Version comparison is kept from the previous implementation: artifacts
 	// whose runtime version equals the designtime version are not redeployed
@@ -735,6 +743,14 @@ func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, max
 			stats.PackagesFailed++
 		}
 	}
+	return results
+}
+
+// orchestratorResult is the JSON result of orchestrator.
+type orchestratorResult struct {
+	Mode        string            `json:"mode"`
+	Stats       *ProcessingStats  `json:"stats"`
+	Deployments []deployer.Result `json:"deployments"`
 }
 
 // mapArtifactTypeForSync maps artifact types for synchroniser (NewDesigntimeArtifact)

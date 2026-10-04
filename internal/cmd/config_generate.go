@@ -6,6 +6,7 @@ import (
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/cpars-innovation/-cpi-cli/internal/file"
 	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -36,7 +37,7 @@ Features:
   flashpipe config-generate
 
   # Specify custom directories
-  flashpipe config-generate --packages-dir ./my-packages --output ./my-config.yml
+  cpictl config-generate --packages-dir ./my-packages --output-file ./my-config.yml
 
   # Generate config for specific packages only
   flashpipe config-generate --package-filter "DeviceManagement,GenericPipeline"
@@ -56,7 +57,10 @@ Features:
 
 	configCmd.Flags().String("packages-dir", "./packages",
 		"Path to packages directory")
-	configCmd.Flags().String("output", "./001-deploy-config.yml",
+	// The file used to be selected with --output, which is now the global
+	// output format flag. A value other than text/json is still accepted as
+	// the file path for backward compatibility (see runConfigGenerate).
+	configCmd.Flags().String("output-file", "./001-deploy-config.yml",
 		"Path to output configuration file")
 	configCmd.Flags().StringSlice("package-filter", nil,
 		"Comma separated list of packages to include (e.g., 'Package1,Package2')")
@@ -68,7 +72,14 @@ Features:
 
 func runConfigGenerate(cmd *cobra.Command) error {
 	packagesDir := config.GetString(cmd, "packages-dir")
-	outputFile := config.GetString(cmd, "output")
+	outputFile := config.GetString(cmd, "output-file")
+	if legacy := config.GetString(cmd, "output"); legacy != output.FormatText && legacy != output.FormatJSON {
+		if cmd.Flags().Changed("output-file") {
+			return output.Usagef("--output %q is not an output format; use --output-file for the config file path", legacy)
+		}
+		log.Warn().Msgf("Using --output %q as the config file path is deprecated, use --output-file", legacy)
+		outputFile = legacy
+	}
 	packageFilter := config.GetStringSlice(cmd, "package-filter")
 	artifactFilter := config.GetStringSlice(cmd, "artifact-filter")
 
@@ -77,7 +88,7 @@ func runConfigGenerate(cmd *cobra.Command) error {
 	if err := generator.Generate(); err != nil {
 		return err
 	}
-
+	output.SetResult(cmd.Context(), map[string]any{"outputFile": outputFile, "stats": generator.Stats})
 	return nil
 }
 
@@ -93,20 +104,20 @@ type ConfigGenerator struct {
 
 // GenerationStats tracks generation statistics
 type GenerationStats struct {
-	PackagesPreserved          int
-	PackagesAdded              int
-	PackagesRemoved            int
-	PackagesFiltered           int
-	PackagePropertiesExtracted int
-	PackagePropertiesPreserved int
-	ArtifactsPreserved         int
-	ArtifactsAdded             int
-	ArtifactsRemoved           int
-	ArtifactsFiltered          int
-	ArtifactsNameExtracted     int
-	ArtifactsNamePreserved     int
-	ArtifactsTypeExtracted     int
-	ArtifactsTypePreserved     int
+	PackagesPreserved          int `json:"packagesPreserved"`
+	PackagesAdded              int `json:"packagesAdded"`
+	PackagesRemoved            int `json:"packagesRemoved"`
+	PackagesFiltered           int `json:"packagesFiltered"`
+	PackagePropertiesExtracted int `json:"packagePropertiesExtracted"`
+	PackagePropertiesPreserved int `json:"packagePropertiesPreserved"`
+	ArtifactsPreserved         int `json:"artifactsPreserved"`
+	ArtifactsAdded             int `json:"artifactsAdded"`
+	ArtifactsRemoved           int `json:"artifactsRemoved"`
+	ArtifactsFiltered          int `json:"artifactsFiltered"`
+	ArtifactsNameExtracted     int `json:"artifactsNameExtracted"`
+	ArtifactsNamePreserved     int `json:"artifactsNamePreserved"`
+	ArtifactsTypeExtracted     int `json:"artifactsTypeExtracted"`
+	ArtifactsTypePreserved     int `json:"artifactsTypePreserved"`
 }
 
 // NewConfigGenerator creates a new configuration generator
@@ -134,7 +145,7 @@ func (g *ConfigGenerator) Generate() error {
 
 	// Check if packages directory exists
 	if _, err := os.Stat(g.PackagesDir); os.IsNotExist(err) {
-		return fmt.Errorf("packages directory '%s' not found", g.PackagesDir)
+		return output.Usagef("packages directory '%s' not found", g.PackagesDir)
 	}
 
 	// Load existing config if it exists

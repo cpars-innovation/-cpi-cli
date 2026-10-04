@@ -1,15 +1,32 @@
 package logger
 
 import (
+	"io"
+	"os"
+	"time"
+
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
-	"time"
 )
 
+// InitConsoleLogger writes human-readable logs to stderr.
 func InitConsoleLogger(debug bool) {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC822})
+	Init(os.Stderr, false, debug)
+}
+
+// Init configures the global logger. Logs always go to w (stderr), never to
+// stdout, which is reserved for command results. With jsonLines each log
+// entry is one JSON object per line.
+func Init(w io.Writer, jsonLines bool, debug bool) {
+	// Deployments log from several goroutines; w may not be safe for
+	// concurrent use (e.g. a buffer when embedded), so serialise writes.
+	w = zerolog.SyncWriter(w)
+	if jsonLines {
+		log.Logger = zerolog.New(w).With().Timestamp().Logger()
+	} else {
+		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: w, TimeFormat: time.RFC822}).With().Timestamp().Logger()
+	}
 	if debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {

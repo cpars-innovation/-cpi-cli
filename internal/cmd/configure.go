@@ -9,8 +9,10 @@ import (
 
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/deploy"
+	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
 	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,19 +21,19 @@ import (
 
 // ConfigureStats tracks configuration processing statistics
 type ConfigureStats struct {
-	PackagesProcessed         int
-	PackagesWithErrors        int
-	ArtifactsProcessed        int
-	ArtifactsConfigured       int
-	ArtifactsDeployed         int
-	ArtifactsFailed           int
-	ParametersUpdated         int
-	ParametersFailed          int
-	BatchRequestsExecuted     int
-	IndividualRequestsUsed    int
-	DeploymentTasksQueued     int
-	DeploymentTasksSuccessful int
-	DeploymentTasksFailed     int
+	PackagesProcessed         int `json:"packagesProcessed"`
+	PackagesWithErrors        int `json:"packagesWithErrors"`
+	ArtifactsProcessed        int `json:"artifactsProcessed"`
+	ArtifactsConfigured       int `json:"artifactsConfigured"`
+	ArtifactsDeployed         int `json:"artifactsDeployed"`
+	ArtifactsFailed           int `json:"artifactsFailed"`
+	ParametersUpdated         int `json:"parametersUpdated"`
+	ParametersFailed          int `json:"parametersFailed"`
+	BatchRequestsExecuted     int `json:"batchRequestsExecuted"`
+	IndividualRequestsUsed    int `json:"individualRequestsUsed"`
+	DeploymentTasksQueued     int `json:"deploymentTasksQueued"`
+	DeploymentTasksSuccessful int `json:"deploymentTasksSuccessful"`
+	DeploymentTasksFailed     int `json:"deploymentTasksFailed"`
 }
 
 // ConfigurationTask represents a configuration update task
@@ -157,7 +159,7 @@ Configuration:
 
 			// Validate required parameters
 			if configPath == "" {
-				return fmt.Errorf("--config-path is required (set via CLI flag or in config file under 'configure.configPath')")
+				return output.Usagef("--config-path is required (set via CLI flag or in config file under 'configure.configPath')")
 			}
 
 			// Set defaults for deployment settings
@@ -203,7 +205,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	// Validate deployment prefix
 	if deploymentPrefix != "" {
 		if err := deploy.ValidateDeploymentPrefix(deploymentPrefix); err != nil {
-			return err
+			return output.Usage(err)
 		}
 	}
 
@@ -215,7 +217,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	log.Info().Msgf("Loading configuration from: %s", configPath)
 	configFiles, err := loadConfigureConfigs(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return output.Usage(fmt.Errorf("failed to load configuration: %w", err))
 	}
 
 	log.Info().Msgf("Loaded %d configuration file(s)", len(configFiles))
@@ -251,6 +253,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	}
 
 	// Phase 2: Deploy artifacts if requested
+	deployments := []deployer.Result{}
 	if len(deploymentTasks) > 0 && !dryRun {
 		log.Info().Msg("")
 		log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
@@ -259,19 +262,31 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 		log.Info().Msgf("Deploying %d artifacts with max %d parallel deployments per package",
 			len(deploymentTasks), parallelDeployments)
 
-		deployConfiguredArtifacts(cmd.Context(), exe, deploymentTasks, deployRetries, deployDelaySeconds,
+		deployments = deployConfiguredArtifacts(cmd.Context(), exe, deploymentTasks, deployRetries, deployDelaySeconds,
 			parallelDeployments, stats)
 	}
 
 	// Print summary
 	printConfigureSummary(stats, dryRun)
+	output.SetResult(cmd.Context(), configureResult{DryRun: dryRun, Stats: stats, Deployments: deployments})
 
 	// Return error if there were failures
 	if stats.ArtifactsFailed > 0 || stats.DeploymentTasksFailed > 0 {
-		return fmt.Errorf("configuration/deployment completed with errors")
+		err := fmt.Errorf("configuration/deployment completed with errors")
+		if stats.ArtifactsConfigured > 0 || stats.DeploymentTasksSuccessful > 0 {
+			return output.Partial(err)
+		}
+		return output.Failed(err)
 	}
 
 	return nil
+}
+
+// configureResult is the JSON result of configure.
+type configureResult struct {
+	DryRun      bool              `json:"dryRun"`
+	Stats       *ConfigureStats   `json:"stats"`
+	Deployments []deployer.Result `json:"deployments"`
 }
 
 // ConfigureConfigFile represents a loaded config file with metadata
@@ -624,7 +639,7 @@ func updateParametersIndividual(configuration *api.Configuration, artifactID, ve
 }
 
 func deployConfiguredArtifacts(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
-	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) {
+	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) []deployer.Result {
 
 	// Configuration changes do not change the artifact version, so the
 	// deployment must not be skipped based on a version comparison.
@@ -637,6 +652,7 @@ func deployConfiguredArtifacts(ctx context.Context, exe *httpclnt.HTTPExecuter, 
 			stats.DeploymentTasksFailed++
 		}
 	}
+	return results
 }
 
 func printConfigureSummary(stats *ConfigureStats, dryRun bool) {

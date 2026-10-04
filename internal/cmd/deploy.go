@@ -5,6 +5,7 @@ import (
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -78,11 +79,17 @@ func runDeploy(cmd *cobra.Command) error {
 		Parallelism: len(artifacts),
 	})
 	logResults(results)
+	output.SetResult(cmd.Context(), artifactResults{Results: results})
 	if err := deployer.Err(results); err != nil {
 		return err
 	}
 	log.Info().Msg("🏆 Artifact(s) deployment completed successfully")
 	return nil
+}
+
+// artifactResults is the JSON result of deploy and undeploy.
+type artifactResults struct {
+	Results []deployer.Result `json:"results"`
 }
 
 // logResults logs one line per artifact result.

@@ -188,7 +188,7 @@ flashpipe orchestrator --update --debug --deploy-config ./deploy-config.yml
 
 ```bash
 # 1. Generate deployment config from existing packages
-flashpipe config-generate --packages-dir ./packages --output ./deploy-config.yml
+flashpipe config-generate --packages-dir ./packages --output-file ./deploy-config.yml
 
 # 2. Review and customize the generated config
 nano deploy-config.yml

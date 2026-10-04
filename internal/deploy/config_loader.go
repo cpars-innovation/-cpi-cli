@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/models"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -116,8 +117,8 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 	var files []string
 
 	if cl.Debug {
-		fmt.Printf("Scanning directory recursively: %s\n", cl.Path)
-		fmt.Printf("File pattern: %s\n", cl.FilePattern)
+		log.Debug().Msgf("Scanning directory recursively: %s", cl.Path)
+		log.Debug().Msgf("File pattern: %s", cl.FilePattern)
 	}
 
 	// Walk through directory and all subdirectories recursively
@@ -125,7 +126,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 		if err != nil {
 			// Log error but continue walking
 			if cl.Debug {
-				fmt.Printf("Warning: Error accessing path %s: %v\n", path, err)
+				log.Warn().Msgf("Error accessing path %s: %v", path, err)
 			}
 			return nil // Continue walking despite errors
 		}
@@ -133,7 +134,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 		// Skip directories (but continue walking into them)
 		if info.IsDir() {
 			if cl.Debug && path != cl.Path {
-				fmt.Printf("Entering subdirectory: %s\n", path)
+				log.Debug().Msgf("Entering subdirectory: %s", path)
 			}
 			return nil
 		}
@@ -148,7 +149,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 			// Get relative path for better display
 			relPath, _ := filepath.Rel(cl.Path, path)
 			if cl.Debug {
-				fmt.Printf("Found matching file: %s\n", relPath)
+				log.Debug().Msgf("Found matching file: %s", relPath)
 			}
 			files = append(files, path)
 		}
@@ -165,17 +166,17 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 	}
 
 	if cl.Debug {
-		fmt.Printf("Found %d matching file(s)\n", len(files))
+		log.Debug().Msgf("Found %d matching file(s)", len(files))
 	}
 
 	// Sort files alphabetically for consistent processing order
 	sort.Strings(files)
 
 	if cl.Debug {
-		fmt.Println("Processing files in alphabetical order:")
+		log.Debug().Msg("Processing files in alphabetical order:")
 		for i, f := range files {
 			relPath, _ := filepath.Rel(cl.Path, f)
-			fmt.Printf("  %d. %s\n", i+1, relPath)
+			log.Debug().Msgf("  %d. %s", i+1, relPath)
 		}
 	}
 
@@ -186,7 +187,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 		if err := readYAML(filePath, &config); err != nil {
 			relPath, _ := filepath.Rel(cl.Path, filePath)
 			if cl.Debug {
-				fmt.Printf("Warning: Failed to load config file %s: %v\n", relPath, err)
+				log.Warn().Msgf("Failed to load config file %s: %v", relPath, err)
 			}
 			continue
 		}
@@ -203,7 +204,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 
 		successCount++
 		if cl.Debug {
-			fmt.Printf("✓ Loaded config file: %s (order: %d)\n", relPath, i)
+			log.Debug().Msgf("✓ Loaded config file: %s (order: %d)", relPath, i)
 		}
 	}
 
@@ -212,7 +213,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 	}
 
 	if cl.Debug {
-		fmt.Printf("\nSuccessfully loaded %d config file(s) out of %d found\n", successCount, len(files))
+		log.Debug().Msgf("Successfully loaded %d config file(s) out of %d found", successCount, len(files))
 	}
 
 	return configFiles, nil
@@ -221,7 +222,7 @@ func (cl *ConfigLoader) loadFolder() ([]*DeployConfigFile, error) {
 // loadURL loads a configuration file from a remote URL
 func (cl *ConfigLoader) loadURL() ([]*DeployConfigFile, error) {
 	if cl.Debug {
-		fmt.Printf("Fetching config from URL: %s\n", cl.URL)
+		log.Debug().Msgf("Fetching config from URL: %s", cl.URL)
 	}
 
 	// Create HTTP client
@@ -238,19 +239,19 @@ func (cl *ConfigLoader) loadURL() ([]*DeployConfigFile, error) {
 		if cl.AuthType == "bearer" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cl.AuthToken))
 			if cl.Debug {
-				fmt.Println("Using Bearer token authentication")
+				log.Debug().Msg("Using Bearer token authentication")
 			}
 		} else if cl.AuthType == "basic" {
 			req.SetBasicAuth(cl.Username, cl.Password)
 			if cl.Debug {
-				fmt.Printf("Using Basic authentication with username: %s\n", cl.Username)
+				log.Debug().Msgf("Using Basic authentication with username: %s", cl.Username)
 			}
 		}
 	} else if cl.Username != "" && cl.Password != "" {
 		// Use basic auth if username/password provided without token
 		req.SetBasicAuth(cl.Username, cl.Password)
 		if cl.Debug {
-			fmt.Printf("Using Basic authentication with username: %s\n", cl.Username)
+			log.Debug().Msgf("Using Basic authentication with username: %s", cl.Username)
 		}
 	}
 
@@ -267,7 +268,7 @@ func (cl *ConfigLoader) loadURL() ([]*DeployConfigFile, error) {
 	}
 
 	if cl.Debug {
-		fmt.Printf("Successfully fetched config (status: %d)\n", resp.StatusCode)
+		log.Debug().Msgf("Successfully fetched config (status: %d)", resp.StatusCode)
 	}
 
 	// Read response body
@@ -302,7 +303,7 @@ func (cl *ConfigLoader) loadURL() ([]*DeployConfigFile, error) {
 	}
 
 	if cl.Debug {
-		fmt.Printf("✓ Successfully parsed config from URL\n")
+		log.Debug().Msgf("✓ Successfully parsed config from URL")
 	}
 
 	return []*DeployConfigFile{

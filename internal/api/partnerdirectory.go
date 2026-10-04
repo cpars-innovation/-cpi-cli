@@ -54,11 +54,11 @@ type BinaryParameter struct {
 
 // BatchResult represents the results of a batch operation
 type BatchResult struct {
-	Created   []string
-	Updated   []string
-	Unchanged []string
-	Deleted   []string
-	Errors    []string
+	Created   []string `json:"created,omitempty"`
+	Updated   []string `json:"updated,omitempty"`
+	Unchanged []string `json:"unchanged,omitempty"`
+	Deleted   []string `json:"deleted,omitempty"`
+	Errors    []string `json:"errors,omitempty"`
 }
 
 // GetStringParameters retrieves all string parameters from partner directory

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
+	"github.com/cpars-innovation/-cpi-cli/internal/exitcode"
 	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/rs/zerolog/log"
 )
 
@@ -427,6 +429,28 @@ func (e *Error) Failed() []Result {
 		}
 	}
 	return failed
+}
+
+// ExitCode implements the exit code contract: 7 if some artifacts succeeded,
+// otherwise the most specific cause over all failures, in the order
+// auth (3) > tenant HTTP error (4) > deploy failed (5) > timeout (6).
+func (e *Error) ExitCode() int {
+	failed := e.Failed()
+	if len(failed) == 0 {
+		return exitcode.OK
+	}
+	if len(failed) < len(e.Results) {
+		return exitcode.Partial
+	}
+	code := exitcode.Timeout
+	for _, r := range failed {
+		c := exitcode.Timeout
+		if r.Status == StatusFailed {
+			c = output.TransportExitCode(r.Err, exitcode.DeployFailed)
+		}
+		code = min(code, c)
+	}
+	return code
 }
 
 func (e *Error) Error() string {

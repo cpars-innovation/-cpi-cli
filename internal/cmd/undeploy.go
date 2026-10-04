@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
+	"github.com/cpars-innovation/-cpi-cli/internal/output"
 	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -53,7 +53,7 @@ func runUndeploy(cmd *cobra.Command) error {
 		}
 	}
 	if len(artifacts) == 0 {
-		return fmt.Errorf("required flag \"artifact-ids\" not set (or config undeploy.artifactIds)")
+		return output.Usagef("required flag \"artifact-ids\" not set (or config undeploy.artifactIds)")
 	}
 
 	log.Info().Msgf("Executing undeploy command for %d artifact(s)", len(artifacts))
@@ -64,6 +64,7 @@ func runUndeploy(cmd *cobra.Command) error {
 		Parallelism: len(artifacts),
 	})
 	logResults(results)
+	output.SetResult(cmd.Context(), artifactResults{Results: results})
 	if err := deployer.Err(results); err != nil {
 		return err
 	}
