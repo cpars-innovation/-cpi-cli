@@ -93,7 +93,7 @@ type SecureParameter struct {
 func (s *Security) UserCredentials() ([]UserCredential, error) {
 	var rows []struct {
 		Name, Kind, Description, User, CompanyId string
-		SecurityArtifactDescriptor              *descriptorData
+		SecurityArtifactDescriptor               *descriptorData
 	}
 	if err := getResults(s.exe, "/api/v1/UserCredentials", "Get user credentials", &rows); err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (s *Security) UserCredentials() ([]UserCredential, error) {
 func (s *Security) OAuth2Credentials() ([]OAuth2Credential, error) {
 	var rows []struct {
 		Name, Description, TokenServiceUrl, ClientId, ClientAuthentication, Scope, Resource, Audience string
-		SecurityArtifactDescriptor                                                                  *descriptorData
+		SecurityArtifactDescriptor                                                                    *descriptorData
 	}
 	if err := getResults(s.exe, "/api/v1/OAuth2ClientCredentials", "Get OAuth2 client credentials", &rows); err != nil {
 		return nil, err

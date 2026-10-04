@@ -30,5 +30,13 @@ jobs:
       - name: test
         run: go test -race ./...
 
+      # Cross-package coverage of the offline suite; fails below the floor
+      - name: coverage
+        run: |
+          go test -coverpkg=./... -coverprofile=coverage.out ./... > /dev/null
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t < 50) }' || (echo "coverage below 50%" && exit 1)
+
       - name: build
         run: make build && ./bin/cpictl --version

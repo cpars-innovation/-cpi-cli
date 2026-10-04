@@ -104,6 +104,7 @@ func TestProtocol(t *testing.T) {
 	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
 		"get_message_steps", "get_message_attachment", "get_message_store_entry", "list_runtime_artifacts", "list_service_endpoints",
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact",
+		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "upload_artifact", "deploy", "undeploy", "pd_deploy"}, names)
 
 	assert.Nil(t, resp["3"].Error)
@@ -291,4 +292,25 @@ func TestContentTools(t *testing.T) {
 	entry := toolResult(t, resp["9"]).Content[0].Text
 	assert.Contains(t, entry, `"truncated":true`)
 	assert.Equal(t, "usage", toolResult(t, resp["10"]).StructuredContent.ErrorCategory)
+}
+
+func TestSecurityToolsAreReadOnlyAndSecretFree(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	mock.Credentials = map[string]map[string]map[string]any{
+		"UserCredentials": {"ERP": {"Name": "ERP", "User": "svc", "Password": "topsecret"}},
+	}
+	mock.Keystore = []cpitest.KeystoreEntry{{Alias: "partner", NotAfter: time.Now().Add(5 * 24 * time.Hour)}}
+	resp := session(t, mock, t.TempDir(),
+		call(1, "list_credentials", map[string]any{}),
+		call(2, "list_keystore", map[string]any{"expiring_within_days": 30}),
+		`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`,
+	)
+	creds := toolResult(t, resp["1"]).Content[0].Text
+	assert.Contains(t, creds, `"user":"svc"`)
+	assert.NotContains(t, creds, "topsecret")
+	assert.Contains(t, toolResult(t, resp["2"]).Content[0].Text, `"expiringSoon":true`)
+	assert.NotContains(t, string(resp["3"].Result), "set_credential", "no tool writes security material")
+	for _, r := range mock.Requests() {
+		assert.True(t, strings.HasPrefix(r, "GET "), "security tools only read: %s", r)
+	}
 }

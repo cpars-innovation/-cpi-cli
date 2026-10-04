@@ -68,9 +68,12 @@ type Artifact struct {
 	guidelineGets     int
 	// EndpointURL makes the deployed artifact appear in ServiceEndpoints.
 	EndpointURL string
-	// Resources: name -> type and content; Zip is the $value download.
+	// Resources: name -> type and content; Zip is the $value download
+	// (and the content stored by create/update).
 	Resources map[string]Resource
 	Zip       []byte
+	// Uploads counts designtime creates and updates.
+	Uploads int
 
 	triggered      bool
 	runtimeGets    int
@@ -219,6 +222,7 @@ var (
 	reCredential      = regexp.MustCompile(`^/api/v1/(UserCredentials|OAuth2ClientCredentials|SecureParameters)(?:\('(.+)'\))?$`)
 	reKeystoreCert    = regexp.MustCompile(`^/api/v1/KeystoreEntries\('([0-9A-Fa-f]+)'\)/Certificate/\$value$`)
 	reCertImport      = regexp.MustCompile(`^/api/v1/CertificateResources\('([0-9A-Fa-f]+)'\)/\$value$`)
+	reDesignCreate    = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts$`)
 	reErrInfo         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
 
@@ -666,6 +670,55 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Parameters[mm[2]] = body.ParameterValue
 		w.WriteHeader(http.StatusAccepted)
+
+	case r.Method == http.MethodPost && reDesignCreate.MatchString(path):
+		typ := reDesignCreate.FindStringSubmatch(path)[1]
+		var body struct{ Id, Name, PackageId, ArtifactContent string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		zipData, err := base64.StdEncoding.DecodeString(body.ArtifactContent)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if a := m.Artifacts[body.Id]; a != nil && a.DesignVersion != "" {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		if m.Artifacts == nil {
+			m.Artifacts = map[string]*Artifact{}
+		}
+		a := m.Artifacts[body.Id]
+		if a == nil {
+			a = &Artifact{}
+			m.Artifacts[body.Id] = a
+		}
+		a.Type, a.DesignVersion, a.Package, a.Name, a.Zip = typ, "1.0.0", body.PackageId, body.Name, zipData
+		a.Uploads++
+		w.WriteHeader(http.StatusCreated)
+
+	case r.Method == http.MethodPut && reDesign.MatchString(path):
+		mm := reDesign.FindStringSubmatch(path)
+		a := m.Artifacts[mm[2]]
+		if a == nil || a.DesignVersion == "" || a.Type != mm[1] {
+			notFound(w)
+			return
+		}
+		var body struct{ ArtifactContent string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		zipData, err := base64.StdEncoding.DecodeString(body.ArtifactContent)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		a.Zip = zipData
+		a.Uploads++
+		w.WriteHeader(http.StatusOK)
 
 	case r.Method == http.MethodGet && reDesign.MatchString(path):
 		mm := reDesign.FindStringSubmatch(path)

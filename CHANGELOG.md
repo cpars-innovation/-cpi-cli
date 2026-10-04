@@ -19,6 +19,11 @@ First release.
   `logs steps` (failing step), `logs attachment`, `logs payload`.
 - `validate` and `guidelines` (tenant check and design guidelines), `endpoints`,
   `resources`, `download`, `status --runtime-status ERROR`.
+- Security material: `credentials` (list, set-user, set-oauth2, set-secure-param, declarative
+  `apply`, delete) with secrets from env/file/stdin only; `keystore` (list with expiry check,
+  export-cert, import-cert).
+- CSRF tokens handled once per session with transparent refresh and retry.
 - MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
-  upload, deploy, undeploy and Partner Directory deploy.
+  upload, validation, deploy, undeploy, Partner Directory deploy and read-only security
+  material.
 - Settings via flags, `CPICTL_*` environment variables and `$HOME/cpictl.yaml`.

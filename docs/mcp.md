@@ -78,6 +78,8 @@ tenant; there is no read-only mode yet.
 | `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
 | `get_message_attachment` | | Content of a log attachment |
 | `get_message_store_entry` | | Payload persisted by a Persist step |
+| `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
+| `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
 | `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false` |
 
@@ -150,4 +152,6 @@ tool results small. Use a development tenant with test data for agents.
   of a partner whose local files could not be read.
 - Local paths cannot escape `--root`.
 - Long-running calls are cancelled on `notifications/cancelled` and when the server stops.
-- Credentials are never part of tool results or logs.
+- Credentials are never part of tool results or logs. Security material is read-only: there
+  is no tool that creates or changes credentials or keys, so secrets never pass through the
+  model. Deploy them with `cpictl credentials` ([security.md](security.md)).

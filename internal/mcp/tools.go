@@ -26,7 +26,9 @@ for payloads; fix the local files and repeat. check_guidelines reports design is
 externalised parameters; deploy afterwards to activate them.
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory is one of
 usage (fix the arguments), auth, tenant_http, failed, timeout, partial.
-undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false.`
+undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false.
+Security material is read-only here (list_credentials, list_keystore): secrets never pass
+through this server.`
 
 // Config configures the CPI tools.
 type Config struct {
@@ -395,6 +397,41 @@ func Tools(cfg Config) []Tool {
 					return nil, output.Usagef("dir must be a sub-directory of the server root")
 				}
 				return ops.DownloadArtifactToDir(cfg.Exe, a.ArtifactType, a.ArtifactID, a.Version, dir, a.Overwrite)
+			},
+		},
+		{
+			Name: "list_credentials", Title: "List security credentials",
+			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). " +
+				"Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
+			InputSchema: object(props{"kind": enum("Only this kind", cpi.CredentialKinds...)}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Kind string `json:"kind"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.ListCredentials(cfg.Exe, a.Kind)
+			},
+		},
+		{
+			Name: "list_keystore", Title: "List keystore entries",
+			Description: "Certificates and key pairs of a tenant keystore with validity and days left; flags entries expiring within expiring_within_days.",
+			InputSchema: object(props{
+				"keystore":             enum(`Keystore, default "system"`, cpi.Keystores...),
+				"expiring_within_days": map[string]any{"type": "integer", "minimum": 0, "maximum": 3650, "description": "Flag entries expiring within this many days"},
+			}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Keystore           string `json:"keystore"`
+					ExpiringWithinDays int    `json:"expiring_within_days"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.ListKeystore(cfg.Exe, a.Keystore, time.Duration(a.ExpiringWithinDays)*24*time.Hour, false, time.Now())
 			},
 		},
 		{

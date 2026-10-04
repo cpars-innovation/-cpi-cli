@@ -157,6 +157,15 @@ func TestExitCodes(t *testing.T) {
 				ValidationResult: "Check execution result: Failed"}})
 			return append([]string{"validate", "--artifact-id", "A"}, basicAuth(m)...)
 		}},
+		{"deploy failed: certificate expires soon (--fail-on-expiry)", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			m.Keystore = []cpitest.KeystoreEntry{{Alias: "partner", NotAfter: now.Add(24 * time.Hour)}}
+			return append([]string{"keystore", "list", "--expiring-within", "30d", "--fail-on-expiry"}, basicAuth(m)...)
+		}},
+		{"usage: credential without secret source", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"credentials", "set-user", "--name", "A", "--user", "u"}, basicAuth(m)...)
+		}},
 		{"timeout: deploy still starting", func(t *testing.T) []string {
 			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1",
 				AfterDeploy: []*cpitest.Runtime{{Version: "1", Status: "STARTING", DeployedOn: now}}}})

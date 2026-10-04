@@ -45,7 +45,7 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
   5 deploy/validate failed, 6 timeout, 7 partial failure (FlashPipe: 1 for every error).
 - Commands: `undeploy`, `status`, `logs` (+ `get`, `steps`, `attachment`, `payload`),
   `validate`, `guidelines`, `endpoints`, `resources`, `download`, `packages`, `artifacts`,
-  `params get`, `params set`, `mcp`.
+  `params get`, `params set`, `credentials`, `keystore`, `mcp`.
 - MCP server for AI agents ([mcp.md](mcp.md)).
 - `--tmn-host` accepts `https://host` and `host:port`.
 
@@ -90,10 +90,18 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
   parameters**. Unreadable binary files are errors instead of being skipped (which also
   caused remote deletions).
 
+### CSRF handling
+
+FlashPipe fetched a CSRF token before every modifying request and did not send one at all for
+Partner Directory writes and configure's `$batch` request, so with Basic Auth these failed
+(configure silently fell back to single requests). cpictl fetches the token once, reuses it,
+and refreshes it automatically when the tenant reports it as expired.
+
 ### Logging and privacy
 
 - Usage analytics (Matomo) are removed.
-- Host, client ID and user ID are no longer logged.
+- Host, client ID and user ID are no longer logged; request bodies and CSRF tokens are never
+  logged, not even with `--debug`.
 - Logs never go to stdout (the orchestrator config loader used to print there).
 
 ## Unchanged

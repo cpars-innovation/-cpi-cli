@@ -17,7 +17,8 @@ cpictl status --artifact-ids OrderIntake --output json
   for the *new* runtime artifact. A redeploy is never reported as done while the previous
   version is still running.
 - **Safe defaults.** Partner Directory full sync never deletes a partner's parameters when its
-  local files cannot be read; destructive MCP tools need explicit confirmation.
+  local files cannot be read; destructive MCP tools need explicit confirmation; secrets are
+  never taken from flags, never returned and never logged.
 
 ## Contents
 
@@ -105,6 +106,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Git | `sync`, `snapshot`, `snapshot restore` |
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
+| Security | `credentials` (list, set-user, set-oauth2, set-secure-param, apply, delete), `keystore` (list, export-cert, import-cert) |
 | AI agents | `mcp` |
 
 All commands and flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
@@ -159,7 +161,9 @@ claude mcp add cpi \
 Tools cover the whole loop: `download_artifact`, `upload_artifact`, `validate_artifact`,
 `check_guidelines`, `deploy`, `get_runtime_status`, `list_service_endpoints`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
-`get_message_store_entry`, parameters, resources, `undeploy` and `pd_deploy`.
+`get_message_store_entry`, parameters, resources, `list_credentials`, `list_keystore`,
+`undeploy` and `pd_deploy`. Security material is read-only over MCP; secrets never pass
+through the agent.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
 See [docs/mcp.md](docs/mcp.md).
 
@@ -173,6 +177,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
+| [Security material](docs/security.md) | Credentials, `credentials apply`, keystore and certificate expiry |
 | [Partner Directory](docs/partner-directory.md) | `pd-snapshot`, `pd-deploy`, full sync |
 | [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, scripting with exit codes |
 | [Examples](docs/examples) | Ready-to-copy configuration files |
@@ -183,6 +188,7 @@ See [docs/mcp.md](docs/mcp.md).
 ```bash
 go test ./...               # offline against an in-memory mock tenant, a few seconds
 go test -race ./...
+make cover                  # cross-package coverage report
 make test-integration       # writes to a REAL tenant, needs CPICTL_* variables
 ```
 

@@ -10,10 +10,21 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`config-generate`](#config-generate) | Generate or refresh the orchestrator deployment config from a packages directory |
 | [`configure`](#configure) | Set artifact parameters from YAML files and optionally deploy |
 | [`configure pull`](#configure-pull) | Write current tenant parameter values into configure YAML files |
+| [`credentials`](#credentials) | List and deploy user credentials, OAuth2 client credentials and secure parameters |
+| [`credentials apply`](#credentials-apply) | Create or update all credentials of a YAML file |
+| [`credentials delete`](#credentials-delete) | Delete a credential (requires --confirm) |
+| [`credentials list`](#credentials-list) | List credentials (names and metadata, never secrets) |
+| [`credentials set-oauth2`](#credentials-set-oauth2) | Create or update an OAuth2 client credential |
+| [`credentials set-secure-param`](#credentials-set-secure-param) | Create or update a secure parameter (Neo environment) |
+| [`credentials set-user`](#credentials-set-user) | Create or update a user credential |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
+| [`keystore`](#keystore) | List keystore entries, check expiry, export and import certificates |
+| [`keystore export-cert`](#keystore-export-cert) | Export the certificate of a keystore entry as PEM |
+| [`keystore import-cert`](#keystore-import-cert) | Import a certificate (PEM or DER) into the tenant keystore |
+| [`keystore list`](#keystore-list) | List keystore entries with remaining validity |
 | [`logs`](#logs) | Query message processing logs |
 | [`logs attachment`](#logs-attachment) | Download a log attachment (ID from 'logs get') |
 | [`logs get`](#logs-get) | Show one message: status, error text, custom headers, attachments |
@@ -185,6 +196,151 @@ Write current tenant parameter values into configure YAML files
       --package-ids strings   Package IDs to pull (default: all packages)
 ```
 
+## credentials
+
+List and deploy user credentials, OAuth2 client credentials and secure parameters
+
+```
+Manage security material referenced by integration flows.
+
+Secrets are never accepted as flag values (they would end up in shell history
+and process lists): use --*-env, --*-file or --*-stdin, or 'credentials apply'
+with a YAML file that references environment variables or files.
+Listing never returns secrets.
+```
+
+## credentials apply
+
+Create or update all credentials of a YAML file
+
+```
+Deploy every credential listed in a YAML file. Secrets are references only:
+
+  userCredentials:
+    - name: ERP_User
+      user: svc_erp
+      password: {env: ERP_PASSWORD}
+  oauth2Credentials:
+    - name: Graph
+      tokenServiceUrl: https://login.example.com/oauth/token
+      clientId: my-app
+      clientSecret: {file: secrets/graph.txt}   # relative to the YAML file
+  secureParameters:
+    - name: ApiKey
+      value: {env: API_KEY}
+
+All secrets are resolved before anything is written. Inline secrets and
+unknown keys are rejected.
+```
+
+**Usage:** `cpictl credentials apply [flags]`
+
+**Flags:**
+
+```
+      --dry-run       Resolve all secrets and validate, without writing
+      --file string   Credentials YAML file
+```
+
+## credentials delete
+
+Delete a credential (requires --confirm)
+
+**Usage:** `cpictl credentials delete [flags]`
+
+**Flags:**
+
+```
+      --confirm       Confirm the deletion
+      --kind string   Kind: user, oauth2, secure-param
+      --name string   Credential name
+```
+
+## credentials list
+
+List credentials (names and metadata, never secrets)
+
+**Usage:** `cpictl credentials list [flags]`
+
+**Flags:**
+
+```
+      --kind string   Only this kind: user, oauth2, secure-param
+```
+
+## credentials set-oauth2
+
+Create or update an OAuth2 client credential
+
+**Usage:** `cpictl credentials set-oauth2 [flags]`
+
+**Flags:**
+
+```
+      --audience string             Audience
+      --client-auth string          Client authentication: body or header (default "body")
+      --client-id string            Client ID
+      --description string          Description
+      --dry-run                     Check the input without writing
+      --name string                 Credential name
+      --resource string             Resource
+      --scope string                Scope
+      --scope-content-type string   urlencoded or json (default "urlencoded")
+      --secret-env string           Read the client secret from this environment variable
+      --secret-file string          Read the client secret from this file
+      --secret-stdin                Read the client secret from stdin
+      --token-url string            Token service URL (https)
+```
+
+**Examples:**
+
+```
+  cpictl credentials set-oauth2 --name Graph --token-url https://login/token --client-id app --secret-file ./graph.secret
+```
+
+## credentials set-secure-param
+
+Create or update a secure parameter (Neo environment)
+
+**Usage:** `cpictl credentials set-secure-param [flags]`
+
+**Flags:**
+
+```
+      --description string   Description
+      --dry-run              Check the input without writing
+      --name string          Parameter name
+      --value-env string     Read the value from this environment variable
+      --value-file string    Read the value from this file
+      --value-stdin          Read the value from stdin
+```
+
+## credentials set-user
+
+Create or update a user credential
+
+**Usage:** `cpictl credentials set-user [flags]`
+
+**Flags:**
+
+```
+      --company-id string      Company ID (SuccessFactors)
+      --description string     Description
+      --dry-run                Check the input without writing
+      --kind string            default, successfactors or openconnectors (default "default")
+      --name string            Credential name (as referenced in the iFlow)
+      --password-env string    Read the password from this environment variable
+      --password-file string   Read the password from this file
+      --password-stdin         Read the password from stdin
+      --user string            User name
+```
+
+**Examples:**
+
+```
+  ERP_PASSWORD=... cpictl credentials set-user --name ERP_User --user svc_erp --password-env ERP_PASSWORD
+```
+
 ## deploy
 
 Deploy designtime artifacts and wait for the result
@@ -275,6 +431,65 @@ skipped) give exit code 5.
 
 ```
   cpictl guidelines --artifact-id OrderIntake --output json
+```
+
+## keystore
+
+List keystore entries, check expiry, export and import certificates
+
+## keystore export-cert
+
+Export the certificate of a keystore entry as PEM
+
+**Usage:** `cpictl keystore export-cert [flags]`
+
+**Flags:**
+
+```
+      --alias string      Keystore alias
+      --keystore string   Keystore: system, backup_admin_system, KeyRenewal, KeyHistory (default "system")
+      --out string        Write the PEM to this file instead of stdout
+```
+
+## keystore import-cert
+
+Import a certificate (PEM or DER) into the tenant keystore
+
+**Usage:** `cpictl keystore import-cert [flags]`
+
+**Flags:**
+
+```
+      --alias string   Keystore alias
+      --file string    Certificate file (PEM or DER)
+      --update         Replace an existing entry with the same alias
+```
+
+**Examples:**
+
+```
+  cpictl keystore import-cert --alias partner_acme --file acme.pem
+```
+
+## keystore list
+
+List keystore entries with remaining validity
+
+**Usage:** `cpictl keystore list [flags]`
+
+**Flags:**
+
+```
+      --expiring-within string   Flag entries expiring within this period (e.g. 30d, 720h)
+      --fail-on-expiry           Exit with code 5 if an entry is expired or expiring
+      --keystore string          Keystore: system, backup_admin_system, KeyRenewal, KeyHistory (default "system")
+```
+
+**Examples:**
+
+```
+  cpictl keystore list --expiring-within 30d
+  cpictl keystore list --expiring-within 30d --fail-on-expiry   # exit 5 in CI
 ```
 
 ## logs

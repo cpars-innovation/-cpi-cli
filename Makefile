@@ -38,6 +38,7 @@ help: ## Show this help message
 	@echo "  build-darwin   - Build for macOS (Intel and Apple Silicon)"
 	@echo "  build-all      - Build for all platforms"
 	@echo "  test           - Run offline tests (no tenant access)"
+	@echo "  cover          - Offline tests with coverage report"
 	@echo "  test-integration - Run tenant integration tests (WRITES TO A REAL TENANT)"
 	@echo "  test-coverage  - Run tests with coverage report"
 	@echo "  clean          - Remove build artifacts"
@@ -100,6 +101,12 @@ test:
 	@echo "Running tests..."
 	go test -v ./...
 	@echo "Tests complete"
+
+.PHONY: cover
+cover: ## Offline tests with cross-package coverage (coverage.out, coverage.html)
+	go test -coverpkg=./... -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | tail -1
+	go tool cover -html=coverage.out -o coverage.html
 
 .PHONY: test-integration
 test-integration:

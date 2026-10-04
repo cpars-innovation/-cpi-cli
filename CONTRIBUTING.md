@@ -10,6 +10,18 @@ go test -race ./...               # offline, < 10 s, no tenant needed
 
 CI runs the same checks (`.github/workflows/ci.yml`).
 
+## Testing
+
+- `internal/cpitest` is an in-memory tenant (httptest). It enforces CSRF like a real tenant
+  (token + session cookie for modifying Basic Auth requests; `ExpireCSRF()` simulates an
+  ended session), never returns secrets, and covers deploy/undeploy, designtime
+  create/update/download, configuration, logs, content, Partner Directory and security
+  endpoints. New tenant calls get a mock endpoint and a test in `pkg/ops`.
+- Exit codes are pinned by `internal/cmd/testdata/TestExitCodes.golden`; the command
+  reference `docs/commands.md` and `docs/examples` are checked by tests as well.
+- Tests that handle secrets assert that the secret never appears in results or logs.
+- `make cover` reports cross-package coverage; CI fails below 50 %.
+
 ## Rules
 
 - **Never test against a real tenant by default.** Tests use the in-memory mock tenant in
@@ -22,7 +34,8 @@ CI runs the same checks (`.github/workflows/ci.yml`).
   `output.Partial`; HTTP errors from `pkg/httpclnt` are classified automatically. The exit
   codes are a contract (`internal/exitcode`) and must not be renumbered.
 - Logs go to stderr only; stdout is reserved for results (and the MCP protocol).
-- Never log credentials, tokens or client IDs.
+- Never log credentials, tokens, client IDs or request bodies. Secrets are read only through
+  `ops.SecretSource` (env, file, stdin), never from flag values, and never returned.
 - No new runtime dependencies without agreement.
 
 ## Generated files
