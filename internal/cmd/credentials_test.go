@@ -34,3 +34,23 @@ func TestCredentialsFromConfigFile(t *testing.T) {
 	require.NoError(t, root.Execute())
 	assert.Equal(t, 1, mock.Count("GET /api/v1/IntegrationRuntimeArtifacts('A')"))
 }
+
+func TestDeployArtifactIDsFromConfigFile(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1", Runtime: &cpitest.Runtime{Version: "1", Status: "STARTED"}},
+	})
+	host, port := mock.HostPort()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	cfg := fmt.Sprintf("tmn-host: http://%s:%d\ntmn-userid: user\ntmn-password: secret\ndeploy:\n  artifactIds: [A]\n", host, port)
+	require.NoError(t, os.WriteFile(filepath.Join(home, "flashpipe.yaml"), []byte(cfg), 0600))
+
+	root := NewCLI("test")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"deploy"})
+	require.NoError(t, root.Execute())
+	assert.Equal(t, 1, mock.Count("GET /api/v1/IntegrationDesigntimeArtifacts(Id='A',Version='active')"))
+}

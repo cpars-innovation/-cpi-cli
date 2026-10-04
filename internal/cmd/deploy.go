@@ -49,7 +49,6 @@ Configuration:
 	deployCmd.Flags().Bool("compare-versions", true, "Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions)")
 	deployCmd.Flags().String("artifact-type", "Integration", "Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType)")
 
-	_ = deployCmd.MarkFlagRequired("artifact-ids")
 	return deployCmd
 }
 
@@ -66,8 +65,13 @@ func runDeploy(cmd *cobra.Command) error {
 	compareVersions := config.GetBoolWithFallback(cmd, "compare-versions", "deploy.compareVersions")
 
 	artifacts := make([]ops.Artifact, 0, len(artifactIds))
-	for _, id := range artifactIds {
+	for _, id := range nonEmpty(artifactIds) {
 		artifacts = append(artifacts, ops.Artifact{ID: id, Type: artifactType})
+	}
+	if len(artifacts) == 0 {
+		// Validated here rather than with MarkFlagRequired so that the config
+		// file fallback (deploy.artifactIds) works
+		return output.Usagef("required flag \"artifact-ids\" not set (or config deploy.artifactIds)")
 	}
 
 	exe := cpi.InitHTTPExecuter(serviceDetails)
