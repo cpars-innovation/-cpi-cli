@@ -152,7 +152,6 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(DIST_DIR) 2>/dev/null || true
 	@rm -f $(BINARY_NAME)$(EXE_EXT) 2>/dev/null || true
-	@rm -f flashpipe$(EXE_EXT) flashpipex$(EXE_EXT) 2>/dev/null || true
 	@rm -f coverage.out coverage.html 2>/dev/null || true
 	@echo "Clean complete"
 

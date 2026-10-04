@@ -1,0 +1,22 @@
+# Parameter configuration for `cpictl configure` (see docs/configure.md)
+# Generate the current values with: cpictl configure pull --output-dir ./config/dev
+packages:
+  - integrationSuiteId: OrderProcessing
+    displayName: Order Processing
+    deploy: false
+    artifacts:
+      - artifactId: OrderIntake
+        type: Integration
+        deploy: true             # redeploy after the parameters were written
+        parameters:
+          - key: ReceiverHost
+            value: orders.dev.example.com
+          - key: Timeout
+            value: "30"
+      - artifactId: OrderConfirmation
+        type: Integration
+        parameters:
+          - key: MailRecipient
+            value: orders-dev@example.com
+        batch:
+          enabled: false         # write parameters one by one

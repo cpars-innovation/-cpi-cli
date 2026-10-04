@@ -1,451 +1,96 @@
-# Configure Command
+# Configuring parameters
 
-Configure SAP Cloud Integration artifact parameters using declarative YAML files.
+Three ways to change externalised parameters of integration flows:
 
-## Table of Contents
+| Command | Use for |
+|---------|---------|
+| `params get` / `params set` | One artifact, interactive or scripted |
+| `configure` | Many artifacts from YAML files (per environment), optionally deploy afterwards |
+| `configure pull` | Write the current tenant values into `configure` YAML files |
 
-- [Overview](#overview)
-- [Quick Start](#quick-start)
-- [Configuration File Format](#configuration-file-format)
-- [Command Reference](#command-reference)
-- [Examples](#examples)
-- [Multi-Environment Deployments](#multi-environment-deployments)
-- [Troubleshooting](#troubleshooting)
+Parameter changes only take effect at runtime after a deployment.
 
----
+## params
 
-## Overview
+```bash
+cpictl params get --artifact-id MyIFlow
+cpictl params set --artifact-id MyIFlow --param ReceiverHost=api.example.com --param Timeout=60
+cpictl params set --artifact-id MyIFlow --param Timeout=60 --dry-run
+cpictl deploy --artifact-ids MyIFlow --compare-versions=false
+```
 
-The `configure` command updates configuration parameters for SAP CPI artifacts and optionally deploys them.
+`params set` writes only values that differ. An unknown key fails the call (exit code 2)
+before anything is written. `--compare-versions=false` is needed on the following deploy
+because a parameter change does not change the artifact version.
 
-**Key Features:**
-- Declarative YAML-based configuration
-- Batch operations for efficient parameter updates
-- Optional deployment after configuration
-- Multi-environment support via deployment prefixes
-- Dry-run mode to preview changes
-- Process single file or folder of configs
+## configure
 
-**Use Cases:**
-- Environment promotion (DEV → QA → PROD)
-- Bulk parameter updates
-- Configuration as code in CI/CD pipelines
-- Disaster recovery
+```bash
+cpictl configure --config-path ./config/dev.yml
+cpictl configure --config-path ./config/          # all *.yml / *.yaml in the folder (not recursive)
+cpictl configure --config-path ./config/dev.yml --dry-run
+```
 
----
-
-## Quick Start
-
-**1. Create config file (`my-config.yml`):**
+Example: [examples/configure.yml](examples/configure.yml).
 
 ```yaml
+deploymentPrefix: ""                # optional, prepended to package and artifact IDs
 packages:
-  - integrationSuiteId: "MyPackage"
-    displayName: "My Integration Package"
-    
+  - integrationSuiteId: MyPackage
+    displayName: My Package         # informational
+    deploy: false                   # true: deploy all configured artifacts of this package
     artifacts:
-      - artifactId: "MyFlow"
-        displayName: "My Integration Flow"
-        type: "Integration"
-        version: "active"
-        deploy: true
-        
+      - artifactId: MyIFlow
+        type: Integration           # Integration, MessageMapping, ScriptCollection, ValueMapping
+        version: active             # default active
+        deploy: true                # deploy this artifact after configuration
         parameters:
-          - key: "DatabaseURL"
-            value: "jdbc:mysql://localhost:3306/mydb"
-          - key: "APIKey"
-            value: "${env:API_KEY}"
+          - key: ReceiverHost
+            value: api.example.com
+          - key: Timeout
+            value: "60"
+        batch:                      # optional
+          enabled: true             # default true
+          batchSize: 90             # parameters per $batch request
 ```
 
-**2. Set environment variables:**
+How it runs:
+
+1. **Configure**: for each artifact the parameters are written, by default with OData
+   `$batch` requests (`--batch-size`, default 90). If a batch fails, the parameters are written
+   one by one. Keys that do not exist on the artifact are skipped and counted as failed.
+2. **Deploy**: artifacts with `deploy: true` (or in a package with `deploy: true`) that were
+   configured successfully are deployed package by package, up to `--parallel-deployments`
+   (default 3) at a time, always (no version comparison). Status is checked
+   `--deploy-retries` (default 5) times every `--deploy-delay` (default 15) seconds.
+
+| Flag | Description |
+|------|-------------|
+| `--config-path`, `-c` | File or folder (required) |
+| `--deployment-prefix`, `-p` | Overrides `deploymentPrefix`; the final IDs are `prefix + ID` for packages and artifacts |
+| `--package-filter`, `--artifact-filter` | Comma-separated IDs (without prefix) to include |
+| `--dry-run` | Show what would be changed |
+| `--disable-batch` | Always write parameters one by one |
+
+All flags can be set in the global config file under `configure:` (`configPath`,
+`deploymentPrefix`, `packageFilter`, `artifactFilter`, `dryRun`, `deployRetries`,
+`deployDelaySeconds`, `parallelDeployments`, `batchSize`, `disableBatch`).
+
+With `--output json` the result contains the statistics and one deployment result per
+deployed artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
+
+> **Prefix rule differs from the orchestrator.** `configure` builds `prefix + ID` for packages
+> and artifacts (prefix `DEV_` → `DEV_MyPackage`, `DEV_MyIFlow`). The orchestrator builds
+> `prefix + ID` for packages but `prefix + "_" + ID` for artifacts (prefix `DEV` →
+> `DEVMyPackage`, `DEV_MyIFlow`). Choose the prefix per command so the IDs match.
+
+## configure pull
 
 ```bash
-export API_KEY="your-secret-key"
+cpictl configure pull --output-dir ./config/dev                        # all packages
+cpictl configure pull --output-dir ./config/dev --package-ids PkgA,PkgB
 ```
 
-**3. Run command:**
-
-```bash
-# Preview changes
-flashpipe configure --config-path ./my-config.yml --dry-run
-
-# Apply configuration
-flashpipe configure --config-path ./my-config.yml
-```
-
----
-
-## Configuration File Format
-
-### Pull configuration from the tenant
-
-Create one deploy-compatible YAML file per integration package:
-
-```bash
-# Pull every package into ./config
-flashpipe configure pull --output-dir ./config
-
-# Pull selected packages
-flashpipe configure pull --output-dir ./config \
-  --package-ids UtilitiesBaseUtilitiesCommon,AnotherPackage
-```
-
-The same settings can come from the global file passed with `--config`:
-
-```yaml
-configure:
-  pull:
-    outputDir: ./config
-    packageIds:
-      - UtilitiesBaseUtilitiesCommon
-      - AnotherPackage
-```
-
-```bash
-flashpipe --config ./flashpipe.yaml configure pull
-```
-
-Explicit `--output-dir` and `--package-ids` flags override the YAML settings.
-Package IDs that do not exist on the tenant are logged and skipped; remaining packages are still exported.
-
-Existing files named `<package-id>.yml` are replaced. Review pulled values before committing them because artifact parameters can contain environment-specific or sensitive data.
-
-### Complete Structure
-
-```yaml
-# Optional: Deployment prefix for all packages/artifacts
-deploymentPrefix: "DEV_"
-
-packages:
-  - integrationSuiteId: "PackageID"        # Required
-    displayName: "Package Display Name"     # Required
-    deploy: false                           # Optional: deploy all artifacts in package
-    
-    artifacts:
-      - artifactId: "ArtifactID"            # Required
-        displayName: "Artifact Name"        # Required
-        type: "Integration"                 # Required: Integration|MessageMapping|ScriptCollection|ValueMapping
-        version: "active"                   # Optional: default "active"
-        deploy: true                        # Optional: deploy this artifact after config
-        
-        parameters:
-          - key: "ParameterName"            # Required
-            value: "ParameterValue"         # Required
-        
-        batch:                              # Optional batch settings
-          enabled: true                     # default: true
-          batchSize: 90                     # default: 90
-```
-
-### Field Reference
-
-#### Package
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `integrationSuiteId` | string | Yes | Package ID in SAP CPI |
-| `displayName` | string | Yes | Package display name |
-| `deploy` | boolean | No | Deploy all artifacts in package (default: false) |
-| `artifacts` | array | Yes | List of artifacts to configure |
-
-#### Artifact
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `artifactId` | string | Yes | Artifact ID in SAP CPI |
-| `displayName` | string | Yes | Artifact display name |
-| `type` | string | Yes | `Integration`, `MessageMapping`, `ScriptCollection`, or `ValueMapping` |
-| `version` | string | No | Version to configure (default: "active") |
-| `deploy` | boolean | No | Deploy after configuration (default: false) |
-| `parameters` | array | Yes | Configuration parameters |
-| `batch` | object | No | Batch processing settings |
-
-#### Parameter
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `key` | string | Yes | Parameter name |
-| `value` | string | Yes | Parameter value (supports `${env:VAR}` syntax) |
-
-### Environment Variables
-
-Reference environment variables using `${env:VARIABLE_NAME}`:
-
-```yaml
-parameters:
-  - key: "DatabasePassword"
-    value: "${env:DB_PASSWORD}"
-  - key: "OAuthSecret"
-    value: "${env:OAUTH_SECRET}"
-```
-
----
-
-## Command Reference
-
-### Syntax
-
-```bash
-flashpipe configure [flags]
-```
-
-### Flags
-
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--config-path` | `-c` | string | *required* | Path to YAML file or folder |
-| `--deployment-prefix` | `-p` | string | `""` | Prefix for package/artifact IDs |
-| `--package-filter` | | string | `""` | Filter packages (comma-separated) |
-| `--artifact-filter` | | string | `""` | Filter artifacts (comma-separated) |
-| `--dry-run` | | bool | `false` | Preview without applying |
-| `--deploy-retries` | | int | `5` | Deployment status check retries |
-| `--deploy-delay` | | int | `15` | Seconds between deployment checks |
-| `--parallel-deployments` | | int | `3` | Max parallel deployments |
-| `--batch-size` | | int | `90` | Parameters per batch request |
-| `--disable-batch` | | bool | `false` | Disable batch processing |
-
-### Global Configuration (flashpipe.yaml)
-
-```yaml
-configure:
-  configPath: "./config/dev"
-  deploymentPrefix: "DEV_"
-  dryRun: false
-  deployRetries: 5
-  deployDelaySeconds: 15
-  parallelDeployments: 3
-  batchSize: 90
-  disableBatch: false
-```
-
-Run without flags:
-```bash
-flashpipe configure
-```
-
-*Note: CLI flags override flashpipe.yaml settings.*
-
----
-
-## Examples
-
-### Example 1: Basic Configuration
-
-Update parameters without deployment:
-
-```yaml
-packages:
-  - integrationSuiteId: "CustomerSync"
-    displayName: "Customer Synchronization"
-    
-    artifacts:
-      - artifactId: "CustomerDataFlow"
-        displayName: "Customer Data Integration"
-        type: "Integration"
-        deploy: false
-        
-        parameters:
-          - key: "SourceURL"
-            value: "https://erp.example.com/api/customers"
-          - key: "BatchSize"
-            value: "100"
-```
-
-```bash
-flashpipe configure --config-path ./config.yml
-```
-
-### Example 2: Configure and Deploy
-
-Update parameters and deploy:
-
-```yaml
-packages:
-  - integrationSuiteId: "OrderProcessing"
-    displayName: "Order Processing"
-    deploy: true
-    
-    artifacts:
-      - artifactId: "OrderValidation"
-        type: "Integration"
-        deploy: true
-        
-        parameters:
-          - key: "ValidationRules"
-            value: "STRICT"
-```
-
-```bash
-flashpipe configure --config-path ./config.yml
-```
-
-### Example 3: Folder-Based
-
-Process all YAML files in a folder:
-
-```
-configs/
-├── package1.yml
-├── package2.yml
-└── package3.yml
-```
-
-```bash
-flashpipe configure --config-path ./configs
-```
-
-### Example 4: Filtered Configuration
-
-Configure specific packages or artifacts:
-
-```bash
-# Specific packages
-flashpipe configure --config-path ./config.yml \
-  --package-filter "Package1,Package2"
-
-# Specific artifacts
-flashpipe configure --config-path ./config.yml \
-  --artifact-filter "Flow1,Flow2"
-```
-
----
-
-## Multi-Environment Deployments
-
-### Strategy 1: Deployment Prefixes
-
-Use same config, different prefixes:
-
-```bash
-# Development
-flashpipe configure --config-path ./config.yml --deployment-prefix "DEV_"
-
-# QA
-flashpipe configure --config-path ./config.yml --deployment-prefix "QA_"
-
-# Production
-flashpipe configure --config-path ./config.yml --deployment-prefix "PROD_"
-```
-
-### Strategy 2: Separate Folders
-
-Environment-specific configs:
-
-```
-config/
-├── dev/
-│   └── flows.yml
-├── qa/
-│   └── flows.yml
-└── prod/
-    └── flows.yml
-```
-
-```bash
-flashpipe configure --config-path ./config/dev
-flashpipe configure --config-path ./config/qa
-flashpipe configure --config-path ./config/prod
-```
-
-### Strategy 3: Environment Variables
-
-```yaml
-parameters:
-  - key: "ServiceURL"
-    value: "${env:SERVICE_URL}"
-  - key: "APIKey"
-    value: "${env:API_KEY}"
-```
-
-```bash
-# Development
-export SERVICE_URL="https://dev-api.example.com"
-export API_KEY="dev-key"
-flashpipe configure --config-path ./config.yml
-
-# Production
-export SERVICE_URL="https://api.example.com"
-export API_KEY="prod-key"
-flashpipe configure --config-path ./config.yml
-```
-
----
-
-## Troubleshooting
-
-### Enable Debug Logging
-
-```bash
-export FLASHPIPE_DEBUG=true
-flashpipe configure --config-path ./config.yml
-```
-
-### Always Use Dry Run First
-
-```bash
-flashpipe configure --config-path ./config.yml --dry-run
-```
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Config file not found | Verify path, use absolute path |
-| Invalid YAML syntax | Check indentation (spaces not tabs), validate online |
-| Authentication failed | Verify credentials in `flashpipe.yaml` |
-| Artifact not found | Check ID is correct (case-sensitive), verify prefix |
-| Parameter update failed | Try `--disable-batch` flag |
-| Deployment timeout | Increase `--deploy-retries` and `--deploy-delay` |
-| Environment variable not substituted | Ensure `export` executed before command |
-
-### Summary Output
-
-The command prints detailed statistics:
-
-```
-═══════════════════════════════════════════════════════════════════════
-CONFIGURATION SUMMARY
-═══════════════════════════════════════════════════════════════════════
-
-Configuration Phase:
-  Packages processed:       2
-  Artifacts processed:      5
-  Artifacts configured:     5
-  Parameters updated:       23
-  
-Processing Method:
-  Batch requests executed:  3
-  Individual requests used: 0
-
-Deployment Phase:
-  Deployments successful:   2
-  Deployments failed:       0
-
-Overall Status: ✅ SUCCESS
-```
-
----
-
-## Best Practices
-
-✅ **DO:**
-- Use `--dry-run` before applying changes
-- Version control configuration files
-- Use environment variables for secrets
-- Test in DEV before promoting to PROD
-- Document parameters with comments
-
-❌ **DON'T:**
-- Commit secrets to Git
-- Skip dry-run in production
-- Use hardcoded credentials
-- Deploy without testing first
-
----
-
-## See Also
-
-- [configure-example.yml](../configure-example.yml) - Complete example
-- [config-examples/](../config-examples/) - Multi-file examples
-- [Orchestrator Command](orchestrator.md) - For full artifact deployments
-- [OAuth Setup](oauth_client.md) - Authentication configuration
+Writes one `<PackageID>.yml` per package in the `configure` format above, with the current
+parameter values of all integration flows. Packages that do not exist are skipped with a
+warning. Config keys: `configure.pull.outputDir`, `configure.pull.packageIds`.

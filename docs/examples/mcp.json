@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "command": "/path/to/bin/cpictl",
+      "args": ["mcp", "--root", "/path/to/integration-repo"],
+      "env": {
+        "FLASHPIPE_TMN_HOST": "mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com",
+        "FLASHPIPE_OAUTH_HOST": "mytenant.authentication.eu10.hana.ondemand.com",
+        "FLASHPIPE_OAUTH_CLIENTID": "<client id>",
+        "FLASHPIPE_OAUTH_CLIENTSECRET": "<client secret>"
+      }
+    }
+  }
+}

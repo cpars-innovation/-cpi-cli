@@ -1,200 +1,207 @@
 # cpictl
 
-`cpictl` is a fork of [FlashPipe](https://github.com/engswee/flashpipe) maintained by cpars innovation.
-It keeps FlashPipe's commands and configuration (`FLASHPIPE_*` environment variables, `flashpipe.yaml`)
-and adds safety fixes and agent-friendly output. The original FlashPipe README follows.
+`cpictl` is a command line tool and MCP server for **SAP Cloud Integration (CPI)**:
+build, deploy, configure and inspect integration content on a tenant from scripts,
+CI/CD pipelines and AI agents.
 
-Build: `make build` (binary in `bin/cpictl`), or
-`go build -ldflags "-X main.Version=$(git describe --tags --always)" -o bin/cpictl ./cmd/cpictl`.
+- **One binary, two interfaces**: a regular CLI and an [MCP server](docs/mcp.md) (`cpictl mcp`)
+  that share the same operations and the same safety rules.
+- **Agent-friendly output**: `--output json` writes one result document to stdout,
+  logs go to stderr, and [exit codes](#exit-codes) tell *why* something failed.
+- **Correct deployments**: deploy waits for the build/deploy task and for the *new* runtime
+  artifact, so a redeploy is never reported as successful while the old version is still running.
+- **Safe by default**: Partner Directory full sync never deletes the parameters of a partner
+  whose local files could not be read; destructive MCP tools need an explicit confirmation.
 
-### Agent / CI output contract
-
-Every command accepts `--output text|json` (default `text`, env `FLASHPIPE_OUTPUT`).
-
-- `--output json`: exactly one JSON document on **stdout**
-  (`{"command", "ok", "exitCode", "error", "result"}`), logs on **stderr** as JSON lines.
-- `--output text`: human-readable logs on stderr, nothing on stdout.
-- `deploy` / `undeploy` results contain one entry per artifact:
-  `{"id", "type", "taskId", "status", "version", "error"}` with status
-  `DEPLOYED | SKIPPED | UNDEPLOYED | NOT_DEPLOYED | FAILED | TIMEOUT`.
-
-| Exit code | Meaning |
-|-----------|---------|
-| 0 | OK |
-| 1 | Unexpected internal error |
-| 2 | Usage or configuration error |
-| 3 | Authentication failed (401/403, OAuth token) |
-| 4 | Tenant HTTP error or tenant unreachable |
-| 5 | Deployment / validation failed |
-| 6 | Timeout (polling budget exhausted) |
-| 7 | Partial failure (some items succeeded) |
-
-### Commands added in cpictl
-
-| Command | Purpose |
-|---------|---------|
-| `undeploy --artifact-ids A,B` | Remove runtime artifacts and wait until they are gone |
-| `status --artifact-ids A,B` | Runtime status, version, deployedOn, error message |
-| `packages` / `artifacts --package-id P` | List packages / designtime artifacts |
-| `params get --artifact-id A` / `params set --artifact-id A --param k=v` | Read / change externalised parameters |
-| `mcp` | MCP server for AI agents (see below) |
-
-### MCP server
-
-`cpictl mcp` runs a Model Context Protocol server on stdio. It uses the same tenant
-settings as the CLI (flags, `FLASHPIPE_*` env vars, `flashpipe.yaml`); stdout carries only
-the protocol, logs go to stderr as JSON lines. Local paths are confined to `--root`.
-
-Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `get_parameters`,
-`set_parameters`, `upload_artifact`, `deploy`, `undeploy` (requires `confirm: true`),
-`pd_deploy` (dry run unless `dry_run: false`). Every tool result has
-`{ok, errorCategory, exitCode, error, result}` with the same categories as the exit codes.
-
-Claude Code: `claude mcp add cpi -e FLASHPIPE_TMN_HOST=... -e FLASHPIPE_OAUTH_HOST=... -e FLASHPIPE_OAUTH_CLIENTID=... -e FLASHPIPE_OAUTH_CLIENTSECRET=... -- cpictl mcp --root /path/to/repo`
-
-Generic client config:
-
-```json
-{"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
-  "env": {"FLASHPIPE_TMN_HOST": "...", "FLASHPIPE_OAUTH_HOST": "...",
-          "FLASHPIPE_OAUTH_CLIENTID": "...", "FLASHPIPE_OAUTH_CLIENTSECRET": "..."}}}}
-```
-
-Code layout: `pkg/cpi` (tenant API client), `pkg/ops` (operations with structured
-results, shared by CLI and MCP), `internal/cmd` (CLI), `internal/mcp` (MCP server).
-
-`config-generate` now takes the target file via `--output-file`; a non-format value passed to
-`--output` is still accepted as the file path (deprecated).
-
-Tests: `go test ./...` runs offline. Tenant integration tests are behind a build tag and
-**write to a real tenant**: `go test -tags integration ./...`.
+`cpictl` started as a fork of [FlashPipe](https://github.com/engswee/flashpipe) (Apache 2.0);
+see [NOTICE](NOTICE).
 
 ---
-<img src="https://github.com/engswee/flashpipe/raw/main/docs/images/logo/flashpipe_logo_wording.png" alt="FlashPipe Logo" width="200" height="140"/>
 
-## The CI/CD Companion for SAP Integration Suite
+## Contents
 
-[![GitHub license](https://img.shields.io/github/license/engswee/flashpipe)](https://github.com/engswee/flashpipe/blob/main/LICENSE)
-[![GitHub release](https://img.shields.io/github/release/engswee/flashpipe.svg)](https://github.com/engswee/flashpipe/releases/latest)
-[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/engswee/flashpipe)](https://hub.docker.com/r/engswee/flashpipe/tags?page=1&ordering=last_updated)
-[![Docker Pulls](https://img.shields.io/docker/pulls/engswee/flashpipe)](https://hub.docker.com/r/engswee/flashpipe/tags?page=1&ordering=last_updated)
+- [Install](#install)
+- [Connect to a tenant](#connect-to-a-tenant)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Output and exit codes](#output-and-exit-codes)
+- [MCP server](#mcp-server)
+- [Documentation](#documentation)
+- [Development](#development)
 
-### About
+## Install
 
-_FlashPipe_ is a public [Docker image](https://hub.docker.com/r/engswee/flashpipe) that provides Continuous
-Integration (CI) & Continuous Delivery/Deployment (CD) capabilities for SAP Integration Suite.
-
-_FlashPipe_ aims to simplify the Build-To-Deploy cycle for SAP Integration Suite by providing CI/CD capabilities for
-automating time-consuming manual tasks.
-
-### Enhanced Capabilities
-
-_FlashPipe_ has been significantly enhanced with powerful new commands for streamlined CI/CD workflows:
-
-#### 🎯 Orchestrator Command
-
-High-level deployment orchestration with integrated workflow management:
-
-- **Complete Lifecycle**: Update and deploy packages and artifacts in a single command
-- **Multi-Source Configs**: Load from files, folders, or remote URLs
-- **YAML Configuration**: Define all settings in a config file for reproducibility
-- **Parallel Deployment**: Deploy multiple artifacts simultaneously (3-5x faster)
-- **Environment Support**: Multi-tenant/environment prefixes (DEV, QA, PROD)
-- **Selective Processing**: Filter by specific packages or artifacts
+Requires Go 1.25 or later.
 
 ```bash
-# Simple deployment with YAML config
-flashpipe orchestrator --orchestrator-config ./orchestrator.yml
-
-# Or with individual flags
-flashpipe orchestrator --update \
-  --deployment-prefix DEV \
-  --deploy-config ./001-deploy-config.yml \
-  --packages-dir ./packages
+git clone https://github.com/cpars-innovation/cpicli.git
+cd cpicli
+make build            # -> bin/cpictl
+./bin/cpictl --version
 ```
 
-#### ⚙️ Config Generation
-
-Automatically generate deployment configurations from your packages directory:
+Without make:
 
 ```bash
-# Generate config from package structure
-flashpipe config-generate --packages-dir ./packages --output ./deploy-config.yml
+go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o bin/cpictl ./cmd/cpictl
 ```
 
-#### 📁 Partner Directory Management
+Cross-platform builds: `make build-all` (Windows, Linux amd64/arm64, macOS).
 
-Snapshot and deploy Partner Directory parameters:
+## Connect to a tenant
+
+Every command needs the tenant host and either OAuth client credentials (recommended)
+or Basic Auth. Use environment variables for secrets:
 
 ```bash
-# Download parameters from SAP CPI
-flashpipe pd-snapshot --output ./partner-directory
-
-# Upload parameters to SAP CPI
-flashpipe pd-deploy --source ./partner-directory
+export FLASHPIPE_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+export FLASHPIPE_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com
+export FLASHPIPE_OAUTH_CLIENTID=sb-xxxxxxxx!b1234|it!b5678
+export FLASHPIPE_OAUTH_CLIENTSECRET=...
 ```
 
-See documentation below for complete details on each command.
+The same settings can be passed as flags (`--tmn-host`, `--oauth-host`, ...) or put in a
+config file (`$HOME/flashpipe.yaml` or `--config file.yaml`), which can also hold defaults for
+each command. See [docs/configuration.md](docs/configuration.md), including how to create the
+OAuth client in SAP BTP.
 
-### Documentation
+> The `FLASHPIPE_` prefix and the `flashpipe.yaml` file name are kept for compatibility with
+> existing FlashPipe pipelines.
 
-For comprehensive documentation on using _FlashPipe_, visit the [GitHub Pages documentation site](https://engswee.github.io/flashpipe/).
+## Quick start
 
-#### New Commands Documentation
+```bash
+# What is on the tenant?
+cpictl packages
+cpictl artifacts --package-id MyPackage
 
-- **[Orchestrator](docs/orchestrator.md)** - High-level deployment orchestration and workflow management
-- **[Orchestrator Quick Start](docs/orchestrator-quickstart.md)** - Get started with orchestrator in 30 seconds
-- **[Orchestrator YAML Config](docs/orchestrator-yaml-config.md)** - Complete YAML configuration reference
-- **[Configure](docs/configure.md)** - Configure artifact parameters with YAML files
-- **[Config Generate](docs/config-generate.md)** - Automatically generate deployment configurations
-- **[Partner Directory](docs/partner-directory.md)** - Manage Partner Directory parameters
+# Upload a local iFlow directory (create or update) and deploy it
+cpictl update artifact --artifact-id MyIFlow --package-id MyPackage --dir-artifact ./MyIFlow
+cpictl deploy --artifact-ids MyIFlow
 
-#### Migration Guides
+# Check the result, read the error if it failed
+cpictl status --artifact-ids MyIFlow
 
-- **[Orchestrator Migration Guide](docs/orchestrator-migration.md)** - Migrate from standalone CLI to integrated orchestrator
+# Change externalised parameters, then deploy again to activate them
+cpictl params set --artifact-id MyIFlow --param ReceiverHost=api.example.com
+cpictl deploy --artifact-ids MyIFlow --compare-versions=false
 
-#### Core FlashPipe Documentation
+# Remove it from runtime again
+cpictl undeploy --artifact-ids MyIFlow
+```
 
-- **[FlashPipe CLI Reference](docs/flashpipe-cli.md)** - Complete CLI command reference
-- **[OAuth Client Setup](docs/oauth_client.md)** - Configure OAuth authentication
-- **[GitHub Actions Integration](docs/documentation.md)** - CI/CD pipeline examples
+Machine-readable output for scripts:
 
-#### Examples
+```bash
+cpictl deploy --artifact-ids A,B --output json | jq '.result.results[] | {id, status, error}'
+```
 
-Configuration examples are available in [docs/examples/](docs/examples/):
-- `orchestrator-config-example.yml` - Orchestrator configuration template
-- `flashpipe-cpars-example.yml` - Partner Directory configuration example
+## Commands
 
-#### Developer Documentation
+| Area | Commands |
+|------|----------|
+| Inspect | `packages`, `artifacts`, `status` |
+| Designtime | `update artifact`, `update package` |
+| Runtime | `deploy`, `undeploy` |
+| Parameters | `params get`, `params set`, `configure`, `configure pull` |
+| Multi-package deployments | `orchestrator`, `config-generate` |
+| Git synchronisation | `sync`, `snapshot`, `snapshot restore` |
+| API Management | `sync apiproxy`, `sync apiproduct` |
+| Partner Directory | `pd-snapshot`, `pd-deploy` |
+| AI agents | `mcp` |
 
-For contributors and maintainers, see [dev-docs/](dev-docs/) for:
-- Testing guides and coverage reports
-- CLI porting summaries
-- Enhancement documentation
+Full reference with all flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
 
-### Analytics
+## Output and exit codes
 
-_FlashPipe_ collects anonymous usage analytics to help guide ongoing development and improve the tool. No personal or user-identifiable information is collected. Analytics collection is always enabled and not optional. By using _FlashPipe_, you consent to this data collection. If you have concerns, you are encouraged to review the implementation. If you do not agree, please refrain from using the tool.
+`--output text` (default) writes human-readable logs to stderr and nothing to stdout.
+`--output json` writes exactly one JSON document to stdout and JSON-line logs to stderr:
 
-### Examples Repository
-The following repository on GitHub provides examples of different use cases of _FlashPipe_.
+```json
+{
+  "command": "deploy",
+  "ok": false,
+  "exitCode": 7,
+  "error": "1 of 2 artifact(s) failed - B: FAILED (designtime artifact B does not exist)",
+  "result": {
+    "results": [
+      {"id": "A", "type": "Integration", "taskId": "...", "status": "DEPLOYED", "version": "1.0.2"},
+      {"id": "B", "type": "Integration", "status": "FAILED", "error": "designtime artifact B does not exist"}
+    ]
+  }
+}
+```
 
-[https://github.com/engswee/flashpipe-demo](https://github.com/engswee/flashpipe-demo)
+Deploy/undeploy statuses: `DEPLOYED`, `SKIPPED` (same version already running),
+`UNDEPLOYED`, `NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.
 
-### Versioning
-[SemVer](https://semver.org/) is used for versioning.
+### Exit codes
 
-### Contributing
+| Code | Meaning | Typical reaction |
+|------|---------|------------------|
+| 0 | OK | |
+| 1 | Unexpected internal error | report a bug |
+| 2 | Usage or configuration error | fix flags/config |
+| 3 | Authentication failed (401/403, OAuth token) | check credentials and roles |
+| 4 | Tenant HTTP error or tenant unreachable | retry later / check host |
+| 5 | Deployment or validation failed on the tenant | fix the artifact |
+| 6 | Timeout (polling budget exhausted) | check status, increase `--max-check-limit` |
+| 7 | Partial failure (some items succeeded) | inspect the per-item results |
 
-Contributions from the community are welcome.
+## MCP server
 
-To contribute to _FlashPipe_, check the [contribution guidelines page](CONTRIBUTING.md).
+`cpictl mcp` exposes the tenant to AI agents over the Model Context Protocol (stdio).
+With Claude Code:
 
-### License
+```bash
+claude mcp add cpi \
+  -e FLASHPIPE_TMN_HOST=... -e FLASHPIPE_OAUTH_HOST=... \
+  -e FLASHPIPE_OAUTH_CLIENTID=... -e FLASHPIPE_OAUTH_CLIENTSECRET=... \
+  -- /path/to/bin/cpictl mcp --root /path/to/your/integration-repo
+```
 
-_FlashPipe_ is licensed under the terms of Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
+Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `get_parameters`,
+`set_parameters`, `upload_artifact`, `deploy`, `undeploy`, `pd_deploy`.
+See [docs/mcp.md](docs/mcp.md) for the tool contract, safety rules and other clients.
 
-### Stargazers over time
-[![Stargazers over time](https://starchart.cc/engswee/flashpipe.svg?variant=adaptive)](https://starchart.cc/engswee/flashpipe)
+## Documentation
 
+| Document | Content |
+|----------|---------|
+| [docs/configuration.md](docs/configuration.md) | Connection, config file, environment variables, OAuth client setup |
+| [docs/commands.md](docs/commands.md) | Generated reference of all commands and flags |
+| [docs/mcp.md](docs/mcp.md) | MCP server: setup, tools, result format, safety |
+| [docs/orchestrator.md](docs/orchestrator.md) | Multi-package update + deploy, `config-generate` |
+| [docs/configure.md](docs/configure.md) | Parameter configuration from YAML (`configure`, `configure pull`) |
+| [docs/partner-directory.md](docs/partner-directory.md) | `pd-snapshot` / `pd-deploy`, file layout, full sync |
+| [docs/ci.md](docs/ci.md) | Using cpictl in GitHub Actions / Azure Pipelines |
+| [docs/examples/](docs/examples) | Ready-to-copy configuration files |
+| [CHANGELOG.md](CHANGELOG.md) | Changes since the FlashPipe fork |
 
+## Development
+
+```bash
+go test ./...                    # offline, no tenant needed (httptest mock tenant)
+go test -race ./...
+make test-integration            # WRITES TO A REAL TENANT, needs FLASHPIPE_* env vars
+```
+
+Project layout:
+
+```
+cmd/cpictl         main package
+internal/cmd       CLI commands (cobra), output contract
+internal/mcp       MCP server and tool definitions
+pkg/ops            operations with structured results, shared by CLI and MCP
+pkg/cpi            SAP CPI OData API client
+pkg/httpclnt       HTTP client (OAuth / Basic Auth, CSRF, typed HTTP errors)
+internal/cpitest   in-memory mock tenant for tests
+```
+
+Golden files: `go test ./internal/cmd -update` regenerates the exit-code goldens and
+`docs/commands.md`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party licenses are in
+[licenses/](licenses).

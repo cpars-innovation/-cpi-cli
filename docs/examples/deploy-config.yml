@@ -1,0 +1,33 @@
+# Deployment config for `cpictl orchestrator` (generate/refresh with `cpictl config-generate`)
+# See docs/orchestrator.md.
+deploymentPrefix: ""
+packages:
+  - integrationSuiteId: OrderProcessing
+    packageDir: OrderProcessing
+    displayName: Order Processing
+    description: Order intake and confirmation flows
+    sync: true
+    deploy: true
+    artifacts:
+      - artifactId: OrderIntake
+        artifactDir: OrderIntake
+        displayName: Order Intake
+        type: IntegrationFlow
+        sync: true
+        deploy: true
+        configOverrides:
+          ReceiverHost: orders.dev.example.com
+          Timeout: 30
+      - artifactId: OrderMapping
+        artifactDir: OrderMapping
+        displayName: Order Mapping
+        type: MessageMapping
+        sync: true
+        deploy: false          # uploaded, not deployed
+  - integrationSuiteId: SharedScripts
+    packageDir: SharedScripts
+    deploy: false              # update only
+    artifacts:
+      - artifactId: CommonScripts
+        artifactDir: CommonScripts
+        type: ScriptCollection

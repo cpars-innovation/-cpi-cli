@@ -1,14 +1,39 @@
-# Contributing to FlashPipe
+# Contributing
 
-Contributions from the community are welcome. This project uses [Developer Certificate of Origin (DCO)](https://developercertificate.org) to certify that contributors have the right to submit the code they are contributing.
+## Before you push
 
-When submitting Pull Requests, ensure all commits contain a `Signed-off-by` line in its commit message to pass the automated check by [Probot: DCO](https://probot.github.io/apps/dco/).
+```bash
+gofmt -l .                        # must print nothing
+go vet ./... && go vet -tags integration ./...
+go test -race ./...               # offline, < 10 s, no tenant needed
+```
 
-Following are the guidelines for contributions:
-- If you are a first time contributor on GitHub, check out the [First Contributions repository](https://github.com/firstcontributions/first-contributions).
-- Wherever possible ensure that changes in commits are related.
-  - If there are various changes, avoid a single commit for all of them.
-  - Splitting the changes into different commits allows for providing specific details in each commit message and eases the review process.
-- Work on changes in a different branch (in your forked repository) other than `main` and submit PRs from that branch. In general, I use `rebase and merge` for PRs into a different branch before the changes make it into the `main` branch and a Docker image release. This ensures the `main` branch's history is clean and your fork can continue to track it easily for further changes.
-- If there are various unrelated changes, it is better to submit them as separate PRs. It is easier to review and include small individual chunks of changes into the `main` branch.
-- If you have something big, please open an issue first so that we can have a discussion about it. Don't get me wrong - I truly welcome contributions and are thrilled to have them. Having a discussion beforehand ensures we are on the same page before starting a big endeavour, and hopefully avoids any surprises during the PR review process.
+CI runs the same checks (`.github/workflows/ci.yml`).
+
+## Rules
+
+- **Never test against a real tenant by default.** Tests use the in-memory mock tenant in
+  `internal/cpitest`. Tests that need a tenant go behind `//go:build integration` and are run
+  explicitly with `make test-integration` against a development tenant.
+- New tenant operations go into `pkg/ops` (structured result + classified error) and are
+  then exposed by a CLI command in `internal/cmd` and, where useful, an MCP tool in
+  `internal/mcp`. Do not put tenant logic into cobra commands.
+- Errors: wrap usage/config problems with `output.Usagef`, partial results with
+  `output.Partial`; HTTP errors from `pkg/httpclnt` are classified automatically. The exit
+  codes are a contract (`internal/exitcode`) and must not be renumbered.
+- Logs go to stderr only; stdout is reserved for results (and the MCP protocol).
+- Never log credentials, tokens or client IDs.
+- No new runtime dependencies without agreement.
+
+## Generated files
+
+```bash
+go test ./internal/cmd -update    # regenerates docs/commands.md and the testdata/*.golden files
+```
+
+Review the diff of regenerated files before committing.
+
+## Upstream
+
+`upstream` points to https://github.com/engswee/flashpipe. Changes are taken over by
+cherry-pick only; never rebase onto upstream.

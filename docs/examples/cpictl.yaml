@@ -1,0 +1,61 @@
+# cpictl global config file
+# Use as $HOME/flashpipe.yaml or pass with --config cpictl.yaml.
+#
+# Precedence: flag > FLASHPIPE_* environment variable > top-level key > command section > default.
+# ${VAR} is NOT expanded in this file: keep secrets in environment variables
+# (FLASHPIPE_OAUTH_CLIENTSECRET, FLASHPIPE_TMN_PASSWORD) and leave them out of here.
+
+# --- Tenant connection --------------------------------------------------------
+tmn-host: mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant.authentication.eu10.hana.ondemand.com
+# oauth-clientid: set FLASHPIPE_OAUTH_CLIENTID
+# oauth-clientsecret: set FLASHPIPE_OAUTH_CLIENTSECRET
+
+# Basic Auth instead of OAuth:
+# tmn-userid: set FLASHPIPE_TMN_USERID
+# tmn-password: set FLASHPIPE_TMN_PASSWORD
+
+# output: json          # default output format for all commands
+# debug: false
+
+# --- deploy / undeploy --------------------------------------------------------
+deploy:
+  artifactType: Integration   # Integration, MessageMapping, ScriptCollection, ValueMapping
+  compareVersions: true       # skip artifacts whose version is already running
+  delayLength: 15             # seconds between status checks
+  maxCheckLimit: 20           # status checks per artifact
+  # artifactIds: [MyIFlow, MyOtherIFlow]
+
+undeploy:
+  delayLength: 10
+  maxCheckLimit: 30
+
+# --- configure (see docs/configure.md) ----------------------------------------
+configure:
+  configPath: ./config/dev.yml
+  deployRetries: 5
+  deployDelaySeconds: 15
+  parallelDeployments: 3
+  pull:
+    outputDir: ./config/dev
+
+# --- orchestrator (see docs/orchestrator.md) ----------------------------------
+orchestrator:
+  packagesDir: ./packages
+  deployConfig: ./001-deploy-config.yml
+  mode: update-and-deploy     # update-and-deploy, update-only, deploy-only
+  deploymentPrefix: ""
+  parallelDeployments: 3
+  deployRetries: 5
+  deployDelaySeconds: 15
+
+# --- Partner Directory (see docs/partner-directory.md) ------------------------
+pd-snapshot:
+  resources-path: ./partner-directory
+  replace: true
+
+pd-deploy:
+  resources-path: ./partner-directory
+  replace: true
+  full-sync: false
+  dry-run: false
