@@ -70,6 +70,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewDeployCommand())
 	rootCmd.AddCommand(NewUndeployCommand())
 	rootCmd.AddCommand(NewStatusCommand())
+	rootCmd.AddCommand(NewLogsCommand())
 	rootCmd.AddCommand(NewPackagesCommand())
 	rootCmd.AddCommand(NewArtifactsCommand())
 	rootCmd.AddCommand(NewParamsCommand())

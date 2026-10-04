@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
 	"github.com/stretchr/testify/assert"
@@ -43,4 +44,20 @@ func TestParamsAndStatusCommands(t *testing.T) {
 	res = runMain(t, append([]string{"packages", "--output", "json"}, basicAuth(mock)...)...)
 	require.Equal(t, 0, res.code, res.stderr)
 	assert.Contains(t, res.stdout, `"name": "Pkg"`)
+}
+
+func TestLogsCommands(t *testing.T) {
+	now := time.Now()
+	mock := cpitest.NewTenant(t, nil)
+	mock.MessageLogSteps = [][]cpitest.MessageLog{{
+		{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now, ErrorText: "boom\nstack"},
+	}}
+	res := runMain(t, append([]string{"logs", "--artifact-id", "A", "--since", "1d", "--errors", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, `"errorText": "boom\nstack"`)
+	assert.Contains(t, mock.LastMessageLogQuery, "IntegrationFlowName")
+
+	res = runMain(t, append([]string{"logs", "get", "--message-guid", "g1", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, res.code, res.stderr)
+	assert.Contains(t, res.stdout, `"messageGuid": "g1"`)
 }

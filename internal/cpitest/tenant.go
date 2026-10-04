@@ -66,8 +66,24 @@ type Package struct {
 	ID, Name, Version string
 }
 
+// MessageLog is a message processing log of the mock tenant.
+type MessageLog struct {
+	Guid, Artifact, Status string
+	Start, End             time.Time
+	ErrorText              string
+	Headers                map[string]string
+	Attachments            []string // names
+}
+
 // Tenant is a mock CPI tenant.
 type Tenant struct {
+	// MessageLogSteps: each MessageProcessingLogs query returns the next step
+	// (the last step repeats). Single-message endpoints look up all steps.
+	MessageLogSteps [][]MessageLog
+	// LastMessageLogQuery is the raw query string of the last MPL query.
+	LastMessageLogQuery string
+	mplQueries          int
+
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
 	Packages  []Package
@@ -123,8 +139,29 @@ var (
 	rePkgArts = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)/(\w+)DesigntimeArtifacts$`)
 	reConfigs = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Configurations$`)
 	reConfig  = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$links/Configurations\('([^']+)'\)$`)
+	reMPL     = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
 	reErrInfo = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
+
+func mplJSON(l MessageLog) map[string]any {
+	return map[string]any{
+		"MessageGuid": l.Guid, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
+		"LogStart": odataDate(l.Start), "LogEnd": odataDate(l.End), "IntegrationFlowName": l.Artifact,
+		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": "P"},
+	}
+}
+
+func (m *Tenant) findMessageLog(guid string) *MessageLog {
+	for j := len(m.MessageLogSteps) - 1; j >= 0; j-- { // latest state first
+		step := m.MessageLogSteps[j]
+		for i := range step {
+			if step[i].Guid == guid {
+				return &step[i]
+			}
+		}
+	}
+	return nil
+}
 
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
@@ -176,6 +213,54 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case r.Method == http.MethodGet && path == "/api/v1/MessageProcessingLogs":
+		m.LastMessageLogQuery = r.URL.RawQuery
+		var logs []MessageLog
+		if len(m.MessageLogSteps) > 0 {
+			logs = pick(m.MessageLogSteps, m.mplQueries)
+		}
+		m.mplQueries++
+		results := []map[string]any{}
+		for _, l := range logs {
+			results = append(results, mplJSON(l))
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results, "__count": fmt.Sprint(len(results))}})
+
+	case r.Method == http.MethodGet && reMPL.MatchString(path):
+		mm := reMPL.FindStringSubmatch(path)
+		l := m.findMessageLog(mm[1])
+		if l == nil {
+			notFound(w)
+			return
+		}
+		switch mm[2] {
+		case "":
+			writeJSON(w, map[string]any{"d": mplJSON(*l)})
+		case "/ErrorInformation/$value":
+			if l.ErrorText == "" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte(l.ErrorText))
+		case "/CustomHeaderProperties":
+			rows := []map[string]string{}
+			for _, k := range sortedKeys(l.Headers) {
+				rows = append(rows, map[string]string{"Name": k, "Value": l.Headers[k]})
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		case "/AdapterAttributes":
+			writeJSON(w, map[string]any{"d": map[string]any{"results": []map[string]string{{"AdapterId": "HTTPS", "Name": "Status", "Value": "200"}}}})
+		case "/Attachments":
+			rows := []map[string]any{}
+			for i, n := range l.Attachments {
+				rows = append(rows, map[string]any{"Id": fmt.Sprintf("att-%d", i), "Name": n, "ContentType": "text/plain", "PayloadSize": 10, "TimeStamp": odataDate(l.End)})
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		default:
+			notFound(w)
+		}
+
 	case r.Method == http.MethodGet && path == "/api/v1/IntegrationPackages":
 		results := []map[string]string{}
 		for _, p := range m.Packages {

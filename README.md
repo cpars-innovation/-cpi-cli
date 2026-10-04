@@ -73,6 +73,10 @@ cpictl deploy --artifact-ids OrderIntake
 # Did it start? If not, the tenant's error message is in the output
 cpictl status --artifact-ids OrderIntake
 
+# Send a test message, then wait for its processing log and read the error if it failed
+cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
+cpictl logs get --message-guid <guid>
+
 # Change externalised parameters and activate them
 cpictl params set --artifact-id OrderIntake --param ReceiverHost=orders.example.com
 cpictl deploy --artifact-ids OrderIntake --compare-versions=false
@@ -89,6 +93,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Area | Commands |
 |------|----------|
 | Inspect | `packages`, `artifacts`, `status` |
+| Monitoring | `logs`, `logs get` (message processing logs) |
 | Designtime | `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
@@ -146,8 +151,9 @@ claude mcp add cpi \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
-Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `get_parameters`,
-`set_parameters`, `upload_artifact`, `deploy`, `undeploy`, `pd_deploy`.
+Tools: `list_packages`, `list_artifacts`, `get_runtime_status`, `list_message_logs`,
+`get_message_log`, `get_parameters`, `set_parameters`, `upload_artifact`, `deploy`,
+`undeploy`, `pd_deploy`.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
 See [docs/mcp.md](docs/mcp.md).
 

@@ -100,7 +100,7 @@ func TestProtocol(t *testing.T) {
 		names = append(names, tool.Name)
 		assert.Equal(t, "object", tool.InputSchema["type"], tool.Name)
 	}
-	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "get_parameters",
+	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log", "get_parameters",
 		"set_parameters", "upload_artifact", "deploy", "undeploy", "pd_deploy"}, names)
 
 	assert.Nil(t, resp["3"].Error)
@@ -207,4 +207,38 @@ func TestResolvePath(t *testing.T) {
 	require.NoError(t, os.Symlink("/etc", filepath.Join(root, "link")))
 	_, err = resolvePath(root, "link")
 	assert.Error(t, err)
+}
+
+func TestMessageLogTools(t *testing.T) {
+	now := time.Now()
+	mock := cpitest.NewTenant(t, nil)
+	mock.MessageLogSteps = [][]cpitest.MessageLog{
+		{{Guid: "g1", Artifact: "A", Status: "PROCESSING", Start: now}},
+		{{Guid: "g1", Artifact: "A", Status: "FAILED", Start: now, End: now, ErrorText: "Mapping failed at line 3",
+			Headers: map[string]string{"OrderId": "4711"}}},
+	}
+	srv := NewServer("cpicli", "test", Instructions, Tools(Config{Exe: mock.Executer(), Root: t.TempDir(), LogPollInterval: time.Millisecond}))
+	var out bytes.Buffer
+	in := strings.Join([]string{
+		call(1, "list_message_logs", map[string]any{"artifact_id": "A", "since": "5m", "wait_seconds": 5}),
+	}, "\n") + "\n"
+	require.NoError(t, srv.Serve(context.Background(), strings.NewReader(in), &out))
+	var r rpcResp
+	require.NoError(t, json.Unmarshal(out.Bytes(), &r))
+	res := toolResult(t, r)
+	assert.True(t, res.StructuredContent.OK, res.StructuredContent.Error)
+	logs := res.StructuredContent.Result.(map[string]any)["logs"].([]any)
+	assert.Equal(t, "FAILED", logs[0].(map[string]any)["status"])
+	assert.Equal(t, "Mapping failed at line 3", logs[0].(map[string]any)["errorText"], "errors are included by default")
+
+	resp := session(t, mock, t.TempDir(),
+		call(2, "get_message_log", map[string]any{"message_guid": "g1"}),
+		call(3, "list_message_logs", map[string]any{"statuses": []string{"BROKEN"}}),
+		call(4, "list_message_logs", map[string]any{"since": "yesterday-ish"}),
+	)
+	detail := toolResult(t, resp["2"])
+	assert.True(t, detail.StructuredContent.OK)
+	assert.Contains(t, detail.Content[0].Text, `"OrderId"`)
+	assert.Equal(t, "usage", toolResult(t, resp["3"]).StructuredContent.ErrorCategory)
+	assert.Equal(t, "usage", toolResult(t, resp["4"]).StructuredContent.ErrorCategory)
 }

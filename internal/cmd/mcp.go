@@ -24,7 +24,8 @@ The server uses the same tenant settings as every other command (flags,
 CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
-Tools: list_packages, list_artifacts, get_runtime_status, get_parameters,
+Tools: list_packages, list_artifacts, get_runtime_status, list_message_logs,
+get_message_log, get_parameters,
 set_parameters, upload_artifact, deploy, undeploy (requires confirm=true),
 pd_deploy (dry run unless dry_run=false).
 

@@ -161,6 +161,15 @@ func TestExitCodes(t *testing.T) {
 			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Runtime: &cpitest.Runtime{Status: "STARTED"}, UndeployAfter: -1}})
 			return append(append([]string{"undeploy", "--artifact-ids", "A"}, fast...), basicAuth(m)...)
 		}},
+		{"timeout: logs --wait without final message", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			m.MessageLogSteps = [][]cpitest.MessageLog{{{Guid: "g1", Artifact: "A", Status: "PROCESSING", Start: now}}}
+			return append([]string{"logs", "--artifact-id", "A", "--wait", "1ms"}, basicAuth(m)...)
+		}},
+		{"usage: logs with invalid status", func(t *testing.T) []string {
+			m := cpitest.NewTenant(t, nil)
+			return append([]string{"logs", "--status", "BROKEN"}, basicAuth(m)...)
+		}},
 		{"partial: deploy one of two", func(t *testing.T) []string {
 			m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": ok()})
 			return append(append([]string{"deploy", "--artifact-ids", "A,B"}, fast...), basicAuth(m)...)

@@ -11,6 +11,8 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`configure`](#configure) | Set artifact parameters from YAML files and optionally deploy |
 | [`configure pull`](#configure-pull) | Write current tenant parameter values into configure YAML files |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
+| [`logs`](#logs) | Query message processing logs |
+| [`logs get`](#logs-get) | Show one message: status, error text, custom headers, attachments |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
@@ -199,6 +201,60 @@ Configuration:
       --max-check-limit int    Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
 ```
 
+## logs
+
+Query message processing logs
+
+```
+Query message processing logs (MPL) of the runtime, newest first.
+
+--since/--until take a duration back from now (30m, 2h, 1d) or an RFC 3339
+timestamp. --wait polls until at least one matching message exists and all
+matching messages reached a final status (COMPLETED, FAILED, ESCALATED,
+CANCELLED, DISCARDED, ABANDONED); use it after sending a test message with
+--since set to the send time. Exit code 6 if the wait times out.
+
+Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED, ABANDONED
+```
+
+**Usage:** `cpictl logs [flags]`
+
+**Flags:**
+
+```
+      --application-message-id string   Application message ID
+      --artifact-id string              Integration flow ID
+      --correlation-id string           Correlation ID
+      --errors                          Include the error text of failed messages
+      --since string                    Messages that ended after this time (duration like 1h or RFC 3339)
+      --skip int                        Skip the first n messages
+      --status strings                  Comma separated statuses, e.g. FAILED,RETRY
+      --top int                         Maximum number of messages (max 200) (default 20)
+      --until string                    Messages that started before this time (duration like 1h or RFC 3339)
+      --wait duration                   Wait up to this long for final messages (e.g. 60s)
+```
+
+**Examples:**
+
+```
+  cpictl logs --artifact-id OrderIntake --since 1h
+  cpictl logs --artifact-id OrderIntake --status FAILED --errors --output json
+  cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
+  cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG
+```
+
+## logs get
+
+Show one message: status, error text, custom headers, attachments
+
+**Usage:** `cpictl logs get [flags]`
+
+**Flags:**
+
+```
+      --message-guid string   Message GUID
+```
+
 ## mcp
 
 Run the MCP server (stdio) for AI agents
@@ -210,7 +266,8 @@ The server uses the same tenant settings as every other command (flags,
 CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
-Tools: list_packages, list_artifacts, get_runtime_status, get_parameters,
+Tools: list_packages, list_artifacts, get_runtime_status, list_message_logs,
+get_message_log, get_parameters,
 set_parameters, upload_artifact, deploy, undeploy (requires confirm=true),
 pd_deploy (dry run unless dry_run=false).
 

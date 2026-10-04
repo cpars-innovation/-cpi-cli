@@ -43,7 +43,8 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
 - `--output json` on every command: one result document on stdout, JSON-line logs on stderr.
 - Exit codes: 0 ok, 1 internal error, 2 usage/config, 3 auth, 4 tenant HTTP error,
   5 deploy/validate failed, 6 timeout, 7 partial failure (FlashPipe: 1 for every error).
-- Commands: `undeploy`, `status`, `packages`, `artifacts`, `params get`, `params set`, `mcp`.
+- Commands: `undeploy`, `status`, `logs`, `logs get`, `packages`, `artifacts`, `params get`,
+  `params set`, `mcp`.
 - MCP server for AI agents ([mcp.md](mcp.md)).
 - `--tmn-host` accepts `https://host` and `host:port`.
 

@@ -62,6 +62,8 @@ tenant; there is no read-only mode yet.
 | `list_packages` | no | All integration packages |
 | `list_artifacts` | no | Designtime artifacts of a package (all four types) |
 | `get_runtime_status` | no | Runtime status, version, deployment time; error message for artifacts in ERROR |
+| `list_message_logs` | no | Message processing logs by artifact, status, time window, correlation/application ID; error text of failed messages included; `wait_seconds` waits until the messages are final |
+| `get_message_log` | no | One message: status, full error text, custom header properties, adapter attributes, attachment list |
 | `get_parameters` | no | Externalised parameters of an integration flow |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail before anything is written; `dry_run` available |
 | `upload_artifact` | designtime | Create or update an artifact from a local directory; reports `CREATED`, `UPDATED` or `UNCHANGED` |
@@ -115,9 +117,16 @@ malformed request).
 1. `list_artifacts` / `get_runtime_status` to understand the current state.
 2. Edit files of the iFlow in the local repository (inside `--root`).
 3. `upload_artifact` with the artifact directory.
-4. `deploy`; on `failed`, read `error` (it contains the tenant's runtime error message),
-   fix the files and go back to 3.
-5. `set_parameters` + `deploy` to change externalised configuration.
+4. `deploy`; on `failed`, read `error` (the tenant's runtime error), fix and go back to 3.
+5. Note the current time, send a test message to the iFlow endpoint, then
+   `list_message_logs` with `artifact_id`, `since` = that time and `wait_seconds` (e.g. 60).
+   For a `FAILED` message the result contains `errorText`; `get_message_log` adds custom
+   header properties and attachments. Fix and go back to 3.
+6. `set_parameters` + `deploy` to change externalised configuration.
+
+Message logs contain business data (headers, error texts with payload fragments). Error texts
+are truncated (4 KB in lists, 16 KB in `get_message_log`, flagged with `errorTruncated`) to
+keep tool results small.
 
 ## Safety
 

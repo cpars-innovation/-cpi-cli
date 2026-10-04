@@ -14,6 +14,8 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact.
-- MCP server (`cpictl mcp`) with tools for listing, status, parameters, upload, deploy,
-  undeploy and Partner Directory deploy.
+- Message processing logs: `logs` (query, `--wait` for final status, error texts) and
+  `logs get` (error text, custom headers, adapter attributes, attachments).
+- MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
+  upload, deploy, undeploy and Partner Directory deploy.
 - Settings via flags, `CPICTL_*` environment variables and `$HOME/cpictl.yaml`.

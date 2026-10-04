@@ -19,7 +19,8 @@ import (
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 Typical loop: upload_artifact (local dir -> designtime) -> deploy -> get_runtime_status;
-on failure read the error, fix the local files and repeat. set_parameters changes
+send a test message, then list_message_logs (since=send time, wait_seconds) and
+get_message_log for the error; fix the local files and repeat. set_parameters changes
 externalised parameters; deploy afterwards to activate them.
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory is one of
 usage (fix the arguments), auth, tenant_http, failed, timeout, partial.
@@ -34,6 +35,8 @@ type Config struct {
 	// PollInterval and MaxChecks are the defaults for deploy/undeploy polling.
 	PollInterval time.Duration
 	MaxChecks    int
+	// LogPollInterval is the interval used by list_message_logs wait_seconds.
+	LogPollInterval time.Duration
 }
 
 // Tools returns the CPI tool set.
@@ -43,6 +46,9 @@ func Tools(cfg Config) []Tool {
 	}
 	if cfg.MaxChecks == 0 {
 		cfg.MaxChecks = 30
+	}
+	if cfg.LogPollInterval == 0 {
+		cfg.LogPollInterval = 5 * time.Second
 	}
 	readOnly := map[string]any{"readOnlyHint": true, "openWorldHint": true}
 	tenant := ops.NewTenant(cfg.Exe)
@@ -112,6 +118,75 @@ func Tools(cfg Config) []Tool {
 					return result, fmt.Errorf("status lookup failed for %s: %w", strings.Join(errs, "; "), firstErr)
 				}
 				return result, nil
+			},
+		},
+		{
+			Name: "list_message_logs", Title: "Query message processing logs",
+			Description: "Message processing logs (newest first) filtered by artifact, status, time and IDs, with the error text of failed messages. " +
+				"To test an iFlow: note the time, send the test message, then call with artifact_id, since=<that time> and wait_seconds to wait until the message reached a final status.",
+			InputSchema: object(props{
+				"artifact_id":            str("Integration flow ID"),
+				"statuses":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": cpi.MessageLogStatuses}, "description": "Only these statuses"},
+				"since":                  str("Messages that ended after this time: RFC 3339 timestamp or duration back from now (30m, 2h, 1d)"),
+				"until":                  str("Messages that started before this time (same format as since)"),
+				"correlation_id":         str("Correlation ID"),
+				"application_message_id": str("Application message ID"),
+				"top":                    map[string]any{"type": "integer", "minimum": 1, "maximum": ops.MaxMessageLogs, "description": "Maximum number of messages, default 20"},
+				"skip":                   integer("Skip the first n messages"),
+				"include_errors":         boolean("Include the error text of failed messages (default true)"),
+				"wait_seconds":           map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long until at least one message matches and all matches are final"},
+			}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID           string   `json:"artifact_id"`
+					Statuses             []string `json:"statuses"`
+					Since                string   `json:"since"`
+					Until                string   `json:"until"`
+					CorrelationID        string   `json:"correlation_id"`
+					ApplicationMessageID string   `json:"application_message_id"`
+					Top                  int      `json:"top"`
+					Skip                 int      `json:"skip"`
+					IncludeErrors        *bool    `json:"include_errors"`
+					WaitSeconds          int      `json:"wait_seconds"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				now := time.Now()
+				since, err := ops.ParseTimeArg(a.Since, now)
+				if err != nil {
+					return nil, output.Usagef("invalid since: %v", err)
+				}
+				until, err := ops.ParseTimeArg(a.Until, now)
+				if err != nil {
+					return nil, output.Usagef("invalid until: %v", err)
+				}
+				q := ops.MessageLogQuery{ArtifactID: a.ArtifactID, Statuses: a.Statuses, Since: since, Until: until,
+					CorrelationID: a.CorrelationID, ApplicationMessageID: a.ApplicationMessageID, Top: a.Top, Skip: a.Skip,
+					IncludeErrors: a.IncludeErrors == nil || *a.IncludeErrors}
+				if a.WaitSeconds > 0 {
+					if a.WaitSeconds > 600 {
+						return nil, output.Usagef("wait_seconds must be at most 600")
+					}
+					return ops.WaitForMessageLogs(ctx, cfg.Exe, q, time.Duration(a.WaitSeconds)*time.Second, cfg.LogPollInterval)
+				}
+				return ops.QueryMessageLogs(cfg.Exe, q)
+			},
+		},
+		{
+			Name: "get_message_log", Title: "Get one message processing log",
+			Description: "Details of one message: status, full error text, custom header properties, adapter attributes and attachment list.",
+			InputSchema: object(props{"message_guid": str("Message GUID from list_message_logs")}, "message_guid"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					MessageGuid string `json:"message_guid"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.GetMessageLog(cfg.Exe, a.MessageGuid, 0)
 			},
 		},
 		{
