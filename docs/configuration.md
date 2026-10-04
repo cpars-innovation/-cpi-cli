@@ -47,7 +47,7 @@ as `https://host` or `host:port`. Plain `http://` is only honoured for `localhos
 |------|-------------|
 | `--config` | Config file (default `$HOME/cpictl.yaml`) |
 | `--output text\|json` | Result format, see [README](../README.md#output-and-exit-codes) |
-| `--debug` | Debug logging. Includes request URLs and request bodies (e.g. parameter values), so do not enable it where logs are shared |
+| `--debug` | Debug logging: request URLs and response errors; request bodies are never logged (they can contain secrets) |
 
 ## Config file example
 

@@ -70,7 +70,7 @@ func modifyingCallWithContentType(method string, urlPath string, content []byte,
 	var body io.Reader
 	if len(content) > 0 {
 		headers["Content-Type"] = contentType
-		log.Debug().Msgf("Request body = %s", content)
+		log.Debug().Msgf("Request body: %d bytes", len(content)) // never log content: may contain secrets
 		body = bytes.NewReader(content)
 	} else {
 		body = http.NoBody
@@ -102,7 +102,7 @@ func readOnlyCallWithBodyAndAcceptType(urlPath string, content []byte, callType 
 	}
 	var body io.Reader
 	if len(content) > 0 {
-		log.Debug().Msgf("Request body = %s", content)
+		log.Debug().Msgf("Request body: %d bytes", len(content)) // never log content: may contain secrets
 		body = bytes.NewReader(content)
 	} else {
 		body = http.NoBody

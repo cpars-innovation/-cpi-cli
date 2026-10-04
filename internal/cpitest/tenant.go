@@ -3,8 +3,11 @@
 package cpitest
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -103,8 +106,22 @@ type Step struct {
 	StepID, ModelStepID, Activity, Status, Error string
 }
 
+// KeystoreEntry is a certificate of the mock tenant keystore.
+type KeystoreEntry struct {
+	Alias    string
+	NotAfter time.Time
+	DER      []byte
+}
+
 // Tenant is a mock CPI tenant.
 type Tenant struct {
+	// Credentials: collection (UserCredentials, OAuth2ClientCredentials,
+	// SecureParameters) -> name -> stored properties (including secrets,
+	// which are never returned, like on a real tenant).
+	Credentials map[string]map[string]map[string]any
+	// SecureParametersUnavailable answers 404 for SecureParameters (Cloud Foundry).
+	SecureParametersUnavailable bool
+	Keystore                    []KeystoreEntry
 	// MessageLogSteps: each MessageProcessingLogs query returns the next step
 	// (the last step repeats). Single-message endpoints look up all steps.
 	MessageLogSteps [][]MessageLog
@@ -199,8 +216,73 @@ var (
 	reGuidelineResult = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/DesignGuidelineExecutionResults\('([^']+)'\)$`)
 	reResources       = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Resources(\(Name='([^']+)',ResourceType='([^']+)'\)/\$value)?$`)
 	reDesignValue     = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$value$`)
+	reCredential      = regexp.MustCompile(`^/api/v1/(UserCredentials|OAuth2ClientCredentials|SecureParameters)(?:\('(.+)'\))?$`)
+	reKeystoreCert    = regexp.MustCompile(`^/api/v1/KeystoreEntries\('([0-9A-Fa-f]+)'\)/Certificate/\$value$`)
+	reCertImport      = regexp.MustCompile(`^/api/v1/CertificateResources\('([0-9A-Fa-f]+)'\)/\$value$`)
 	reErrInfo         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
+
+var secretFields = map[string]string{"UserCredentials": "Password", "OAuth2ClientCredentials": "ClientSecret", "SecureParameters": "SecureParam"}
+
+func (m *Tenant) handleCredential(w http.ResponseWriter, r *http.Request, mm []string) {
+	coll, name := mm[1], strings.ReplaceAll(mm[2], "''", "'")
+	if coll == "SecureParameters" && m.SecureParametersUnavailable {
+		notFound(w)
+		return
+	}
+	if m.Credentials == nil {
+		m.Credentials = map[string]map[string]map[string]any{}
+	}
+	if m.Credentials[coll] == nil {
+		m.Credentials[coll] = map[string]map[string]any{}
+	}
+	store := m.Credentials[coll]
+	public := func(props map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range props {
+			out[k] = v
+		}
+		out[secretFields[coll]] = nil
+		out["SecurityArtifactDescriptor"] = map[string]any{"Type": "CREDENTIALS", "DeployedBy": "tester", "Status": "DEPLOYED"}
+		return out
+	}
+	switch {
+	case r.Method == http.MethodGet && mm[2] == "":
+		rows := []map[string]any{}
+		for _, n := range sortedKeys(store) {
+			rows = append(rows, public(store[n]))
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+	case r.Method == http.MethodGet:
+		if props, ok := store[name]; ok {
+			writeJSON(w, map[string]any{"d": public(props)})
+			return
+		}
+		notFound(w)
+	case r.Method == http.MethodPost || r.Method == http.MethodPut:
+		var props map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&props); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, exists := store[fmt.Sprint(props["Name"])]
+		if (r.Method == http.MethodPost && exists) || (r.Method == http.MethodPut && (name == "" || !exists)) {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		store[fmt.Sprint(props["Name"])] = props
+		w.WriteHeader(http.StatusAccepted)
+	case r.Method == http.MethodDelete:
+		if _, ok := store[name]; !ok {
+			notFound(w)
+			return
+		}
+		delete(store, name)
+		w.WriteHeader(http.StatusAccepted)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
 
 func mplJSON(l MessageLog) map[string]any {
 	return map[string]any{
@@ -288,6 +370,49 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case reCredential.MatchString(path):
+		m.handleCredential(w, r, reCredential.FindStringSubmatch(path))
+
+	case r.Method == http.MethodGet && path == "/api/v1/KeystoreEntries":
+		rows := []map[string]any{}
+		for _, e := range m.Keystore {
+			rows = append(rows, map[string]any{"Hexalias": strings.ToUpper(hex.EncodeToString([]byte(e.Alias))), "Alias": e.Alias,
+				"Type": "Certificate", "KeyType": "RSA", "KeySize": 2048, "ValidNotAfter": odataDate(e.NotAfter), "SubjectDN": "CN=" + e.Alias})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && reKeystoreCert.MatchString(path):
+		alias, _ := hex.DecodeString(reKeystoreCert.FindStringSubmatch(path)[1])
+		for _, e := range m.Keystore {
+			if e.Alias == string(alias) {
+				_, _ = w.Write(e.DER)
+				return
+			}
+		}
+		notFound(w)
+
+	case r.Method == http.MethodPut && reCertImport.MatchString(path):
+		alias, _ := hex.DecodeString(reCertImport.FindStringSubmatch(path)[1])
+		body, _ := io.ReadAll(r.Body)
+		der, err := base64.StdEncoding.DecodeString(string(body))
+		if err != nil || r.Header.Get("Content-Type") != "application/pkix-cert" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for i, e := range m.Keystore {
+			if e.Alias == string(alias) {
+				if r.URL.Query().Get("update") != "true" {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+				m.Keystore[i].DER = der
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		m.Keystore = append(m.Keystore, KeystoreEntry{Alias: string(alias), DER: der, NotAfter: time.Now().Add(365 * 24 * time.Hour)})
+		w.WriteHeader(http.StatusNoContent)
+
 	case r.Method == http.MethodGet && path == "/api/v1/MessageProcessingLogs":
 		m.LastMessageLogQuery = r.URL.RawQuery
 		var logs []MessageLog
