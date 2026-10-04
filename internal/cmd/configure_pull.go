@@ -34,7 +34,7 @@ func NewConfigurePullCommand() *cobra.Command {
 }
 
 func runConfigurePull(cmd *cobra.Command, outputDir string, packageIDs []string) error {
-	exe := api.InitHTTPExecuter(getServiceDetailsFromViperOrCmd(cmd))
+	exe := api.InitHTTPExecuter(api.GetServiceDetails(cmd))
 	packages := api.NewIntegrationPackage(exe)
 	configuration := api.NewConfiguration(exe)
 

@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
 	"github.com/cpars-innovation/-cpi-cli/internal/file"
+	"github.com/cpars-innovation/-cpi-cli/internal/models"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -85,7 +87,7 @@ type ConfigGenerator struct {
 	OutputFile     string
 	PackageFilter  []string
 	ArtifactFilter []string
-	ExistingConfig *DeployConfig
+	ExistingConfig *models.DeployConfig
 	Stats          GenerationStats
 }
 
@@ -107,43 +109,6 @@ type GenerationStats struct {
 	ArtifactsTypePreserved     int
 }
 
-// DeployConfig represents the complete deployment configuration
-type DeployConfig struct {
-	DeploymentPrefix string    `yaml:"deploymentPrefix,omitempty"`
-	Packages         []Package `yaml:"packages"`
-}
-
-// Package represents a SAP CPI package
-type Package struct {
-	ID          string     `yaml:"integrationSuiteId"`
-	PackageDir  string     `yaml:"packageDir,omitempty"`
-	DisplayName string     `yaml:"displayName,omitempty"`
-	Description string     `yaml:"description,omitempty"`
-	ShortText   string     `yaml:"short_text,omitempty"`
-	Sync        bool       `yaml:"sync"`
-	Deploy      bool       `yaml:"deploy"`
-	Artifacts   []Artifact `yaml:"artifacts"`
-}
-
-// Artifact represents a SAP CPI artifact
-type Artifact struct {
-	Id              string                 `yaml:"artifactId"`
-	ArtifactDir     string                 `yaml:"artifactDir"`
-	DisplayName     string                 `yaml:"displayName,omitempty"`
-	Type            string                 `yaml:"type"`
-	Sync            bool                   `yaml:"sync"`
-	Deploy          bool                   `yaml:"deploy"`
-	ConfigOverrides map[string]interface{} `yaml:"configOverrides,omitempty"`
-}
-
-// PackageMetadata represents metadata from package JSON
-type PackageMetadata struct {
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	ShortText   string `json:"ShortText"`
-}
-
 // NewConfigGenerator creates a new configuration generator
 func NewConfigGenerator(packagesDir, outputFile string, packageFilter, artifactFilter []string) *ConfigGenerator {
 	return &ConfigGenerator{
@@ -152,32 +117,6 @@ func NewConfigGenerator(packagesDir, outputFile string, packageFilter, artifactF
 		PackageFilter:  packageFilter,
 		ArtifactFilter: artifactFilter,
 	}
-}
-
-// shouldIncludePackage checks if a package should be included based on filter
-func (g *ConfigGenerator) shouldIncludePackage(packageName string) bool {
-	if len(g.PackageFilter) == 0 {
-		return true
-	}
-	for _, filterPkg := range g.PackageFilter {
-		if filterPkg == packageName {
-			return true
-		}
-	}
-	return false
-}
-
-// shouldIncludeArtifact checks if an artifact should be included based on filter
-func (g *ConfigGenerator) shouldIncludeArtifact(artifactName string) bool {
-	if len(g.ArtifactFilter) == 0 {
-		return true
-	}
-	for _, filterArt := range g.ArtifactFilter {
-		if filterArt == artifactName {
-			return true
-		}
-	}
-	return false
 }
 
 // Generate generates or updates the deployment configuration
@@ -205,7 +144,9 @@ func (g *ConfigGenerator) Generate() error {
 		if err != nil {
 			return fmt.Errorf("failed to read existing config: %w", err)
 		}
-		var existingConfig DeployConfig
+		// Parse with the same model (and defaults: sync/deploy = true) that the
+		// orchestrator uses to read this file
+		var existingConfig models.DeployConfig
 		if err := yaml.Unmarshal(data, &existingConfig); err != nil {
 			return fmt.Errorf("failed to parse existing config: %w", err)
 		}
@@ -213,24 +154,25 @@ func (g *ConfigGenerator) Generate() error {
 	}
 
 	// Create new config structure
-	newConfig := DeployConfig{
+	newConfig := models.DeployConfig{
 		DeploymentPrefix: "",
-		Packages:         []Package{},
+		Packages:         []models.Package{},
 	}
 
-	// Preserve deployment prefix if exists
+	// Preserve deployment prefix and orchestrator settings if they exist
 	if g.ExistingConfig != nil {
 		newConfig.DeploymentPrefix = g.ExistingConfig.DeploymentPrefix
+		newConfig.Orchestrator = g.ExistingConfig.Orchestrator
 	}
 
 	// Build map of existing packages and artifacts for quick lookup
-	existingPackages := make(map[string]Package)
-	existingArtifacts := make(map[string]map[string]Artifact)
+	existingPackages := make(map[string]models.Package)
+	existingArtifacts := make(map[string]map[string]models.Artifact)
 
 	if g.ExistingConfig != nil {
 		for _, pkg := range g.ExistingConfig.Packages {
 			existingPackages[pkg.ID] = pkg
-			existingArtifacts[pkg.ID] = make(map[string]Artifact)
+			existingArtifacts[pkg.ID] = make(map[string]models.Artifact)
 			for _, art := range pkg.Artifacts {
 				existingArtifacts[pkg.ID][art.Id] = art
 			}
@@ -253,7 +195,7 @@ func (g *ConfigGenerator) Generate() error {
 		packageName := entry.Name()
 
 		// Apply package filter
-		if !g.shouldIncludePackage(packageName) {
+		if !shouldInclude(packageName, g.PackageFilter) {
 			g.Stats.PackagesFiltered++
 			continue
 		}
@@ -268,7 +210,7 @@ func (g *ConfigGenerator) Generate() error {
 		metadata := g.extractPackageMetadata(packageDir, packageName)
 
 		// Check if package exists in old config
-		var pkg Package
+		var pkg models.Package
 		if existingPkg, exists := existingPackages[packageName]; exists {
 			pkg = existingPkg
 			g.Stats.PackagesPreserved++
@@ -280,9 +222,6 @@ func (g *ConfigGenerator) Generate() error {
 					g.Stats.PackagePropertiesPreserved++
 				}
 
-				if pkg.PackageDir == "" {
-					pkg.PackageDir = metadata.ID
-				}
 				if pkg.DisplayName == "" {
 					pkg.DisplayName = metadata.Name
 				}
@@ -294,14 +233,13 @@ func (g *ConfigGenerator) Generate() error {
 				}
 			}
 		} else {
-			pkg = Package{
+			pkg = models.Package{
 				ID:     packageName,
 				Sync:   true,
 				Deploy: true,
 			}
 
 			if metadata != nil {
-				pkg.PackageDir = metadata.ID
 				pkg.DisplayName = metadata.Name
 				pkg.Description = metadata.Description
 				pkg.ShortText = metadata.ShortText
@@ -311,8 +249,14 @@ func (g *ConfigGenerator) Generate() error {
 			g.Stats.PackagesAdded++
 		}
 
+		// packageDir is the directory that was scanned (the orchestrator joins
+		// it with --packages-dir); it used to be taken from the package JSON Id.
+		if pkg.PackageDir == "" {
+			pkg.PackageDir = packageName
+		}
+
 		// Reset artifacts slice
-		pkg.Artifacts = []Artifact{}
+		pkg.Artifacts = []models.Artifact{}
 
 		// Scan artifacts
 		artifactEntries, err := os.ReadDir(packageDir)
@@ -331,7 +275,7 @@ func (g *ConfigGenerator) Generate() error {
 			artifactName := artEntry.Name()
 
 			// Apply artifact filter
-			if !g.shouldIncludeArtifact(artifactName) {
+			if !shouldInclude(artifactName, g.ArtifactFilter) {
 				g.Stats.ArtifactsFiltered++
 				continue
 			}
@@ -344,7 +288,7 @@ func (g *ConfigGenerator) Generate() error {
 			bundleName, artifactType := g.extractManifestMetadata(artifactDir)
 
 			// Check if artifact exists in old config
-			var artifact Artifact
+			var artifact models.Artifact
 			if existingArtMap, pkgExists := existingArtifacts[packageName]; pkgExists {
 				if existingArt, artExists := existingArtMap[artifactName]; artExists {
 					artifact = existingArt
@@ -372,7 +316,7 @@ func (g *ConfigGenerator) Generate() error {
 						artifact.ArtifactDir = artifactName
 					}
 				} else {
-					artifact = Artifact{
+					artifact = models.Artifact{
 						Id:              artifactName,
 						ArtifactDir:     artifactName,
 						DisplayName:     bundleName,
@@ -392,7 +336,7 @@ func (g *ConfigGenerator) Generate() error {
 					g.Stats.ArtifactsAdded++
 				}
 			} else {
-				artifact = Artifact{
+				artifact = models.Artifact{
 					Id:              artifactName,
 					ArtifactDir:     artifactName,
 					DisplayName:     bundleName,
@@ -456,7 +400,7 @@ func (g *ConfigGenerator) Generate() error {
 	return nil
 }
 
-func (g *ConfigGenerator) extractPackageMetadata(packageDir, packageName string) *PackageMetadata {
+func (g *ConfigGenerator) extractPackageMetadata(packageDir, packageName string) *models.PackageMetadata {
 	jsonFile := filepath.Join(packageDir, packageName+".json")
 	if _, err := os.Stat(jsonFile); os.IsNotExist(err) {
 		return nil
@@ -468,11 +412,10 @@ func (g *ConfigGenerator) extractPackageMetadata(packageDir, packageName string)
 		return nil
 	}
 
-	var wrapper struct {
-		D PackageMetadata `json:"d"`
-	}
-
-	if err := yaml.Unmarshal(data, &wrapper); err != nil {
+	// Must be decoded as JSON: the YAML decoder ignores the json tags, so the
+	// "Id"/"Name"/... keys were never matched and all metadata came back empty.
+	var wrapper models.PackageJSON
+	if err := json.Unmarshal(data, &wrapper); err != nil {
 		log.Warn().Msgf("Failed to parse package JSON: %v", err)
 		return nil
 	}
@@ -498,14 +441,14 @@ func (g *ConfigGenerator) extractManifestMetadata(artifactDir string) (bundleNam
 	return bundleName, artifactType
 }
 
-func (g *ConfigGenerator) writeConfigFile(outputPath string, cfg *DeployConfig) error {
+func (g *ConfigGenerator) writeConfigFile(outputPath string, cfg *models.DeployConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 
 	header := `# SAP CPI Deployment Configuration
-# Generated by: flashpipe config-generate
+# Generated by: cpictl config-generate
 #
 # ============================================================================
 # FIELD DESCRIPTIONS

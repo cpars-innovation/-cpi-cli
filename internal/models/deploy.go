@@ -19,7 +19,7 @@ type OrchestratorConfig struct {
 
 // DeployConfig represents the complete deployment configuration
 type DeployConfig struct {
-	DeploymentPrefix string              `yaml:"deploymentPrefix"`
+	DeploymentPrefix string              `yaml:"deploymentPrefix,omitempty"`
 	Packages         []Package           `yaml:"packages"`
 	Orchestrator     *OrchestratorConfig `yaml:"orchestrator,omitempty"`
 }
@@ -56,11 +56,11 @@ func (p *Package) UnmarshalYAML(unmarshal func(interface{}) error) error {
 type Artifact struct {
 	Id              string                 `yaml:"artifactId"`
 	ArtifactDir     string                 `yaml:"artifactDir"`
-	DisplayName     string                 `yaml:"displayName"`
+	DisplayName     string                 `yaml:"displayName,omitempty"`
 	Type            string                 `yaml:"type"`
 	Sync            bool                   `yaml:"sync"`
 	Deploy          bool                   `yaml:"deploy"`
-	ConfigOverrides map[string]interface{} `yaml:"configOverrides"`
+	ConfigOverrides map[string]interface{} `yaml:"configOverrides,omitempty"`
 }
 
 func (a *Artifact) UnmarshalYAML(unmarshal func(interface{}) error) error {

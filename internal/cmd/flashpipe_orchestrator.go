@@ -211,56 +211,6 @@ Configuration:
 	return orchestratorCmd
 }
 
-// getServiceDetailsFromViperOrCmd reads service credentials from viper config or CLI flags
-// This allows the orchestrator to use credentials from the global config file
-func getServiceDetailsFromViperOrCmd(cmd *cobra.Command) *api.ServiceDetails {
-	// Try to read from CLI flags first (via api.GetServiceDetails)
-	serviceDetails := api.GetServiceDetails(cmd)
-
-	// If host is empty, credentials weren't provided via CLI flags
-	// Try to read from viper (global config file)
-	if serviceDetails.Host == "" {
-		tmnHost := viper.GetString("tmn-host")
-		oauthHost := viper.GetString("oauth-host")
-
-		if tmnHost == "" {
-			log.Debug().Msg("No CPI credentials found in CLI flags or config file")
-			return nil // No credentials found
-		}
-
-		log.Debug().Msg("Using CPI credentials from config file (viper)")
-		log.Debug().Msgf("  tmn-host: %s", tmnHost)
-
-		// Use OAuth if oauth-host is set
-		if oauthHost != "" {
-			log.Debug().Msgf("  oauth-host: %s", oauthHost)
-
-			oauthPath := viper.GetString("oauth-path")
-			if oauthPath == "" {
-				oauthPath = "/oauth/token" // Default value
-			}
-
-			return &api.ServiceDetails{
-				Host:              tmnHost,
-				OauthHost:         oauthHost,
-				OauthClientId:     viper.GetString("oauth-clientid"),
-				OauthClientSecret: viper.GetString("oauth-clientsecret"),
-				OauthPath:         oauthPath,
-			}
-		} else {
-			log.Debug().Msg("  Using Basic Auth")
-			return &api.ServiceDetails{
-				Host:     tmnHost,
-				Userid:   viper.GetString("tmn-userid"),
-				Password: viper.GetString("tmn-password"),
-			}
-		}
-	}
-
-	log.Debug().Msg("Using CPI credentials from CLI flags")
-	return serviceDetails
-}
-
 func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deployConfigPath,
 	deploymentPrefix, packageFilterStr, artifactFilterStr string, keepTemp, debugMode bool,
 	configPattern string, mergeConfigs bool, deployRetries, deployDelaySeconds, parallelDeployments int) error {
@@ -339,14 +289,9 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		log.Info().Msgf("Artifact filter: %s", strings.Join(artifactFilter, ", "))
 	}
 
-	// Get service details once (shared across all operations)
-	// Read credentials from viper if not provided via CLI flags
-	serviceDetails := getServiceDetailsFromViperOrCmd(cmd)
-	if serviceDetails == nil {
-		return fmt.Errorf("missing CPI credentials: provide via --config file or CLI flags (--tmn-host, --oauth-host, etc.)")
-	}
-
-	// Validate serviceDetails has required fields
+	// Get service details once (shared across all operations). Values from the
+	// config file and environment are already bound to the flags.
+	serviceDetails := api.GetServiceDetails(cmd)
 	if serviceDetails.Host == "" {
 		return fmt.Errorf("CPI host (tmn-host) is required but not provided")
 	}

@@ -235,7 +235,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	stats := &ConfigureStats{}
 
 	// Get service details
-	serviceDetails := getServiceDetailsFromViperOrCmd(cmd)
+	serviceDetails := api.GetServiceDetails(cmd)
 	exe := api.InitHTTPExecuter(serviceDetails)
 
 	// Phase 1: Configure all artifacts
@@ -437,16 +437,8 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 			log.Info().Msgf("      Parameters: %d", len(artifact.Parameters))
 
 			// Validate artifact type
-			validTypes := []string{"Integration", "MessageMapping", "ScriptCollection", "ValueMapping"}
-			isValidType := false
-			for _, validType := range validTypes {
-				if artifact.Type == validType {
-					isValidType = true
-					break
-				}
-			}
-			if !isValidType {
-				log.Error().Msgf("      ❌ Invalid artifact type: %s (valid types: %v)", artifact.Type, validTypes)
+			if !api.IsValidArtifactType(artifact.Type) {
+				log.Error().Msgf("      ❌ Invalid artifact type: %s (valid types: %v)", artifact.Type, api.ArtifactTypes)
 				stats.ArtifactsFailed++
 				packageHasError = true
 				continue
