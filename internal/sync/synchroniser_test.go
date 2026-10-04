@@ -1,13 +1,13 @@
 package sync
 
 import (
-	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestFilterInactive(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{
+	artifacts := []*cpi.ArtifactDetails{
 		{Id: "DummyIFlow"},
 		{Id: "DummyMapping"},
 		{Id: "DummyScript"},
@@ -18,7 +18,7 @@ func TestFilterInactive(t *testing.T) {
 }
 
 func TestFilterIncludeIDs(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{
+	artifacts := []*cpi.ArtifactDetails{
 		{Id: "DummyIFlow"},
 		{Id: "DummyMapping"},
 		{Id: "DummyScript"},
@@ -30,7 +30,7 @@ func TestFilterIncludeIDs(t *testing.T) {
 }
 
 func TestFilterExcludeIDs(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{
+	artifacts := []*cpi.ArtifactDetails{
 		{Id: "DummyIFlow"},
 		{Id: "DummyMapping"},
 		{Id: "DummyScript"},
@@ -43,7 +43,7 @@ func TestFilterExcludeIDs(t *testing.T) {
 }
 
 func TestFilterIncludeInvalidID(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{
+	artifacts := []*cpi.ArtifactDetails{
 		{Id: "DummyIFlow"},
 		{Id: "DummyMapping"},
 		{Id: "DummyScript"},
@@ -54,7 +54,7 @@ func TestFilterIncludeInvalidID(t *testing.T) {
 }
 
 func TestFilterExcludeInvalidID(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{
+	artifacts := []*cpi.ArtifactDetails{
 		{Id: "DummyIFlow"},
 		{Id: "DummyMapping"},
 		{Id: "DummyScript"},

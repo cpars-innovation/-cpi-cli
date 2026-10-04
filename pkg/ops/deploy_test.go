@@ -1,4 +1,4 @@
-package deployer
+package ops
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type rtArtifact = api.RuntimeArtifact
+type rtArtifact = cpi.RuntimeArtifact
 
 var (
 	t0 = time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)

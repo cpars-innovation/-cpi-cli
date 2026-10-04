@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -86,9 +86,9 @@ func runSyncAPIProxy(cmd *cobra.Command) error {
 	skipCommit := config.GetBoolWithFallback(cmd, "git-skip-commit", "sync.apiproxy.gitSkipCommit")
 	target := config.GetStringWithFallback(cmd, "target", "sync.apiproxy.target")
 
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	syncer := sync.NewSyncer(target, "APIProxy", exe)
 	apiproxyWorkDir := fmt.Sprintf("%v/apiproxy", workDir)

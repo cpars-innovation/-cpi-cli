@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +29,7 @@ func TestDeployCommand_PartialFailureReturnsError(t *testing.T) {
 		"B": {Type: "Integration"},
 	})
 	_, _, err := runCLI(t, mock, "deploy", "--artifact-ids", "A,B", "--delay-length", "0", "--max-check-limit", "3")
-	var depErr *deployer.Error
+	var depErr *ops.Error
 	require.ErrorAs(t, err, &depErr)
 	assert.Len(t, depErr.Failed(), 1)
 	assert.Equal(t, "B", depErr.Failed()[0].ID)

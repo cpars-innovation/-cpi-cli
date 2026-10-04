@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -85,9 +85,9 @@ func runSyncAPIProduct(cmd *cobra.Command) error {
 	skipCommit := config.GetBoolWithFallback(cmd, "git-skip-commit", "sync.apiproduct.gitSkipCommit")
 	target := config.GetStringWithFallback(cmd, "target", "sync.apiproduct.target")
 
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	syncer := sync.NewSyncer(target, "APIProduct", exe)
 	apiproductWorkDir := fmt.Sprintf("%v/apiproduct", workDir)

@@ -1,11 +1,9 @@
-package api
+package cpi
 
 import (
 	"bytes"
-	"github.com/cpars-innovation/cpicli/internal/config"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
 	"io"
 	"net"
 	"net/http"
@@ -21,25 +19,6 @@ type ServiceDetails struct {
 	OauthPath         string
 	OauthClientId     string
 	OauthClientSecret string
-}
-
-func GetServiceDetails(cmd *cobra.Command) *ServiceDetails {
-	oauthHost := config.GetString(cmd, "oauth-host")
-	if oauthHost == "" {
-		return &ServiceDetails{
-			Host:     config.GetString(cmd, "tmn-host"),
-			Userid:   config.GetString(cmd, "tmn-userid"),
-			Password: config.GetString(cmd, "tmn-password"),
-		}
-	} else {
-		return &ServiceDetails{
-			Host:              config.GetString(cmd, "tmn-host"),
-			OauthHost:         oauthHost,
-			OauthClientId:     config.GetString(cmd, "oauth-clientid"),
-			OauthClientSecret: config.GetString(cmd, "oauth-clientsecret"),
-			OauthPath:         config.GetString(cmd, "oauth-path"),
-		}
-	}
 }
 
 func InitHTTPExecuter(serviceDetails *ServiceDetails) *httpclnt.HTTPExecuter {

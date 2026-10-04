@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/file"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 )
@@ -75,7 +75,7 @@ func NewAPIProxyGitSynchroniser(exe *httpclnt.HTTPExecuter) Syncer {
 func (s *APIProxyGitSynchroniser) Exec(request Request) error {
 	log.Info().Msg("Sync API Proxy content to Git")
 
-	proxy := api.NewAPIProxy(s.exe)
+	proxy := cpi.NewAPIProxy(s.exe)
 	// Get all APIProxies
 	artifacts, err := proxy.List()
 	if err != nil {
@@ -157,7 +157,7 @@ func (s *APIProxyTenantSynchroniser) Exec(request Request) error {
 		return errors.Wrap(err, 0)
 	}
 
-	proxy := api.NewAPIProxy(s.exe)
+	proxy := cpi.NewAPIProxy(s.exe)
 
 	// Create temp directories in working dir
 	uploadWorkDir := fmt.Sprintf("%v/upload", request.WorkDir)
@@ -254,12 +254,12 @@ func (s *CPIPackageTenantSynchroniser) Exec(request Request) error {
 	}
 	// Get package details from JSON file
 	log.Info().Msgf("Getting package details from %v file", packageFile)
-	packageDetails, err := api.GetPackageDetails(packageFile)
+	packageDetails, err := cpi.GetPackageDetails(packageFile)
 	if err != nil {
 		return err
 	}
 
-	ip := api.NewIntegrationPackage(s.exe)
+	ip := cpi.NewIntegrationPackage(s.exe)
 
 	packageId := packageDetails.Root.Id
 	_, _, exists, err := ip.Get(packageId)
@@ -298,7 +298,7 @@ func NewAPIProductGitSynchroniser(exe *httpclnt.HTTPExecuter) Syncer {
 func (s *APIProductGitSynchroniser) Exec(request Request) error {
 	log.Info().Msg("Sync API Product content to Git")
 
-	product := api.NewAPIProduct(s.exe)
+	product := cpi.NewAPIProduct(s.exe)
 	// Get all APIProducts
 	artifacts, err := product.List()
 	if err != nil {
@@ -380,7 +380,7 @@ func (s *APIProductTenantSynchroniser) Exec(request Request) error {
 		return errors.Wrap(err, 0)
 	}
 
-	product := api.NewAPIProduct(s.exe)
+	product := cpi.NewAPIProduct(s.exe)
 
 	// Create temp directories in working dir
 	uploadWorkDir := fmt.Sprintf("%v/upload", request.WorkDir)

@@ -3,11 +3,11 @@ package cmd
 import (
 	"time"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -46,10 +46,10 @@ func runUndeploy(cmd *cobra.Command) error {
 	delayLength := config.GetIntWithFallback(cmd, "delay-length", "undeploy.delayLength")
 	maxCheckLimit := config.GetIntWithFallback(cmd, "max-check-limit", "undeploy.maxCheckLimit")
 
-	var artifacts []deployer.Artifact
+	var artifacts []ops.Artifact
 	for _, id := range artifactIds {
 		if id != "" {
-			artifacts = append(artifacts, deployer.Artifact{ID: id})
+			artifacts = append(artifacts, ops.Artifact{ID: id})
 		}
 	}
 	if len(artifacts) == 0 {
@@ -57,15 +57,15 @@ func runUndeploy(cmd *cobra.Command) error {
 	}
 
 	log.Info().Msgf("Executing undeploy command for %d artifact(s)", len(artifacts))
-	exe := api.InitHTTPExecuter(api.GetServiceDetails(cmd))
-	results := deployer.Undeploy(cmd.Context(), deployer.NewTenant(exe), artifacts, deployer.Options{
+	exe := cpi.InitHTTPExecuter(serviceDetails(cmd))
+	results := ops.Undeploy(cmd.Context(), ops.NewTenant(exe), artifacts, ops.Options{
 		Interval:    time.Duration(delayLength) * time.Second,
 		MaxChecks:   maxCheckLimit,
 		Parallelism: len(artifacts),
 	})
 	logResults(results)
 	output.SetResult(cmd.Context(), artifactResults{Results: results})
-	if err := deployer.Err(results); err != nil {
+	if err := ops.Err(results); err != nil {
 		return err
 	}
 	log.Info().Msg("🏆 Artifact(s) undeployment completed successfully")

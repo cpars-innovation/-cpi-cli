@@ -1,7 +1,7 @@
-// Package deployer is the single implementation of "deploy designtime
+// Package ops: deploy.go is the single implementation of "deploy designtime
 // artifacts to runtime and wait for the outcome" (and its inverse, undeploy).
 // It is used by the deploy, undeploy, configure and orchestrator commands.
-package deployer
+package ops
 
 import (
 	"context"
@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
 )
 
@@ -82,39 +82,39 @@ type Tenant interface {
 	DesigntimeVersion(artifactType, id string) (version string, exists bool, err error)
 	TriggerDeploy(artifactType, id string) (taskID string, err error)
 	BuildAndDeployStatus(taskID string) (string, error)
-	RuntimeArtifact(id string) (*api.RuntimeArtifact, error) // nil if not deployed
+	RuntimeArtifact(id string) (*cpi.RuntimeArtifact, error) // nil if not deployed
 	RuntimeErrorInfo(id string) (string, error)
 	Undeploy(id string) error
 }
 
 // NewTenant returns a Tenant backed by the CPI OData API.
 func NewTenant(exe *httpclnt.HTTPExecuter) Tenant {
-	return &apiTenant{exe: exe, rt: api.NewRuntime(exe)}
+	return &apiTenant{exe: exe, rt: cpi.NewRuntime(exe)}
 }
 
 type apiTenant struct {
 	exe *httpclnt.HTTPExecuter
-	rt  *api.Runtime
+	rt  *cpi.Runtime
 }
 
 func (t *apiTenant) DesigntimeVersion(artifactType, id string) (string, bool, error) {
-	dt := api.NewDesigntimeArtifact(artifactType, t.exe)
+	dt := cpi.NewDesigntimeArtifact(artifactType, t.exe)
 	if dt == nil {
-		return "", false, fmt.Errorf("unsupported artifact type %q (valid types: %s)", artifactType, strings.Join(api.ArtifactTypes, ", "))
+		return "", false, fmt.Errorf("unsupported artifact type %q (valid types: %s)", artifactType, strings.Join(cpi.ArtifactTypes, ", "))
 	}
 	version, _, exists, err := dt.Get(id, "active")
 	return version, exists, err
 }
 
 func (t *apiTenant) TriggerDeploy(artifactType, id string) (string, error) {
-	return api.TriggerDeploy(id, artifactType, t.exe)
+	return cpi.TriggerDeploy(id, artifactType, t.exe)
 }
 
 func (t *apiTenant) BuildAndDeployStatus(taskID string) (string, error) {
 	return t.rt.GetBuildAndDeployStatus(taskID)
 }
 
-func (t *apiTenant) RuntimeArtifact(id string) (*api.RuntimeArtifact, error) {
+func (t *apiTenant) RuntimeArtifact(id string) (*cpi.RuntimeArtifact, error) {
 	return t.rt.GetArtifact(id)
 }
 
@@ -177,8 +177,8 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	var r Result
 	logger := log.With().Str("artifact", a.ID).Logger()
 
-	if !api.IsValidArtifactType(a.Type) {
-		return fail(r, fmt.Errorf("unsupported artifact type %q (valid types: %s)", a.Type, strings.Join(api.ArtifactTypes, ", ")))
+	if !cpi.IsValidArtifactType(a.Type) {
+		return fail(r, fmt.Errorf("unsupported artifact type %q (valid types: %s)", a.Type, strings.Join(cpi.ArtifactTypes, ", ")))
 	}
 	version, exists, err := tenant.DesigntimeVersion(a.Type, a.ID)
 	if err != nil {
@@ -212,7 +212,7 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	return waitForDeployment(ctx, tenant, a, r, before, triggeredAt, opts)
 }
 
-func waitForDeployment(ctx context.Context, tenant Tenant, a Artifact, r Result, before *api.RuntimeArtifact,
+func waitForDeployment(ctx context.Context, tenant Tenant, a Artifact, r Result, before *cpi.RuntimeArtifact,
 	triggeredAt time.Time, opts Options) Result {
 
 	logger := log.With().Str("artifact", a.ID).Logger()
@@ -309,7 +309,7 @@ func waitForDeployment(ctx context.Context, tenant Tenant, a Artifact, r Result,
 // was triggered at triggeredAt, rather than the one that was running before.
 // This prevents reporting success for a redeploy of the same version while
 // the old STARTED artifact is still visible.
-func isFresh(rt, before *api.RuntimeArtifact, triggeredAt time.Time, skew time.Duration, taskConfirmed bool) bool {
+func isFresh(rt, before *cpi.RuntimeArtifact, triggeredAt time.Time, skew time.Duration, taskConfirmed bool) bool {
 	if before == nil {
 		return true // nothing was deployed before the trigger
 	}

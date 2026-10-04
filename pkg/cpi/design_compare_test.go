@@ -1,4 +1,4 @@
-package api
+package cpi
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,7 +1,7 @@
-package api
+package cpi
 
 import (
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
 	"net/http"
 )

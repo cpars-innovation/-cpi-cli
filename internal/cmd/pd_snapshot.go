@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -71,7 +71,7 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 }
 
 func runPDSnapshot(cmd *cobra.Command) error {
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 
 	log.Info().Msg("Executing Partner Directory Snapshot command")
 
@@ -90,10 +90,10 @@ func runPDSnapshot(cmd *cobra.Command) error {
 	pids = str.TrimSlice(pids)
 
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Initialise Partner Directory API
-	pdAPI := api.NewPartnerDirectory(exe)
+	pdAPI := cpi.NewPartnerDirectory(exe)
 
 	// Initialise Partner Directory Repository
 	pdRepo := repo.NewPartnerDirectory(resourcesPath)
@@ -107,7 +107,7 @@ func runPDSnapshot(cmd *cobra.Command) error {
 	return nil
 }
 
-func snapshotPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) error {
+func snapshotPartnerDirectory(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) error {
 	log.Info().Msg("Starting Partner Directory Snapshot...")
 
 	// Download string parameters
@@ -127,7 +127,7 @@ func snapshotPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 	return nil
 }
 
-func snapshotStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) (int, error) {
+func snapshotStringParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) (int, error) {
 	log.Debug().Msg("Fetching string parameters from Partner Directory")
 
 	parameters, err := pdAPI.GetStringParameters("Pid,Id,Value")
@@ -137,7 +137,7 @@ func snapshotStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 
 	// Filter by PIDs if specified
 	if len(pidsFilter) > 0 {
-		filtered := make([]api.StringParameter, 0)
+		filtered := make([]cpi.StringParameter, 0)
 		for _, param := range parameters {
 			if contains(pidsFilter, param.Pid) {
 				filtered = append(filtered, param)
@@ -149,7 +149,7 @@ func snapshotStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 	log.Debug().Msgf("Fetched %d string parameters from Partner Directory", len(parameters))
 
 	// Group by PID
-	paramsByPid := make(map[string][]api.StringParameter)
+	paramsByPid := make(map[string][]cpi.StringParameter)
 	for _, param := range parameters {
 		paramsByPid[param.Pid] = append(paramsByPid[param.Pid], param)
 	}
@@ -173,7 +173,7 @@ func snapshotStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 	return len(parameters), nil
 }
 
-func snapshotBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) (int, error) {
+func snapshotBinaryParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, pidsFilter []string) (int, error) {
 	log.Debug().Msg("Fetching binary parameters from Partner Directory")
 
 	parameters, err := pdAPI.GetBinaryParameters("")
@@ -183,7 +183,7 @@ func snapshotBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 
 	// Filter by PIDs if specified
 	if len(pidsFilter) > 0 {
-		filtered := make([]api.BinaryParameter, 0)
+		filtered := make([]cpi.BinaryParameter, 0)
 		for _, param := range parameters {
 			if contains(pidsFilter, param.Pid) {
 				filtered = append(filtered, param)
@@ -195,7 +195,7 @@ func snapshotBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerD
 	log.Debug().Msgf("Fetched %d binary parameters from Partner Directory", len(parameters))
 
 	// Group by PID
-	paramsByPid := make(map[string][]api.BinaryParameter)
+	paramsByPid := make(map[string][]cpi.BinaryParameter)
 	for _, param := range parameters {
 		paramsByPid[param.Pid] = append(paramsByPid[param.Pid], param)
 	}

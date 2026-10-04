@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"golang.org/x/oauth2"
 )
 

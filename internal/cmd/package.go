@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -43,8 +43,8 @@ func runUpdatePackage(cmd *cobra.Command) error {
 	packageFile := config.GetStringWithFallback(cmd, "package-file", "update.package.packageFile")
 
 	// Initialise HTTP executer
-	serviceDetails := api.GetServiceDetails(cmd)
-	exe := api.InitHTTPExecuter(serviceDetails)
+	serviceDetails := serviceDetails(cmd)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 	packageSynchroniser := sync.NewSyncer("tenant", "CPIPackage", exe)
 
 	return packageSynchroniser.Exec(sync.Request{PackageFile: packageFile})

@@ -1,4 +1,4 @@
-package api
+package cpi
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 )

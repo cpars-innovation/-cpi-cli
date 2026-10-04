@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"time"
@@ -27,7 +27,7 @@ Configuration:
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// Validate the artifact type
 			artifactType := config.GetStringWithFallback(cmd, "artifact-type", "deploy.artifactType")
-			if !api.IsValidArtifactType(artifactType) {
+			if !cpi.IsValidArtifactType(artifactType) {
 				return fmt.Errorf("invalid value for --artifact-type = %v", artifactType)
 			}
 			return nil
@@ -54,7 +54,7 @@ Configuration:
 }
 
 func runDeploy(cmd *cobra.Command) error {
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 
 	// Support reading from config file under 'deploy' key
 	artifactType := config.GetStringWithFallback(cmd, "artifact-type", "deploy.artifactType")
@@ -65,13 +65,13 @@ func runDeploy(cmd *cobra.Command) error {
 	maxCheckLimit := config.GetIntWithFallback(cmd, "max-check-limit", "deploy.maxCheckLimit")
 	compareVersions := config.GetBoolWithFallback(cmd, "compare-versions", "deploy.compareVersions")
 
-	artifacts := make([]deployer.Artifact, 0, len(artifactIds))
+	artifacts := make([]ops.Artifact, 0, len(artifactIds))
 	for _, id := range artifactIds {
-		artifacts = append(artifacts, deployer.Artifact{ID: id, Type: artifactType})
+		artifacts = append(artifacts, ops.Artifact{ID: id, Type: artifactType})
 	}
 
-	exe := api.InitHTTPExecuter(serviceDetails)
-	results := deployer.Deploy(cmd.Context(), deployer.NewTenant(exe), artifacts, deployer.Options{
+	exe := cpi.InitHTTPExecuter(serviceDetails)
+	results := ops.Deploy(cmd.Context(), ops.NewTenant(exe), artifacts, ops.Options{
 		Interval:        time.Duration(delayLength) * time.Second,
 		MaxChecks:       maxCheckLimit,
 		CompareVersions: compareVersions,
@@ -80,7 +80,7 @@ func runDeploy(cmd *cobra.Command) error {
 	})
 	logResults(results)
 	output.SetResult(cmd.Context(), artifactResults{Results: results})
-	if err := deployer.Err(results); err != nil {
+	if err := ops.Err(results); err != nil {
 		return err
 	}
 	log.Info().Msg("🏆 Artifact(s) deployment completed successfully")
@@ -89,11 +89,11 @@ func runDeploy(cmd *cobra.Command) error {
 
 // artifactResults is the JSON result of deploy and undeploy.
 type artifactResults struct {
-	Results []deployer.Result `json:"results"`
+	Results []ops.Result `json:"results"`
 }
 
 // logResults logs one line per artifact result.
-func logResults(results []deployer.Result) {
+func logResults(results []ops.Result) {
 	for _, r := range results {
 		event := log.Info()
 		if !r.Status.Succeeded() {

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )
@@ -21,16 +21,16 @@ func TestCPICommands(t *testing.T) {
 
 	// ------------ Set up ------------
 	println("---------- Setting up test - start ----------")
-	exe := api.InitHTTPExecuter(&api.ServiceDetails{
+	exe := cpi.InitHTTPExecuter(&cpi.ServiceDetails{
 		Host:              os.Getenv("FLASHPIPE_TMN_HOST"),
 		OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
 		OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
 		OauthClientId:     os.Getenv("FLASHPIPE_OAUTH_CLIENTID"),
 		OauthClientSecret: os.Getenv("FLASHPIPE_OAUTH_CLIENTSECRET"),
 	})
-	ip := api.NewIntegrationPackage(exe)
-	dt := api.NewDesigntimeArtifact("Integration", exe)
-	rt := api.NewRuntime(exe)
+	ip := cpi.NewIntegrationPackage(exe)
+	dt := cpi.NewDesigntimeArtifact("Integration", exe)
+	rt := cpi.NewRuntime(exe)
 	println("---------- Setting up test - end ----------")
 
 	updateCmd := NewUpdateCommand()
@@ -194,7 +194,7 @@ func TestCPICommands(t *testing.T) {
 	}
 	assert.True(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/META-INF/MANIFEST.MF"), "MANIFEST.MF does not exist")
 	assert.True(t, file.Exists("../../output/sync/artifact/Integration_Test_IFlow/src/main/resources/parameters.prop"), "parameters.prop does not exist")
-	packageDataFromTenant, err := api.GetPackageDetails("../../output/sync/artifact/FlashPipeIntegrationTest.json")
+	packageDataFromTenant, err := cpi.GetPackageDetails("../../output/sync/artifact/FlashPipeIntegrationTest.json")
 	if err != nil {
 		t.Fatalf("Unable to read integration package file with error %v", err)
 	}
@@ -234,10 +234,10 @@ func TestCPICommands(t *testing.T) {
 		t.Fatalf("GetAllArtifacts failed with error - %v", err)
 	}
 
-	assert.Equal(t, "1.0.0", api.FindArtifactById("Integration_Test_IFlow", artifacts).Version, "Integration_Test_IFlow was not updated to version 1.0.0")
-	assert.Equal(t, "1.0.0", api.FindArtifactById("Integration_Test_Message_Mapping", artifacts).Version, "Integration_Test_Message_Mapping was not updated to version 1.0.0")
-	assert.Equal(t, "1.0.0", api.FindArtifactById("Integration_Test_Script_Collection", artifacts).Version, "Integration_Test_Script_Collection was not updated to version 1.0.0")
-	assert.Equal(t, "1.0.0", api.FindArtifactById("Integration_Test_Value_Mapping", artifacts).Version, "Integration_Test_Value_Mapping was not updated to version 1.0.0")
+	assert.Equal(t, "1.0.0", cpi.FindArtifactById("Integration_Test_IFlow", artifacts).Version, "Integration_Test_IFlow was not updated to version 1.0.0")
+	assert.Equal(t, "1.0.0", cpi.FindArtifactById("Integration_Test_Message_Mapping", artifacts).Version, "Integration_Test_Message_Mapping was not updated to version 1.0.0")
+	assert.Equal(t, "1.0.0", cpi.FindArtifactById("Integration_Test_Script_Collection", artifacts).Version, "Integration_Test_Script_Collection was not updated to version 1.0.0")
+	assert.Equal(t, "1.0.0", cpi.FindArtifactById("Integration_Test_Value_Mapping", artifacts).Version, "Integration_Test_Value_Mapping was not updated to version 1.0.0")
 
 	// 11 - Restore snapshot to tenant
 	err = ip.Delete("FlashPipeIntegrationTest")
@@ -259,7 +259,7 @@ func TestCPICommands(t *testing.T) {
 		t.Fatalf("GetAllArtifacts failed with error - %v", err)
 	}
 
-	assert.Equal(t, "1.0.1", api.FindArtifactById("Integration_Test_IFlow", artifacts).Version, "Integration_Test_IFlow was not updated to version 1.0.1")
+	assert.Equal(t, "1.0.1", cpi.FindArtifactById("Integration_Test_IFlow", artifacts).Version, "Integration_Test_IFlow was not updated to version 1.0.1")
 
 	// ------------ Clean up ------------
 	println("---------- Tearing down test - start ----------")
@@ -294,15 +294,15 @@ func TestAPIMCommands(t *testing.T) {
 
 	// ------------ Set up ------------
 	println("---------- Setting up test - start ----------")
-	exe := api.InitHTTPExecuter(&api.ServiceDetails{
+	exe := cpi.InitHTTPExecuter(&cpi.ServiceDetails{
 		Host:              os.Getenv("FLASHPIPE_APIPORTAL_HOST"),
 		OauthHost:         os.Getenv("FLASHPIPE_OAUTH_HOST"),
 		OauthPath:         os.Getenv("FLASHPIPE_OAUTH_PATH"),
 		OauthClientId:     os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTID"),
 		OauthClientSecret: os.Getenv("FLASHPIPE_APIPORTAL_OAUTH_CLIENTSECRET"),
 	})
-	proxy := api.NewAPIProxy(exe)
-	product := api.NewAPIProduct(exe)
+	proxy := cpi.NewAPIProxy(exe)
+	product := cpi.NewAPIProduct(exe)
 	println("---------- Setting up test - end ----------")
 
 	rootCmd := NewCmdRoot("test")

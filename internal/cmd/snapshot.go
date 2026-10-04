@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"os"
@@ -107,7 +107,7 @@ func runSnapshot(cmd *cobra.Command) error {
 	skipCommit := config.GetBoolWithFallback(cmd, "git-skip-commit", "snapshot.gitSkipCommit")
 	syncPackageLevelDetails := config.GetBoolWithFallback(cmd, "sync-package-details", "snapshot.syncPackageDetails")
 
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 	err = getTenantSnapshot(serviceDetails, artifactsBaseDir, workDir, draftHandling, syncPackageLevelDetails, includedIds, excludedIds)
 	if err != nil {
 		return err
@@ -122,16 +122,16 @@ func runSnapshot(cmd *cobra.Command) error {
 	return nil
 }
 
-func getTenantSnapshot(serviceDetails *api.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool, includedIds []string, excludedIds []string) error {
+func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool, includedIds []string, excludedIds []string) error {
 	log.Info().Msg("---------------------------------------------------------------------------------")
 	log.Info().Msg("📢 Begin taking a snapshot of the tenant")
 
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Get packages from the tenant - details of all packages are returned in this single call,
 	// so no additional call per package is needed
-	ip := api.NewIntegrationPackage(exe)
+	ip := cpi.NewIntegrationPackage(exe)
 	packages, err := ip.GetPackagesData()
 	if err != nil {
 		return err

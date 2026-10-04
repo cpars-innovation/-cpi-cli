@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +26,9 @@ func TestUndeployCommand(t *testing.T) {
 	t.Run("times out while still present", func(t *testing.T) {
 		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Runtime: deployed, UndeployAfter: -1}})
 		_, _, err := runCLI(t, mock, "undeploy", "--artifact-ids", "A", "--delay-length", "0", "--max-check-limit", "3")
-		var depErr *deployer.Error
+		var depErr *ops.Error
 		require.ErrorAs(t, err, &depErr)
-		assert.Equal(t, deployer.StatusTimeout, depErr.Failed()[0].Status)
+		assert.Equal(t, ops.StatusTimeout, depErr.Failed()[0].Status)
 	})
 
 	t.Run("requires artifact ids", func(t *testing.T) {

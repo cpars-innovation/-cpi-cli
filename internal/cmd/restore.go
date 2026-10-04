@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -76,7 +76,7 @@ func runRestore(cmd *cobra.Command) error {
 	includedIds := str.TrimSlice(config.GetStringSliceWithFallback(cmd, "ids-include", "restore.idsInclude"))
 	excludedIds := str.TrimSlice(config.GetStringSliceWithFallback(cmd, "ids-exclude", "restore.idsExclude"))
 
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 	err = restoreSnapshot(serviceDetails, artifactsBaseDir, workDir, includedIds, excludedIds)
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func runRestore(cmd *cobra.Command) error {
 	return nil
 }
 
-func restoreSnapshot(serviceDetails *api.ServiceDetails, artifactsBaseDir string, workDir string, includedIds []string, excludedIds []string) error {
+func restoreSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, includedIds []string, excludedIds []string) error {
 	log.Info().Msg("---------------------------------------------------------------------------------")
 	log.Info().Msg("📢 Begin restoring snapshot to the tenant")
 
@@ -97,7 +97,7 @@ func restoreSnapshot(serviceDetails *api.ServiceDetails, artifactsBaseDir string
 	}
 
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 	packageSynchroniser := sync.NewSyncer("tenant", "CPIPackage", exe)
 	artifactsSynchroniser := sync.New(exe)
 

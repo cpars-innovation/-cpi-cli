@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	flashpipeSync "github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -293,7 +293,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 	// Get service details once (shared across all operations). Values from the
 	// config file and environment are already bound to the flags.
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 	if serviceDetails.Host == "" {
 		return output.Usagef("CPI host (tmn-host) is required but not provided")
 	}
@@ -353,7 +353,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	}
 
 	// Phase 2: Deploy all artifacts in parallel (if not update-only mode)
-	deployments := []deployer.Result{}
+	deployments := []ops.Result{}
 	if mode != ModeUpdateOnly && len(deploymentTasks) > 0 {
 		log.Info().Msg("")
 		log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
@@ -385,7 +385,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 func processPackages(config *models.DeployConfig, applyPrefix bool, mode OperationMode,
 	packagesDir, workDir string, packageFilter, artifactFilter []string,
-	stats *ProcessingStats, serviceDetails *api.ServiceDetails) ([]DeploymentTask, error) {
+	stats *ProcessingStats, serviceDetails *cpi.ServiceDetails) ([]DeploymentTask, error) {
 
 	var deploymentTasks []DeploymentTask
 
@@ -470,7 +470,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 }
 
 func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDir string,
-	serviceDetails *api.ServiceDetails) error {
+	serviceDetails *cpi.ServiceDetails) error {
 
 	if serviceDetails == nil {
 		return fmt.Errorf("serviceDetails is nil - cannot update package")
@@ -514,7 +514,7 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 	}
 
 	// Use internal sync package update function
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 	packageSynchroniser := flashpipeSync.NewSyncer("tenant", "CPIPackage", exe)
 
 	err = packageSynchroniser.Exec(flashpipeSync.Request{PackageFile: packageJSONPath})
@@ -529,7 +529,7 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 }
 
 func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPackageName, prefix, workDir string,
-	artifactFilter []string, stats *ProcessingStats, serviceDetails *api.ServiceDetails) error {
+	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails) error {
 
 	updatedCount := 0
 	log.Info().Msg("Updating artifacts...")
@@ -541,7 +541,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 		return fmt.Errorf("serviceDetails.Host is empty - check CPI credentials in config file")
 	}
 
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 	synchroniser := flashpipeSync.New(exe)
 
 	for _, artifact := range pkg.Artifacts {
@@ -711,12 +711,12 @@ func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
 }
 
 func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, maxConcurrent int,
-	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *api.ServiceDetails) []deployer.Result {
+	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails) []ops.Result {
 
 	// Version comparison is kept from the previous implementation: artifacts
 	// whose runtime version equals the designtime version are not redeployed
 	// (the synchroniser undeploys same-version artifacts whose content changed).
-	results := deployTasks(ctx, api.InitHTTPExecuter(serviceDetails), tasks, true, retries, delaySeconds, maxConcurrent)
+	results := deployTasks(ctx, cpi.InitHTTPExecuter(serviceDetails), tasks, true, retries, delaySeconds, maxConcurrent)
 
 	failedByPackage := make(map[string]int)
 	var packageOrder []string
@@ -748,9 +748,9 @@ func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, max
 
 // orchestratorResult is the JSON result of orchestrator.
 type orchestratorResult struct {
-	Mode        string            `json:"mode"`
-	Stats       *ProcessingStats  `json:"stats"`
-	Deployments []deployer.Result `json:"deployments"`
+	Mode        string           `json:"mode"`
+	Stats       *ProcessingStats `json:"stats"`
+	Deployments []ops.Result     `json:"deployments"`
 }
 
 // mapArtifactTypeForSync maps artifact types for synchroniser (NewDesigntimeArtifact)

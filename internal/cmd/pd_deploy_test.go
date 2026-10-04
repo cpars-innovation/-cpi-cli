@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/repo"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +21,7 @@ import (
 // records every DELETE it receives.
 type pdMockTenant struct {
 	mu      sync.Mutex
-	strings []api.StringParameter
+	strings []cpi.StringParameter
 	deletes []string
 }
 
@@ -51,14 +51,14 @@ func (m *pdMockTenant) handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newPDMock(t *testing.T, params []api.StringParameter) (*pdMockTenant, *api.PartnerDirectory) {
+func newPDMock(t *testing.T, params []cpi.StringParameter) (*pdMockTenant, *cpi.PartnerDirectory) {
 	t.Helper()
 	m := &pdMockTenant{strings: params}
 	svr := httptest.NewServer(http.HandlerFunc(m.handler))
 	t.Cleanup(svr.Close)
 	host, port := httpclnt.GetHostPort(svr.URL)
 	exe := httpclnt.New("", "", "", "", "dummy", "dummy", host, "http", port, false)
-	return m, api.NewPartnerDirectory(exe)
+	return m, cpi.NewPartnerDirectory(exe)
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -70,7 +70,7 @@ func writeFile(t *testing.T, path, content string) {
 // TestFullSyncAbortsOnLocalReadError guards against the data-loss bug where a
 // failed local read made full sync delete ALL remote parameters of that PID.
 func TestFullSyncAbortsOnLocalReadError(t *testing.T) {
-	remote := []api.StringParameter{
+	remote := []cpi.StringParameter{
 		{Pid: "BROKEN", ID: "A", Value: "1"},
 		{Pid: "BROKEN", ID: "B", Value: "2"},
 		{Pid: "HEALTHY", ID: "KEEP", Value: "x"},
@@ -116,7 +116,7 @@ func TestPDDeployReturnsErrorOnPartialFailure(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "P1", "String.properties"), "OK=1\n")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "P2", "String.properties"), 0755)) // unreadable
 
-	_, pdAPI := newPDMock(t, []api.StringParameter{{Pid: "P1", ID: "OK", Value: "1"}})
+	_, pdAPI := newPDMock(t, []cpi.StringParameter{{Pid: "P1", ID: "OK", Value: "1"}})
 	_, err := deployPartnerDirectory(pdAPI, repo.NewPartnerDirectory(dir), true, false, false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "P2")
@@ -126,7 +126,7 @@ func TestPDDeploySucceedsWhenNothingFails(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "P1", "String.properties"), "OK=1\n")
 
-	mock, pdAPI := newPDMock(t, []api.StringParameter{{Pid: "P1", ID: "OK", Value: "1"}})
+	mock, pdAPI := newPDMock(t, []cpi.StringParameter{{Pid: "P1", ID: "OK", Value: "1"}})
 	_, err := deployPartnerDirectory(pdAPI, repo.NewPartnerDirectory(dir), true, true, false, nil)
 	require.NoError(t, err)
 	assert.Empty(t, mock.deletes)

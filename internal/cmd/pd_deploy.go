@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"strings"
@@ -84,7 +84,7 @@ Authentication is performed using OAuth 2.0 client credentials flow or Basic Aut
 }
 
 func runPDDeploy(cmd *cobra.Command) error {
-	serviceDetails := api.GetServiceDetails(cmd)
+	serviceDetails := serviceDetails(cmd)
 
 	log.Info().Msg("Executing Partner Directory Deploy command")
 
@@ -104,10 +104,10 @@ func runPDDeploy(cmd *cobra.Command) error {
 	}
 
 	// Initialise HTTP executer
-	exe := api.InitHTTPExecuter(serviceDetails)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Initialise Partner Directory API
-	pdAPI := api.NewPartnerDirectory(exe)
+	pdAPI := cpi.NewPartnerDirectory(exe)
 
 	// Initialise Partner Directory Repository
 	pdRepo := repo.NewPartnerDirectory(resourcesPath)
@@ -131,12 +131,12 @@ func runPDDeploy(cmd *cobra.Command) error {
 // pdDeploySummary is the JSON result of pd-deploy.
 type pdDeploySummary struct {
 	DryRun  bool             `json:"dryRun"`
-	String  *api.BatchResult `json:"string"`
-	Binary  *api.BatchResult `json:"binary"`
-	Deleted *api.BatchResult `json:"deleted,omitempty"`
+	String  *cpi.BatchResult `json:"string"`
+	Binary  *cpi.BatchResult `json:"binary"`
+	Deleted *cpi.BatchResult `json:"deleted,omitempty"`
 }
 
-func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, fullSync bool, dryRun bool, pidsFilter []string) (*pdDeploySummary, error) {
+func deployPartnerDirectory(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, fullSync bool, dryRun bool, pidsFilter []string) (*pdDeploySummary, error) {
 	log.Info().Msg("Starting Partner Directory Deploy...")
 
 	// Get locally managed PIDs
@@ -182,7 +182,7 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	var failures []string
 
 	// Full sync - delete remote entries not in local (only for managed PIDs)
-	var deletionResults *api.BatchResult
+	var deletionResults *cpi.BatchResult
 	if fullSync && !dryRun {
 		log.Info().Msg("Executing full sync - deleting remote entries not present locally...")
 		var deletionErr error
@@ -255,7 +255,7 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	return summary, nil
 }
 
-func deployStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, dryRun bool, pidsFilter []string) (*api.BatchResult, error) {
+func deployStringParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, dryRun bool, pidsFilter []string) (*cpi.BatchResult, error) {
 	log.Debug().Msg("Loading string parameters from local files")
 
 	// Get local PIDs
@@ -269,7 +269,7 @@ func deployStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 		localPIDs = filterPIDs(localPIDs, pidsFilter)
 	}
 
-	results := &api.BatchResult{
+	results := &cpi.BatchResult{
 		Created:   []string{},
 		Updated:   []string{},
 		Unchanged: []string{},
@@ -339,7 +339,7 @@ func deployStringParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	return results, nil
 }
 
-func deployBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, dryRun bool, pidsFilter []string) (*api.BatchResult, error) {
+func deployBinaryParameters(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, replace bool, dryRun bool, pidsFilter []string) (*cpi.BatchResult, error) {
 	log.Debug().Msg("Loading binary parameters from local files")
 
 	// Get local PIDs
@@ -353,7 +353,7 @@ func deployBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 		localPIDs = filterPIDs(localPIDs, pidsFilter)
 	}
 
-	results := &api.BatchResult{
+	results := &cpi.BatchResult{
 		Created:   []string{},
 		Updated:   []string{},
 		Unchanged: []string{},
@@ -423,8 +423,8 @@ func deployBinaryParameters(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 	return results, nil
 }
 
-func deleteRemoteEntriesNotInLocal(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDirectory, managedPIDs []string) (*api.BatchResult, error) {
-	results := &api.BatchResult{
+func deleteRemoteEntriesNotInLocal(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, managedPIDs []string) (*cpi.BatchResult, error) {
+	results := &cpi.BatchResult{
 		Deleted: []string{},
 		Errors:  []string{},
 	}

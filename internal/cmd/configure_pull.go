@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/models"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -34,9 +34,9 @@ func NewConfigurePullCommand() *cobra.Command {
 }
 
 func runConfigurePull(cmd *cobra.Command, outputDir string, packageIDs []string) error {
-	exe := api.InitHTTPExecuter(api.GetServiceDetails(cmd))
-	packages := api.NewIntegrationPackage(exe)
-	configuration := api.NewConfiguration(exe)
+	exe := cpi.InitHTTPExecuter(serviceDetails(cmd))
+	packages := cpi.NewIntegrationPackage(exe)
+	configuration := cpi.NewConfiguration(exe)
 
 	availablePackageIDs, err := packages.GetPackagesList()
 	if err != nil {
@@ -104,7 +104,7 @@ func filterExistingPackages(requested, available []string) (existing, missing []
 	return
 }
 
-func pulledConfigureConfig(packageID string, artifacts []*api.ArtifactDetails, getConfiguration func(string, string) (*api.ParametersData, error)) (*models.ConfigureConfig, error) {
+func pulledConfigureConfig(packageID string, artifacts []*cpi.ArtifactDetails, getConfiguration func(string, string) (*cpi.ParametersData, error)) (*models.ConfigureConfig, error) {
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Id < artifacts[j].Id })
 	pkg := models.ConfigurePackage{ID: packageID}
 	for _, artifact := range artifacts {

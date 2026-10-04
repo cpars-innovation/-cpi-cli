@@ -1,8 +1,8 @@
-package api
+package cpi
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"

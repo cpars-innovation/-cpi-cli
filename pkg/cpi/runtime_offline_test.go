@@ -1,4 +1,4 @@
-package api
+package cpi
 
 import (
 	"testing"

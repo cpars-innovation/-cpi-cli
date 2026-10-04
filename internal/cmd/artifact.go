@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/file"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -128,8 +128,8 @@ func runUpdateArtifact(cmd *cobra.Command) error {
 	}
 
 	// Initialise HTTP executer
-	serviceDetails := api.GetServiceDetails(cmd)
-	exe := api.InitHTTPExecuter(serviceDetails)
+	serviceDetails := serviceDetails(cmd)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Create integration package first if required
 	err = createPackage(packageId, packageName, exe)
@@ -148,14 +148,14 @@ func runUpdateArtifact(cmd *cobra.Command) error {
 
 func createPackage(packageId string, packageName string, exe *httpclnt.HTTPExecuter) error {
 	// Check if integration package exists
-	ip := api.NewIntegrationPackage(exe)
+	ip := cpi.NewIntegrationPackage(exe)
 	_, _, packageExists, err := ip.Get(packageId)
 	if err != nil {
 		return err
 	}
 
 	if !packageExists {
-		jsonData := new(api.PackageSingleData)
+		jsonData := new(cpi.PackageSingleData)
 		jsonData.Root.Id = packageId
 		jsonData.Root.Name = packageName
 		jsonData.Root.ShortText = packageId

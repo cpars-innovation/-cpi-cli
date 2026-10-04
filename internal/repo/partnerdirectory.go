@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 )
 
@@ -68,7 +68,7 @@ func (pd *PartnerDirectory) GetLocalPIDs() ([]string, error) {
 }
 
 // WriteStringParameters writes string parameters to a properties file
-func (pd *PartnerDirectory) WriteStringParameters(pid string, params []api.StringParameter, replace bool) error {
+func (pd *PartnerDirectory) WriteStringParameters(pid string, params []cpi.StringParameter, replace bool) error {
 	pidDir := filepath.Join(pd.ResourcesPath, pid)
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		return fmt.Errorf("failed to create PID directory: %w", err)
@@ -93,7 +93,7 @@ func (pd *PartnerDirectory) WriteStringParameters(pid string, params []api.Strin
 }
 
 // WriteBinaryParameters writes binary parameters to files
-func (pd *PartnerDirectory) WriteBinaryParameters(pid string, params []api.BinaryParameter, replace bool) error {
+func (pd *PartnerDirectory) WriteBinaryParameters(pid string, params []cpi.BinaryParameter, replace bool) error {
 	pidDir := filepath.Join(pd.ResourcesPath, pid)
 	binaryDir := filepath.Join(pidDir, binaryDirName)
 
@@ -126,7 +126,7 @@ func (pd *PartnerDirectory) WriteBinaryParameters(pid string, params []api.Binar
 }
 
 // ReadStringParameters reads string parameters from a properties file
-func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]api.StringParameter, error) {
+func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]cpi.StringParameter, error) {
 	propertiesFile := filepath.Join(pd.ResourcesPath, pid, stringPropertiesFile)
 
 	// Only a file that definitely does not exist means "no string parameters".
@@ -134,7 +134,7 @@ func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]api.StringParame
 	// would otherwise treat the PID as empty and delete its remote parameters.
 	info, err := os.Stat(propertiesFile)
 	if os.IsNotExist(err) {
-		return []api.StringParameter{}, nil
+		return []cpi.StringParameter{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to access %s: %w", propertiesFile, err)
@@ -147,13 +147,13 @@ func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]api.StringParame
 }
 
 // ReadBinaryParameters reads binary parameters from files
-func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParameter, error) {
+func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]cpi.BinaryParameter, error) {
 	binaryDir := filepath.Join(pd.ResourcesPath, pid, binaryDirName)
 
 	// See ReadStringParameters: only a missing directory means "no parameters".
 	info, err := os.Stat(binaryDir)
 	if os.IsNotExist(err) {
-		return []api.BinaryParameter{}, nil
+		return []cpi.BinaryParameter{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to access %s: %w", binaryDir, err)
@@ -181,7 +181,7 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParame
 		return nil, fmt.Errorf("failed to read binary directory: %w", err)
 	}
 
-	var params []api.BinaryParameter
+	var params []cpi.BinaryParameter
 	seenParams := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -224,7 +224,7 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParame
 
 		log.Debug().Msgf("Loaded binary parameter %s/%s (%s, %d bytes)", pid, paramID, contentType, len(data))
 
-		params = append(params, api.BinaryParameter{
+		params = append(params, cpi.BinaryParameter{
 			Pid:         pid,
 			ID:          paramID,
 			Value:       encoded,
@@ -237,7 +237,7 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParame
 
 // Helper functions
 
-func writePropertiesFile(filePath string, params []api.StringParameter) error {
+func writePropertiesFile(filePath string, params []cpi.StringParameter) error {
 	// Sort by ID for consistent output
 	sort.Slice(params, func(i, j int) bool {
 		return params[i].ID < params[j].ID
@@ -255,7 +255,7 @@ func writePropertiesFile(filePath string, params []api.StringParameter) error {
 	return nil
 }
 
-func mergePropertiesFile(filePath string, newParams []api.StringParameter) (int, error) {
+func mergePropertiesFile(filePath string, newParams []cpi.StringParameter) (int, error) {
 	// Read existing properties
 	existing := make(map[string]string)
 	if fileExists(filePath) {
@@ -306,13 +306,13 @@ func mergePropertiesFile(filePath string, newParams []api.StringParameter) (int,
 	return addedCount, nil
 }
 
-func readPropertiesFile(filePath string, pid string) ([]api.StringParameter, error) {
+func readPropertiesFile(filePath string, pid string) ([]cpi.StringParameter, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read properties file: %w", err)
 	}
 
-	var params []api.StringParameter
+	var params []cpi.StringParameter
 	lines := strings.Split(string(data), "\n")
 
 	for _, line := range lines {
@@ -323,7 +323,7 @@ func readPropertiesFile(filePath string, pid string) ([]api.StringParameter, err
 
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
-			params = append(params, api.StringParameter{
+			params = append(params, cpi.StringParameter{
 				Pid:   pid,
 				ID:    parts[0],
 				Value: unescapePropertyValue(parts[1]),
@@ -334,7 +334,7 @@ func readPropertiesFile(filePath string, pid string) ([]api.StringParameter, err
 	return params, nil
 }
 
-func saveBinaryParameterToFile(binaryDir string, param api.BinaryParameter) error {
+func saveBinaryParameterToFile(binaryDir string, param cpi.BinaryParameter) error {
 	// Decode base64
 	data, err := base64.StdEncoding.DecodeString(param.Value)
 	if err != nil {

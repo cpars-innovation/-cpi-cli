@@ -3,14 +3,14 @@
 // Tenant integration tests: these create, deploy and delete content on a real
 // SAP Integration Suite tenant. Run explicitly with `go test -tags integration`.
 
-package api
+package cpi
 
 import (
 	"os"
 	"testing"
 
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/logger"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"

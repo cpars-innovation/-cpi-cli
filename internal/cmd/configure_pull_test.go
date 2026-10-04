@@ -3,17 +3,17 @@ package cmd
 import (
 	"testing"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
 func TestPulledConfigureConfig(t *testing.T) {
-	artifacts := []*api.ArtifactDetails{{Id: "FlowB"}, {Id: "FlowA"}}
-	get := func(id, version string) (*api.ParametersData, error) {
-		data := &api.ParametersData{}
-		data.Root.Results = []*api.ParameterData{
+	artifacts := []*cpi.ArtifactDetails{{Id: "FlowB"}, {Id: "FlowA"}}
+	get := func(id, version string) (*cpi.ParametersData, error) {
+		data := &cpi.ParametersData{}
+		data.Root.Results = []*cpi.ParameterData{
 			{ParameterKey: "Z_KEY", ParameterValue: id + "-z"},
 			{ParameterKey: "A_KEY", ParameterValue: id + "-a"},
 		}

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -310,7 +310,7 @@ func TestWriteAndReadStringParameters(t *testing.T) {
 	pd := NewPartnerDirectory(tempDir)
 	pid := "TestPID"
 
-	params := []api.StringParameter{
+	params := []cpi.StringParameter{
 		{Pid: pid, ID: "param1", Value: "value1"},
 		{Pid: pid, ID: "param2", Value: "value with\nnewline"},
 		{Pid: pid, ID: "param3", Value: "value\\with\\backslash"},
@@ -342,7 +342,7 @@ func TestWriteStringParameters_MergeMode(t *testing.T) {
 	pid := "TestPID"
 
 	// Write initial parameters
-	initial := []api.StringParameter{
+	initial := []cpi.StringParameter{
 		{Pid: pid, ID: "param1", Value: "value1"},
 		{Pid: pid, ID: "param2", Value: "value2"},
 	}
@@ -350,7 +350,7 @@ func TestWriteStringParameters_MergeMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Merge new parameters (replace=false)
-	additional := []api.StringParameter{
+	additional := []cpi.StringParameter{
 		{Pid: pid, ID: "param3", Value: "value3"},
 		{Pid: pid, ID: "param1", Value: "updated_value1"}, // Should be ignored
 	}
@@ -385,7 +385,7 @@ func TestWriteAndReadBinaryParameters(t *testing.T) {
 	testData := []byte("<?xml version=\"1.0\"?><root>test</root>")
 	encoded := base64.StdEncoding.EncodeToString(testData)
 
-	params := []api.BinaryParameter{
+	params := []cpi.BinaryParameter{
 		{Pid: pid, ID: "config", Value: encoded, ContentType: "xml"},
 		{Pid: pid, ID: "schema", Value: encoded, ContentType: "xsd"},
 	}
@@ -407,7 +407,7 @@ func TestWriteAndReadBinaryParameters(t *testing.T) {
 	// Verify
 	assert.Equal(t, 2, len(readParams))
 
-	paramMap := make(map[string]api.BinaryParameter)
+	paramMap := make(map[string]cpi.BinaryParameter)
 	for _, p := range readParams {
 		paramMap[p.ID] = p
 	}
@@ -429,7 +429,7 @@ func TestBinaryParameterWithEncoding(t *testing.T) {
 	testData := []byte("<?xml version=\"1.0\"?><root>test</root>")
 	encoded := base64.StdEncoding.EncodeToString(testData)
 
-	params := []api.BinaryParameter{
+	params := []cpi.BinaryParameter{
 		{Pid: pid, ID: "config", Value: encoded, ContentType: "xml; encoding=UTF-8"},
 	}
 
@@ -472,7 +472,7 @@ func TestBinaryParameterWithoutEncoding_NoMetadata(t *testing.T) {
 	testData := []byte("{\"key\": \"value\"}")
 	encoded := base64.StdEncoding.EncodeToString(testData)
 
-	params := []api.BinaryParameter{
+	params := []cpi.BinaryParameter{
 		{Pid: pid, ID: "config", Value: encoded, ContentType: "json"},
 	}
 
@@ -592,7 +592,7 @@ func TestWriteStringParameters_Sorted(t *testing.T) {
 	pid := "TestPID"
 
 	// Write parameters in random order
-	params := []api.StringParameter{
+	params := []cpi.StringParameter{
 		{Pid: pid, ID: "zzz", Value: "last"},
 		{Pid: pid, ID: "aaa", Value: "first"},
 		{Pid: pid, ID: "mmm", Value: "middle"},

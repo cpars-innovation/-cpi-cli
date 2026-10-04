@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cpars-innovation/cpicli/internal/api"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
-	"github.com/cpars-innovation/cpicli/internal/deployer"
-	"github.com/cpars-innovation/cpicli/internal/httpclnt"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -237,8 +237,8 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	stats := &ConfigureStats{}
 
 	// Get service details
-	serviceDetails := api.GetServiceDetails(cmd)
-	exe := api.InitHTTPExecuter(serviceDetails)
+	serviceDetails := serviceDetails(cmd)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Phase 1: Configure all artifacts
 	log.Info().Msg("")
@@ -253,7 +253,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	}
 
 	// Phase 2: Deploy artifacts if requested
-	deployments := []deployer.Result{}
+	deployments := []ops.Result{}
 	if len(deploymentTasks) > 0 && !dryRun {
 		log.Info().Msg("")
 		log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
@@ -284,9 +284,9 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 
 // configureResult is the JSON result of configure.
 type configureResult struct {
-	DryRun      bool              `json:"dryRun"`
-	Stats       *ConfigureStats   `json:"stats"`
-	Deployments []deployer.Result `json:"deployments"`
+	DryRun      bool            `json:"dryRun"`
+	Stats       *ConfigureStats `json:"stats"`
+	Deployments []ops.Result    `json:"deployments"`
 }
 
 // ConfigureConfigFile represents a loaded config file with metadata
@@ -402,7 +402,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 	batchSize int, disableBatch bool) ([]DeploymentTask, error) {
 
 	var deploymentTasks []DeploymentTask
-	configuration := api.NewConfiguration(exe)
+	configuration := cpi.NewConfiguration(exe)
 
 	for _, pkg := range cfg.Packages {
 		stats.PackagesProcessed++
@@ -452,8 +452,8 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 			log.Info().Msgf("      Parameters: %d", len(artifact.Parameters))
 
 			// Validate artifact type
-			if !api.IsValidArtifactType(artifact.Type) {
-				log.Error().Msgf("      ❌ Invalid artifact type: %s (valid types: %v)", artifact.Type, api.ArtifactTypes)
+			if !cpi.IsValidArtifactType(artifact.Type) {
+				log.Error().Msgf("      ❌ Invalid artifact type: %s (valid types: %v)", artifact.Type, cpi.ArtifactTypes)
 				stats.ArtifactsFailed++
 				packageHasError = true
 				continue
@@ -527,7 +527,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 	return deploymentTasks, nil
 }
 
-func updateParametersBatch(exe *httpclnt.HTTPExecuter, configuration *api.Configuration,
+func updateParametersBatch(exe *httpclnt.HTTPExecuter, configuration *cpi.Configuration,
 	artifactID, version string, parameters []models.ConfigurationParameter,
 	batchSize int, stats *ConfigureStats) error {
 
@@ -545,7 +545,7 @@ func updateParametersBatch(exe *httpclnt.HTTPExecuter, configuration *api.Config
 
 	for _, param := range parameters {
 		// Verify parameter exists
-		existingParam := api.FindParameterByKey(param.Key, currentConfig.Root.Results)
+		existingParam := cpi.FindParameterByKey(param.Key, currentConfig.Root.Results)
 		if existingParam == nil {
 			log.Warn().Msgf("      ⚠️  Parameter %s not found in artifact, skipping", param.Key)
 			stats.ParametersFailed++
@@ -610,7 +610,7 @@ func updateParametersBatch(exe *httpclnt.HTTPExecuter, configuration *api.Config
 	return nil
 }
 
-func updateParametersIndividual(configuration *api.Configuration, artifactID, version string,
+func updateParametersIndividual(configuration *cpi.Configuration, artifactID, version string,
 	parameters []models.ConfigurationParameter, stats *ConfigureStats) error {
 
 	log.Info().Msgf("      Using individual requests")
@@ -639,7 +639,7 @@ func updateParametersIndividual(configuration *api.Configuration, artifactID, ve
 }
 
 func deployConfiguredArtifacts(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
-	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) []deployer.Result {
+	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) []ops.Result {
 
 	// Configuration changes do not change the artifact version, so the
 	// deployment must not be skipped based on a version comparison.
