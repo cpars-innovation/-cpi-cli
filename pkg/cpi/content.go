@@ -27,12 +27,9 @@ func NewContent(exe *httpclnt.HTTPExecuter) *Content {
 // postAction calls an OData function import (POST without body) and returns
 // the response body.
 func postAction(exe *httpclnt.HTTPExecuter, urlPath, callType string, okCodes ...int) ([]byte, error) {
-	headers, cookies, err := InitHeadersAndCookies(exe)
-	if err != nil {
-		return nil, err
-	}
+	headers := map[string]string{}
 	headers["Accept"] = "application/json"
-	resp, err := exe.ExecRequestWithCookies(http.MethodPost, urlPath, http.NoBody, headers, cookies)
+	resp, err := exe.Exec(http.MethodPost, urlPath, http.NoBody, headers)
 	if err != nil {
 		return nil, err
 	}

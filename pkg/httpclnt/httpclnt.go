@@ -1,6 +1,7 @@
 package httpclnt
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ type HTTPExecuter struct {
 	httpClient    *http.Client
 	AuthType      string
 	showLogs      bool
+	csrf          csrf
 }
 
 // New returns an initialised HTTPExecuter instance.
@@ -62,42 +64,81 @@ func New(oauthHost string, oauthPath string, clientId string, clientSecret strin
 	return e
 }
 
-func (e *HTTPExecuter) ExecRequestWithCookies(method string, path string, body io.Reader, headers map[string]string, cookies []*http.Cookie) (resp *http.Response, err error) {
+// Exec sends a request to the tenant. Modifying requests (POST, PUT, PATCH,
+// DELETE) get a CSRF token automatically, see csrf.
+func (e *HTTPExecuter) Exec(method string, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	var payload []byte
+	if body != nil && body != http.NoBody {
+		var err error
+		if payload, err = io.ReadAll(body); err != nil {
+			return nil, err
+		}
+	}
+	if !isModifying(method) {
+		return e.send(method, path, payload, headers, nil)
+	}
 
+	token, cookies, generation, err := e.csrfCurrent(e.AuthType == "BASIC")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := e.send(method, path, payload, withCSRF(headers, token), cookies)
+	if err != nil || !csrfRequired(resp) {
+		return resp, err
+	}
+
+	// Token missing or expired: fetch a new one and retry once
+	_, _ = e.ReadRespBody(resp)
+	if e.showLogs {
+		log.Debug().Msgf("CSRF token required for %v %v, fetching a new token", method, path)
+	}
+	token, cookies, err = e.csrfRefresh(generation)
+	if err != nil {
+		return nil, err
+	}
+	return e.send(method, path, payload, withCSRF(headers, token), cookies)
+}
+
+func withCSRF(headers map[string]string, token string) map[string]string {
+	if token == "" {
+		return headers
+	}
+	h := make(map[string]string, len(headers)+1)
+	for k, v := range headers {
+		h[k] = v
+	}
+	h["X-CSRF-Token"] = token
+	return h
+}
+
+func (e *HTTPExecuter) send(method string, path string, payload []byte, headers map[string]string, cookies []*http.Cookie) (*http.Response, error) {
 	url := fmt.Sprintf("%v://%v:%d%v", e.scheme, e.host, e.port, path)
 	if e.showLogs {
 		log.Debug().Msgf("Executing HTTP request: %v %v", method, url)
 	}
 
-	// Create new HTTP request
+	var body io.Reader = http.NoBody
+	if len(payload) > 0 {
+		body = bytes.NewReader(payload)
+	}
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	// Set basic authentication if needed
 	if e.basicUserId != "" {
 		req.SetBasicAuth(e.basicUserId, e.basicPassword)
 	}
-
-	// Set HTTP headers
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-
-	// Set cookies
-	if len(cookies) > 0 {
-		for _, cookie := range cookies {
-			req.AddCookie(cookie)
-		}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
 	}
-
-	// Execute HTTP request
 	return e.httpClient.Do(req)
 }
 
 func (e *HTTPExecuter) ExecGetRequest(path string, headers map[string]string) (resp *http.Response, err error) {
-	return e.ExecRequestWithCookies(http.MethodGet, path, http.NoBody, headers, nil)
+	return e.Exec(http.MethodGet, path, http.NoBody, headers)
 }
 
 func (e *HTTPExecuter) ReadRespBody(resp *http.Response) ([]byte, error) {

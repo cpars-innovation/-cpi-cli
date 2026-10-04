@@ -91,7 +91,7 @@ func (br *BatchRequest) Execute() (*BatchResponse, error) {
 		"Accept":       "multipart/mixed",
 	}
 
-	resp, err := br.exe.ExecRequestWithCookies("POST", "/api/v1/$batch", bytes.NewReader(body), headers, nil)
+	resp, err := br.exe.Exec("POST", "/api/v1/$batch", bytes.NewReader(body), headers)
 	if err != nil {
 		return nil, fmt.Errorf("batch request failed: %w", err)
 	}

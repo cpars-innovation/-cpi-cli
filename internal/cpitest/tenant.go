@@ -117,6 +117,11 @@ type Tenant struct {
 	Packages  []Package
 	// StatusOverride, if non-zero, is returned for every API call (e.g. 401).
 	StatusOverride int
+	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
+	// requests need the token and session cookie from a "Fetch" request).
+	NoCSRF     bool
+	csrfToken  string
+	csrfSerial int
 	requests       []string
 	server         *httptest.Server
 }
@@ -139,6 +144,25 @@ func (m *Tenant) HostPort() (string, int) {
 func (m *Tenant) Executer() *httpclnt.HTTPExecuter {
 	host, port := m.HostPort()
 	return httpclnt.New("", "", "", "", "user", "secret", host, "http", port, false)
+}
+
+// ExpireCSRF invalidates the current CSRF token (as a tenant does when the
+// session ends); the next fetch issues a new one.
+func (m *Tenant) ExpireCSRF() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.csrfToken = ""
+}
+
+// CSRFFetches returns the number of CSRF token fetch requests.
+func (m *Tenant) CSRFFetches() int {
+	n := 0
+	for _, r := range m.Requests() {
+		if r == "GET /api/v1/" {
+			n++
+		}
+	}
+	return n
 }
 
 // Requests returns "METHOD path" for every request received.
@@ -242,9 +266,25 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(m.StatusOverride)
 		return
 	}
-	if path == "/api/v1/" { // CSRF token fetch
-		w.Header().Set("x-csrf-token", "token")
+	if r.Method == http.MethodGet && path == "/api/v1/" { // CSRF token fetch
+		if strings.EqualFold(r.Header.Get("X-CSRF-Token"), "fetch") {
+			if m.csrfToken == "" {
+				m.csrfSerial++
+				m.csrfToken = fmt.Sprintf("token-%d", m.csrfSerial)
+			}
+			w.Header().Set("X-CSRF-Token", m.csrfToken)
+			http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "session-" + m.csrfToken})
+		}
 		return
+	}
+	if !m.NoCSRF && r.Method != http.MethodGet && strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
+		cookie, err := r.Cookie("JSESSIONID")
+		if m.csrfToken == "" || r.Header.Get("X-CSRF-Token") != m.csrfToken || err != nil || cookie.Value != "session-"+m.csrfToken {
+			w.Header().Set("X-CSRF-Token", "Required")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("CSRF token validation failed"))
+			return
+		}
 	}
 
 	switch {

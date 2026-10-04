@@ -298,11 +298,11 @@ func (pd *PartnerDirectory) CreateStringParameter(param StringParameter) error {
 
 	log.Debug().Msgf("Creating string parameter %s/%s", param.Pid, param.ID)
 
-	resp, err := pd.exe.ExecRequestWithCookies("POST", "/api/v1/StringParameters",
+	resp, err := pd.exe.Exec("POST", "/api/v1/StringParameters",
 		bytes.NewReader(bodyJSON), map[string]string{
 			"Content-Type": "application/json",
 			"Accept":       "application/json",
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}
@@ -330,11 +330,11 @@ func (pd *PartnerDirectory) UpdateStringParameter(param StringParameter) error {
 
 	log.Debug().Msgf("Updating string parameter %s/%s", param.Pid, param.ID)
 
-	resp, err := pd.exe.ExecRequestWithCookies("PUT", path,
+	resp, err := pd.exe.Exec("PUT", path,
 		bytes.NewReader(bodyJSON), map[string]string{
 			"Content-Type": "application/json",
 			"Accept":       "application/json",
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}
@@ -355,9 +355,9 @@ func (pd *PartnerDirectory) DeleteStringParameter(pid, id string) error {
 
 	log.Debug().Msgf("Deleting string parameter %s/%s", pid, id)
 
-	resp, err := pd.exe.ExecRequestWithCookies("DELETE", path, nil, map[string]string{
+	resp, err := pd.exe.Exec("DELETE", path, nil, map[string]string{
 		"Accept": "application/json",
-	}, nil)
+	})
 	if err != nil {
 		return err
 	}
@@ -386,11 +386,11 @@ func (pd *PartnerDirectory) CreateBinaryParameter(param BinaryParameter) error {
 
 	log.Debug().Msgf("Creating binary parameter %s/%s", param.Pid, param.ID)
 
-	resp, err := pd.exe.ExecRequestWithCookies("POST", "/api/v1/BinaryParameters",
+	resp, err := pd.exe.Exec("POST", "/api/v1/BinaryParameters",
 		bytes.NewReader(bodyJSON), map[string]string{
 			"Content-Type": "application/json",
 			"Accept":       "application/json",
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}
@@ -421,11 +421,11 @@ func (pd *PartnerDirectory) UpdateBinaryParameter(param BinaryParameter) error {
 
 	log.Debug().Msgf("Updating binary parameter %s/%s", param.Pid, param.ID)
 
-	resp, err := pd.exe.ExecRequestWithCookies("PUT", path,
+	resp, err := pd.exe.Exec("PUT", path,
 		bytes.NewReader(bodyJSON), map[string]string{
 			"Content-Type": "application/json",
 			"Accept":       "application/json",
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}
@@ -446,9 +446,9 @@ func (pd *PartnerDirectory) DeleteBinaryParameter(pid, id string) error {
 
 	log.Debug().Msgf("Deleting binary parameter %s/%s", pid, id)
 
-	resp, err := pd.exe.ExecRequestWithCookies("DELETE", path, nil, map[string]string{
+	resp, err := pd.exe.Exec("DELETE", path, nil, map[string]string{
 		"Accept": "application/json",
-	}, nil)
+	})
 	if err != nil {
 		return err
 	}

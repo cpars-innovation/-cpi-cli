@@ -21,14 +21,25 @@ import (
 // records every DELETE it receives.
 type pdMockTenant struct {
 	mu      sync.Mutex
-	strings []cpi.StringParameter
-	deletes []string
+	strings      []cpi.StringParameter
+	deletes      []string
+	csrfRejected int
 }
 
 func (m *pdMockTenant) handler(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	path := r.URL.Path
+	if path == "/api/v1/" && strings.EqualFold(r.Header.Get("X-CSRF-Token"), "fetch") {
+		w.Header().Set("X-CSRF-Token", "pd-token")
+		return
+	}
+	if r.Method != http.MethodGet && r.Header.Get("X-CSRF-Token") != "pd-token" {
+		m.csrfRejected++
+		w.Header().Set("X-CSRF-Token", "Required")
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case r.Method == http.MethodDelete:

@@ -215,3 +215,26 @@ func TestDeploy_ContextCancelled(t *testing.T) {
 	assert.Equal(t, StatusFailed, results[0].Status)
 	assert.Contains(t, results[0].Error, "context canceled")
 }
+
+// All write requests of a run share one CSRF token, and an expired token is
+// refreshed transparently (the mock tenant enforces CSRF for Basic Auth).
+func TestDeploy_CSRFTokenSharedAndRefreshed(t *testing.T) {
+	started := []*cpitest.Runtime{{Version: "1", Status: "STARTED", DeployedOn: t1}}
+	artifacts := map[string]*cpitest.Artifact{}
+	var list []Artifact
+	for _, id := range []string{"A", "B", "C", "D"} {
+		artifacts[id] = &cpitest.Artifact{Type: "Integration", DesignVersion: "1", AfterDeploy: started}
+		list = append(list, Artifact{ID: id, Type: "Integration"})
+	}
+	mock := cpitest.NewTenant(t, artifacts)
+	tenant := NewTenant(mock.Executer())
+
+	results := Deploy(context.Background(), tenant, list, fastOpts())
+	require.NoError(t, Err(results))
+	assert.Equal(t, 1, mock.CSRFFetches(), "one token for four deploy triggers")
+
+	mock.ExpireCSRF()
+	results = Undeploy(context.Background(), tenant, list[:1], fastOpts())
+	require.NoError(t, Err(results))
+	assert.Equal(t, 2, mock.CSRFFetches(), "expired token refreshed once")
+}

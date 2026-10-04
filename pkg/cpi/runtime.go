@@ -67,12 +67,9 @@ func (r *Runtime) UnDeploy(id string) error {
 	log.Info().Msgf("Undeploying runtime artifact %v", id)
 	urlPath := fmt.Sprintf("/api/v1/IntegrationRuntimeArtifacts('%v')", id)
 
-	headers, cookies, err := InitHeadersAndCookies(r.exe)
-	if err != nil {
-		return err
-	}
+	headers := map[string]string{}
 	headers["Accept"] = "application/json"
-	resp, err := r.exe.ExecRequestWithCookies(http.MethodDelete, urlPath, http.NoBody, headers, cookies)
+	resp, err := r.exe.Exec(http.MethodDelete, urlPath, http.NoBody, headers)
 	if err != nil {
 		return err
 	}

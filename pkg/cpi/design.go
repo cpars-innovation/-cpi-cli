@@ -122,12 +122,9 @@ func TriggerDeploy(id string, artifactType string, exe *httpclnt.HTTPExecuter) (
 	urlPath := fmt.Sprintf("/api/v1/Deploy%vDesigntimeArtifact?Id='%s'&Version='active'", artifactType, id)
 	callType := fmt.Sprintf("Deploy %v designtime artifact", artifactType)
 
-	headers, cookies, err := InitHeadersAndCookies(exe)
-	if err != nil {
-		return "", err
-	}
+	headers := map[string]string{}
 	headers["Accept"] = "application/json"
-	resp, err := exe.ExecRequestWithCookies(http.MethodPost, urlPath, http.NoBody, headers, cookies)
+	resp, err := exe.Exec(http.MethodPost, urlPath, http.NoBody, headers)
 	if err != nil {
 		return "", err
 	}

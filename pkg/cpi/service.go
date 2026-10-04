@@ -64,10 +64,7 @@ func modifyingCall(method string, urlPath string, content []byte, successCode in
 }
 
 func modifyingCallWithContentType(method string, urlPath string, content []byte, contentType string, successCode int, callType string, exe *httpclnt.HTTPExecuter) error {
-	headers, cookies, err := InitHeadersAndCookies(exe)
-	if err != nil {
-		return err
-	}
+	headers := map[string]string{}
 
 	headers["Accept"] = "application/json"
 	var body io.Reader
@@ -79,7 +76,7 @@ func modifyingCallWithContentType(method string, urlPath string, content []byte,
 		body = http.NoBody
 	}
 
-	resp, err := exe.ExecRequestWithCookies(method, urlPath, body, headers, cookies)
+	resp, err := exe.Exec(method, urlPath, body, headers)
 	if err != nil {
 		return err
 	}
@@ -111,7 +108,7 @@ func readOnlyCallWithBodyAndAcceptType(urlPath string, content []byte, callType 
 		body = http.NoBody
 	}
 
-	resp, err := exe.ExecRequestWithCookies(http.MethodGet, urlPath, body, headers, nil)
+	resp, err := exe.Exec(http.MethodGet, urlPath, body, headers)
 	if err != nil {
 		return nil, err
 	}
