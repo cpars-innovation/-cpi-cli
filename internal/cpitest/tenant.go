@@ -122,8 +122,8 @@ type Tenant struct {
 	NoCSRF     bool
 	csrfToken  string
 	csrfSerial int
-	requests       []string
-	server         *httptest.Server
+	requests   []string
+	server     *httptest.Server
 }
 
 // NewTenant starts a mock tenant; it is closed when the test ends.

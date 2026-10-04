@@ -20,7 +20,7 @@ import (
 // pdMockTenant serves the Partner Directory endpoints used by pd-deploy and
 // records every DELETE it receives.
 type pdMockTenant struct {
-	mu      sync.Mutex
+	mu           sync.Mutex
 	strings      []cpi.StringParameter
 	deletes      []string
 	csrfRejected int
