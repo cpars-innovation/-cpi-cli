@@ -129,8 +129,18 @@ func (pd *PartnerDirectory) WriteBinaryParameters(pid string, params []api.Binar
 func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]api.StringParameter, error) {
 	propertiesFile := filepath.Join(pd.ResourcesPath, pid, stringPropertiesFile)
 
-	if !fileExists(propertiesFile) {
+	// Only a file that definitely does not exist means "no string parameters".
+	// Any other stat problem must surface as an error: callers such as full sync
+	// would otherwise treat the PID as empty and delete its remote parameters.
+	info, err := os.Stat(propertiesFile)
+	if os.IsNotExist(err) {
 		return []api.StringParameter{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to access %s: %w", propertiesFile, err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s is a directory, expected a properties file", propertiesFile)
 	}
 
 	return readPropertiesFile(propertiesFile, pid)
@@ -140,8 +150,16 @@ func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]api.StringParame
 func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParameter, error) {
 	binaryDir := filepath.Join(pd.ResourcesPath, pid, binaryDirName)
 
-	if !dirExists(binaryDir) {
+	// See ReadStringParameters: only a missing directory means "no parameters".
+	info, err := os.Stat(binaryDir)
+	if os.IsNotExist(err) {
 		return []api.BinaryParameter{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to access %s: %w", binaryDir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", binaryDir)
 	}
 
 	// Read metadata
@@ -185,8 +203,9 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]api.BinaryParame
 
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			log.Warn().Msgf("Failed to read binary file %s: %v", entry.Name(), err)
-			continue
+			// Skipping the file would make it look deleted locally (and full sync
+			// would then delete it remotely), so fail the whole PID instead.
+			return nil, fmt.Errorf("failed to read binary file %s: %w", filePath, err)
 		}
 
 		// Encode to base64

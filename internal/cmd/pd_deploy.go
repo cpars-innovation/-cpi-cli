@@ -165,13 +165,18 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 		return fmt.Errorf("failed to deploy binary parameters: %w", err)
 	}
 
+	// Collected failures make the command exit non-zero (partial failure)
+	var failures []string
+
 	// Full sync - delete remote entries not in local (only for managed PIDs)
 	var deletionResults *api.BatchResult
 	if fullSync && !dryRun {
 		log.Info().Msg("Executing full sync - deleting remote entries not present locally...")
-		deletionResults, err = deleteRemoteEntriesNotInLocal(pdAPI, pdRepo, managedPIDs)
-		if err != nil {
-			log.Warn().Msgf("Error during full sync deletion: %v", err)
+		var deletionErr error
+		deletionResults, deletionErr = deleteRemoteEntriesNotInLocal(pdAPI, pdRepo, managedPIDs)
+		if deletionErr != nil {
+			log.Error().Msgf("Error during full sync deletion: %v", deletionErr)
+			failures = append(failures, fmt.Sprintf("full sync: %v", deletionErr))
 		} else {
 			log.Info().Msgf("Parameters Deleted: %d", len(deletionResults.Deleted))
 			if len(deletionResults.Deleted) > 0 {
@@ -185,6 +190,7 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 				for _, err := range deletionResults.Errors {
 					log.Warn().Msg(err)
 				}
+				failures = append(failures, deletionResults.Errors...)
 			}
 		}
 	} else if fullSync && dryRun {
@@ -219,6 +225,17 @@ func deployPartnerDirectory(pdAPI *api.PartnerDirectory, pdRepo *repo.PartnerDir
 
 	if dryRun {
 		log.Info().Msg("DRY RUN completed - no changes were made!")
+	}
+
+	for _, e := range stringResults.Errors {
+		failures = append(failures, "string: "+e)
+	}
+	for _, e := range binaryResults.Errors {
+		failures = append(failures, "binary: "+e)
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("partner directory deploy completed with %d error(s): %s",
+			len(failures), strings.Join(failures, "; "))
 	}
 
 	return nil
@@ -398,36 +415,43 @@ func deleteRemoteEntriesNotInLocal(pdAPI *api.PartnerDirectory, pdRepo *repo.Par
 		Errors:  []string{},
 	}
 
-	// Load local parameters for managed PIDs
+	// Load local parameters for managed PIDs. A PID is only eligible for deletion
+	// when BOTH its string and binary parameters were read successfully: an
+	// unreadable local file must never be interpreted as "no local parameters",
+	// which would delete every remote parameter of that PID.
 	localStringParams := make(map[string]map[string]bool) // PID -> ID -> exists
 	localBinaryParams := make(map[string]map[string]bool)
+	var syncablePIDs []string
 
 	for _, pid := range managedPIDs {
-		// Load string parameters
 		stringParams, err := pdRepo.ReadStringParameters(pid)
 		if err != nil {
-			log.Warn().Msgf("Failed to read string parameters for PID %s: %v", pid, err)
-		} else {
-			if localStringParams[pid] == nil {
-				localStringParams[pid] = make(map[string]bool)
-			}
-			for _, param := range stringParams {
-				localStringParams[pid][param.ID] = true
-			}
+			msg := fmt.Sprintf("Full sync aborted for PID %s: failed to read local string parameters: %v", pid, err)
+			log.Error().Msg(msg)
+			results.Errors = append(results.Errors, msg)
+			continue
 		}
-
-		// Load binary parameters
 		binaryParams, err := pdRepo.ReadBinaryParameters(pid)
 		if err != nil {
-			log.Warn().Msgf("Failed to read binary parameters for PID %s: %v", pid, err)
-		} else {
-			if localBinaryParams[pid] == nil {
-				localBinaryParams[pid] = make(map[string]bool)
-			}
-			for _, param := range binaryParams {
-				localBinaryParams[pid][param.ID] = true
-			}
+			msg := fmt.Sprintf("Full sync aborted for PID %s: failed to read local binary parameters: %v", pid, err)
+			log.Error().Msg(msg)
+			results.Errors = append(results.Errors, msg)
+			continue
 		}
+
+		localStringParams[pid] = make(map[string]bool, len(stringParams))
+		for _, param := range stringParams {
+			localStringParams[pid][param.ID] = true
+		}
+		localBinaryParams[pid] = make(map[string]bool, len(binaryParams))
+		for _, param := range binaryParams {
+			localBinaryParams[pid][param.ID] = true
+		}
+		syncablePIDs = append(syncablePIDs, pid)
+	}
+
+	if len(syncablePIDs) == 0 {
+		return results, nil
 	}
 
 	// Get all remote string parameters
@@ -438,11 +462,11 @@ func deleteRemoteEntriesNotInLocal(pdAPI *api.PartnerDirectory, pdRepo *repo.Par
 
 	// Delete string parameters not in local for managed PIDs
 	for _, param := range remoteStringParams {
-		if !contains(managedPIDs, param.Pid) {
-			continue // Skip PIDs we don't manage
+		if !contains(syncablePIDs, param.Pid) {
+			continue // Skip PIDs we don't manage or could not read locally
 		}
 
-		if localStringParams[param.Pid] == nil || !localStringParams[param.Pid][param.ID] {
+		if !localStringParams[param.Pid][param.ID] {
 			key := fmt.Sprintf("%s/%s", param.Pid, param.ID)
 			if err := pdAPI.DeleteStringParameter(param.Pid, param.ID); err != nil {
 				results.Errors = append(results.Errors, fmt.Sprintf("Failed to delete string %s: %v", key, err))
@@ -461,11 +485,11 @@ func deleteRemoteEntriesNotInLocal(pdAPI *api.PartnerDirectory, pdRepo *repo.Par
 
 	// Delete binary parameters not in local for managed PIDs
 	for _, param := range remoteBinaryParams {
-		if !contains(managedPIDs, param.Pid) {
-			continue // Skip PIDs we don't manage
+		if !contains(syncablePIDs, param.Pid) {
+			continue // Skip PIDs we don't manage or could not read locally
 		}
 
-		if localBinaryParams[param.Pid] == nil || !localBinaryParams[param.Pid][param.ID] {
+		if !localBinaryParams[param.Pid][param.ID] {
 			key := fmt.Sprintf("%s/%s", param.Pid, param.ID)
 			if err := pdAPI.DeleteBinaryParameter(param.Pid, param.ID); err != nil {
 				results.Errors = append(results.Errors, fmt.Sprintf("Failed to delete binary %s: %v", key, err))
