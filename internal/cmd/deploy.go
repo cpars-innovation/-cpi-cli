@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
+	"github.com/cpars-innovation/-cpi-cli/internal/deployer"
 	"github.com/cpars-innovation/-cpi-cli/internal/str"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"slices"
-	"strings"
 	"time"
 )
 
@@ -27,9 +26,7 @@ Configuration:
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// Validate the artifact type
 			artifactType := config.GetStringWithFallback(cmd, "artifact-type", "deploy.artifactType")
-			switch artifactType {
-			case "MessageMapping", "ScriptCollection", "Integration", "ValueMapping":
-			default:
+			if !api.IsValidArtifactType(artifactType) {
 				return fmt.Errorf("invalid value for --artifact-type = %v", artifactType)
 			}
 			return nil
@@ -62,139 +59,47 @@ func runDeploy(cmd *cobra.Command) error {
 	artifactType := config.GetStringWithFallback(cmd, "artifact-type", "deploy.artifactType")
 	log.Info().Msgf("Executing deploy %v command", artifactType)
 
-	artifactIds := config.GetStringSliceWithFallback(cmd, "artifact-ids", "deploy.artifactIds")
+	artifactIds := str.TrimSlice(config.GetStringSliceWithFallback(cmd, "artifact-ids", "deploy.artifactIds"))
 	delayLength := config.GetIntWithFallback(cmd, "delay-length", "deploy.delayLength")
 	maxCheckLimit := config.GetIntWithFallback(cmd, "max-check-limit", "deploy.maxCheckLimit")
 	compareVersions := config.GetBoolWithFallback(cmd, "compare-versions", "deploy.compareVersions")
 
-	err := deployArtifacts(artifactIds, artifactType, delayLength, maxCheckLimit, compareVersions, serviceDetails)
-	if err != nil {
-		return err
+	artifacts := make([]deployer.Artifact, 0, len(artifactIds))
+	for _, id := range artifactIds {
+		artifacts = append(artifacts, deployer.Artifact{ID: id, Type: artifactType})
 	}
-	return nil
-}
 
-func deployArtifacts(artifactIds []string, artifactType string, delayLength int, maxCheckLimit int, compareVersions bool, serviceDetails *api.ServiceDetails) error {
-
-	// Initialise HTTP executer
 	exe := api.InitHTTPExecuter(serviceDetails)
-
-	// Initialise designtime artifact
-	dt := api.NewDesigntimeArtifact(artifactType, exe)
-
-	// Initialised runtime artifact
-	rt := api.NewRuntime(exe)
-
-	artifactIds = str.TrimSlice(artifactIds)
-
-	// Loop and deploy each artifact
-	var triggeredIds []string
-	for i, id := range artifactIds {
-		log.Info().Msgf("Processing artifact %d - %v", i+1, id)
-		triggered, err := deploySingle(dt, rt, id, compareVersions)
-		// TODO - PRIO1 write error wrapper - https://go.dev/blog/errors-are-values
-		if err != nil {
-			return err
-		}
-		if triggered {
-			triggeredIds = append(triggeredIds, id)
-		}
-	}
-
-	// Check deployment status of the artifacts that were actually deployed
-	err := checkDeploymentStatus(rt, delayLength, maxCheckLimit, triggeredIds)
-	if err != nil {
+	results := deployer.Deploy(cmd.Context(), deployer.NewTenant(exe), artifacts, deployer.Options{
+		Interval:        time.Duration(delayLength) * time.Second,
+		MaxChecks:       maxCheckLimit,
+		CompareVersions: compareVersions,
+		// All artifacts are triggered and polled concurrently, as before
+		Parallelism: len(artifacts),
+	})
+	logResults(results)
+	if err := deployer.Err(results); err != nil {
 		return err
 	}
-
 	log.Info().Msg("🏆 Artifact(s) deployment completed successfully")
 	return nil
 }
 
-// deploySingle triggers deployment of an artifact. It returns whether a deployment was actually
-// triggered - an artifact already deployed with the same version is skipped.
-func deploySingle(artifact api.DesigntimeArtifact, runtime *api.Runtime, id string, compareVersions bool) (bool, error) {
-	designtimeVer, _, exists, err := artifact.Get(id, "active")
-	if err != nil {
-		return false, err
+// logResults logs one line per artifact result.
+func logResults(results []deployer.Result) {
+	for _, r := range results {
+		event := log.Info()
+		if !r.Status.Succeeded() {
+			event = log.Error()
+		}
+		event.Str("artifact", r.ID).Str("status", string(r.Status)).Str("version", r.Version).Str("taskId", r.TaskID).
+			Msgf("%s: %s%s", r.ID, r.Status, errSuffix(r.Error))
 	}
-	if !exists {
-		return false, fmt.Errorf("Designtime artifact %v does not exist", id)
-	}
-
-	if compareVersions {
-		runtimeVer, _, err := runtime.Get(id)
-		if err != nil {
-			return false, err
-		}
-
-		// Compare designtime version with runtime version to determine if deployment is needed
-		log.Info().Msg("Comparing designtime version with runtime version")
-		log.Debug().Msgf("Designtime version = %s. Runtime version = %s", designtimeVer, runtimeVer)
-		if designtimeVer == runtimeVer {
-			log.Info().Msgf("Artifact %v with version %v already deployed. Skipping runtime deployment", id, runtimeVer)
-			return false, nil
-		}
-		log.Info().Msgf("🚀 Artifact previously not deployed, or versions differ. Proceeding to deploy artifact %v with version %v", id, designtimeVer)
-		err = artifact.Deploy(id)
-		if err != nil {
-			return false, err
-		}
-		log.Info().Msgf("Artifact %v deployment triggered", id)
-	} else {
-		log.Info().Msgf("🚀 Proceeding to deploy artifact %v with version %v", id, designtimeVer)
-		err = artifact.Deploy(id)
-		if err != nil {
-			return false, err
-		}
-		log.Info().Msgf("Artifact %v deployment triggered", id)
-	}
-	return true, nil
 }
 
-// checkDeploymentStatus polls the runtime status of all deployed artifacts in each round, so that
-// artifacts deploying in parallel on the tenant are not waited for one after another.
-func checkDeploymentStatus(runtime *api.Runtime, delayLength int, maxCheckLimit int, ids []string) error {
-	if len(ids) == 0 {
-		return nil
+func errSuffix(msg string) string {
+	if msg == "" {
+		return ""
 	}
-	log.Info().Msgf("Checking runtime status for %d artifact(s) every %d seconds up to %d times", len(ids), delayLength, maxCheckLimit)
-
-	pending := slices.Clone(ids)
-	for i := 0; i < maxCheckLimit; i++ {
-		var stillPending []string
-		var pendingStatuses []string
-		for _, id := range pending {
-			version, status, err := runtime.Get(id)
-			if err != nil {
-				return err
-			}
-			log.Info().Msgf("Check %d - Current runtime status of artifact %v = %s", i+1, id, status)
-			if version == "NOT_DEPLOYED" || status == "STARTING" {
-				stillPending = append(stillPending, id)
-				pendingStatuses = append(pendingStatuses, fmt.Sprintf("%v = %s", id, status))
-				continue
-			}
-			if status == "STARTED" {
-				log.Info().Msgf("Artifact %v deployed successfully", id)
-				continue
-			}
-			// If there is an error, delay before getting the error details as it sometimes return 204 when the error details are not available yet
-			time.Sleep(time.Duration(delayLength) * time.Second)
-			errorMessage, err := runtime.GetErrorInfo(id)
-			if err != nil {
-				return err
-			}
-			return fmt.Errorf("Artifact %v deployment unsuccessful, ended with status %s. Error message = %s", id, status, errorMessage)
-		}
-		if len(stillPending) == 0 {
-			return nil
-		}
-		if i == (maxCheckLimit - 1) {
-			return fmt.Errorf("Artifact status remained unfinished after %d checks - %v", maxCheckLimit, strings.Join(pendingStatuses, ", "))
-		}
-		pending = stillPending
-		time.Sleep(time.Duration(delayLength) * time.Second)
-	}
-	return nil
+	return " - " + msg
 }

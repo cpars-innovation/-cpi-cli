@@ -1,12 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/deploy"
@@ -260,11 +259,8 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 		log.Info().Msgf("Deploying %d artifacts with max %d parallel deployments per package",
 			len(deploymentTasks), parallelDeployments)
 
-		err := deployConfiguredArtifacts(exe, deploymentTasks, deployRetries, deployDelaySeconds,
+		deployConfiguredArtifacts(cmd.Context(), exe, deploymentTasks, deployRetries, deployDelaySeconds,
 			parallelDeployments, stats)
-		if err != nil {
-			log.Error().Msgf("Deployment phase failed: %v", err)
-		}
 	}
 
 	// Print summary
@@ -635,115 +631,20 @@ func updateParametersIndividual(configuration *api.Configuration, artifactID, ve
 	return nil
 }
 
-func deployConfiguredArtifacts(exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
-	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) error {
+func deployConfiguredArtifacts(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
+	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) {
 
-	// Group tasks by package
-	packageTasks := make(map[string][]DeploymentTask)
-	for _, task := range tasks {
-		packageTasks[task.PackageID] = append(packageTasks[task.PackageID], task)
-	}
-
-	log.Info().Msgf("Deploying artifacts across %d packages", len(packageTasks))
-
-	var wg sync.WaitGroup
-	resultsChan := make(chan deployResult, len(tasks))
-
-	// Deploy all artifacts in parallel
-	for packageID, pkgTasks := range packageTasks {
-		log.Info().Msgf("Package %s: deploying %d artifacts", packageID, len(pkgTasks))
-
-		// Process artifacts in this package with controlled parallelism
-		semaphore := make(chan struct{}, parallelDeployments)
-
-		for _, task := range pkgTasks {
-			wg.Add(1)
-			go func(t DeploymentTask) {
-				defer wg.Done()
-				semaphore <- struct{}{}        // Acquire
-				defer func() { <-semaphore }() // Release
-
-				log.Info().Msgf("  Deploying %s (type: %s)", t.ArtifactID, t.ArtifactType)
-
-				deployErr := deployArtifact(exe, t, deployRetries, deployDelaySeconds)
-				resultsChan <- deployResult{Task: t, Error: deployErr}
-			}(task)
-		}
-	}
-
-	// Wait for all deployments
-	go func() {
-		wg.Wait()
-		close(resultsChan)
-	}()
-
-	// Collect results
-	for result := range resultsChan {
-		if result.Error != nil {
-			log.Error().Msgf("  ❌ Failed to deploy %s: %v", result.Task.ArtifactID, result.Error)
-			stats.DeploymentTasksFailed++
-		} else {
-			log.Info().Msgf("  ✅ Successfully deployed %s", result.Task.ArtifactID)
+	// Configuration changes do not change the artifact version, so the
+	// deployment must not be skipped based on a version comparison.
+	results := deployTasks(ctx, exe, tasks, false, deployRetries, deployDelaySeconds, parallelDeployments)
+	for _, r := range results {
+		if r.Status.Succeeded() {
 			stats.DeploymentTasksSuccessful++
 			stats.ArtifactsDeployed++
+		} else {
+			stats.DeploymentTasksFailed++
 		}
 	}
-
-	return nil
-}
-
-func deployArtifact(exe *httpclnt.HTTPExecuter, task DeploymentTask,
-	maxRetries, delaySeconds int) error {
-
-	// Initialize designtime artifact based on type
-	dt := api.NewDesigntimeArtifact(task.ArtifactType, exe)
-	if dt == nil {
-		return fmt.Errorf("unsupported artifact type: %s (valid types: Integration, MessageMapping, ScriptCollection, ValueMapping)", task.ArtifactType)
-	}
-
-	// Initialize runtime artifact for status checking
-	rt := api.NewRuntime(exe)
-
-	// Deploy the artifact
-	log.Info().Msgf("    Deploying %s (type: %s)", task.ArtifactID, task.ArtifactType)
-	err := dt.Deploy(task.ArtifactID)
-	if err != nil {
-		return fmt.Errorf("failed to initiate deployment: %w", err)
-	}
-
-	log.Info().Msgf("    Deployment triggered for %s", task.ArtifactID)
-
-	// Poll for deployment status
-	for i := 0; i < maxRetries; i++ {
-		time.Sleep(time.Duration(delaySeconds) * time.Second)
-
-		version, status, err := rt.Get(task.ArtifactID)
-		if err != nil {
-			log.Warn().Msgf("    Failed to get deployment status (attempt %d/%d): %v",
-				i+1, maxRetries, err)
-			continue
-		}
-
-		log.Info().Msgf("    Check %d/%d - Status: %s, Version: %s", i+1, maxRetries, status, version)
-
-		if version == "NOT_DEPLOYED" {
-			continue
-		}
-
-		if status == "STARTED" {
-			return nil
-		} else if status != "STARTING" {
-			// Get error details
-			time.Sleep(time.Duration(delaySeconds) * time.Second)
-			errorMessage, err := rt.GetErrorInfo(task.ArtifactID)
-			if err != nil {
-				return fmt.Errorf("deployment failed with status %s: %w", status, err)
-			}
-			return fmt.Errorf("deployment failed with status %s: %s", status, errorMessage)
-		}
-	}
-
-	return fmt.Errorf("deployment status check timed out after %d attempts", maxRetries)
 }
 
 func printConfigureSummary(stats *ConfigureStats, dryRun bool) {

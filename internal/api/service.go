@@ -7,7 +7,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 type ServiceDetails struct {
@@ -40,7 +43,41 @@ func GetServiceDetails(cmd *cobra.Command) *ServiceDetails {
 }
 
 func InitHTTPExecuter(serviceDetails *ServiceDetails) *httpclnt.HTTPExecuter {
-	return httpclnt.New(serviceDetails.OauthHost, serviceDetails.OauthPath, serviceDetails.OauthClientId, serviceDetails.OauthClientSecret, serviceDetails.Userid, serviceDetails.Password, serviceDetails.Host, "https", 443, true)
+	scheme, host, port := ParseHost(serviceDetails.Host)
+	oauthHost := serviceDetails.OauthHost
+	if oauthHost != "" {
+		// The token server shares scheme and port with the tenant host
+		_, oauthHost, _ = ParseHost(oauthHost)
+	}
+	return httpclnt.New(oauthHost, serviceDetails.OauthPath, serviceDetails.OauthClientId, serviceDetails.OauthClientSecret, serviceDetails.Userid, serviceDetails.Password, host, scheme, port, true)
+}
+
+// ParseHost splits a host flag value into scheme, host and port. The value is
+// normally a bare host name (https on port 443 is used); an explicit
+// "https://" prefix and a ":port" suffix are accepted. Plain http is only
+// honoured for loopback hosts (local mocks), so credentials are never sent
+// unencrypted to a remote tenant.
+func ParseHost(value string) (scheme string, host string, port int) {
+	scheme, port = "https", 443
+	rest := strings.TrimSuffix(strings.TrimSpace(value), "/")
+	insecure := false
+	switch {
+	case strings.HasPrefix(rest, "https://"):
+		rest = strings.TrimPrefix(rest, "https://")
+	case strings.HasPrefix(rest, "http://"):
+		rest = strings.TrimPrefix(rest, "http://")
+		insecure = true
+	}
+	host = rest
+	if h, p, err := net.SplitHostPort(rest); err == nil {
+		if n, err := strconv.Atoi(p); err == nil {
+			host, port = h, n
+		}
+	}
+	if insecure && (host == "localhost" || net.ParseIP(host).IsLoopback()) {
+		scheme = "http"
+	}
+	return scheme, host, port
 }
 
 func modifyingCall(method string, urlPath string, content []byte, successCode int, callType string, exe *httpclnt.HTTPExecuter) error {

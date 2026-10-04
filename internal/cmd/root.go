@@ -54,12 +54,9 @@ capabilities for automating time-consuming manual tasks like:
 	return rootCmd
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute(version, buildTime string) {
-
+// NewCLI returns the root command with all subcommands attached.
+func NewCLI(version string) *cobra.Command {
 	rootCmd := NewCmdRoot(version)
-	rootCmd.SetVersionTemplate(fmt.Sprintf("cpictl version {{.Version}} (built %s)\n", buildTime))
 	rootCmd.AddCommand(NewDeployCommand())
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
@@ -77,6 +74,15 @@ func Execute(version, buildTime string) {
 	rootCmd.AddCommand(NewConfigGenerateCommand())
 	rootCmd.AddCommand(NewFlashpipeOrchestratorCommand())
 	rootCmd.AddCommand(NewConfigureCommand())
+	return rootCmd
+}
+
+// Execute adds all child commands to the root command and sets flags appropriately.
+// This is called by main.main(). It only needs to happen once to the rootCmd.
+func Execute(version, buildTime string) {
+
+	rootCmd := NewCLI(version)
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cpictl version {{.Version}} (built %s)\n", buildTime))
 
 	err := rootCmd.Execute()
 

@@ -7,8 +7,11 @@ import (
 	"github.com/cpars-innovation/-cpi-cli/internal/httpclnt"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 )
 
 type DesigntimeArtifact interface {
@@ -107,9 +110,45 @@ func update(id string, name string, packageId string, artifactDir string, artifa
 }
 
 func deploy(id string, artifactType string, exe *httpclnt.HTTPExecuter) error {
+	_, err := TriggerDeploy(id, artifactType, exe)
+	return err
+}
+
+// TriggerDeploy starts deployment of the active version of a designtime
+// artifact and returns the deploy task ID from the response body (may be empty
+// if the tenant does not return one).
+func TriggerDeploy(id string, artifactType string, exe *httpclnt.HTTPExecuter) (string, error) {
 	log.Info().Msgf("Deploying %v designtime artifact %v", artifactType, id)
 	urlPath := fmt.Sprintf("/api/v1/Deploy%vDesigntimeArtifact?Id='%s'&Version='active'", artifactType, id)
-	return modifyingCall("POST", urlPath, nil, 202, fmt.Sprintf("Deploy %v designtime artifact", artifactType), exe)
+	callType := fmt.Sprintf("Deploy %v designtime artifact", artifactType)
+
+	headers, cookies, err := InitHeadersAndCookies(exe)
+	if err != nil {
+		return "", err
+	}
+	headers["Accept"] = "application/json"
+	resp, err := exe.ExecRequestWithCookies(http.MethodPost, urlPath, http.NoBody, headers, cookies)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		_, err = exe.LogError(resp, callType)
+		return "", err
+	}
+	body, err := exe.ReadRespBody(resp)
+	if err != nil {
+		return "", err
+	}
+	return strings.Trim(strings.TrimSpace(string(body)), `"`), nil
+}
+
+// ArtifactTypes lists the designtime artifact types supported by
+// NewDesigntimeArtifact.
+var ArtifactTypes = []string{"Integration", "MessageMapping", "ScriptCollection", "ValueMapping"}
+
+// IsValidArtifactType reports whether artifactType is one of ArtifactTypes.
+func IsValidArtifactType(artifactType string) bool {
+	return slices.Contains(ArtifactTypes, artifactType)
 }
 
 func deleteCall(id string, artifactType string, exe *httpclnt.HTTPExecuter) error {

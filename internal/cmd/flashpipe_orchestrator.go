@@ -1,12 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/cpars-innovation/-cpi-cli/internal/api"
 	"github.com/cpars-innovation/-cpi-cli/internal/config"
@@ -45,14 +45,6 @@ type ProcessingStats struct {
 	FailedPackageUpdates      map[string]bool
 	FailedArtifactUpdates     map[string]bool
 	FailedArtifactDeploys     map[string]bool
-}
-
-// DeploymentTask represents an artifact ready for deployment
-type DeploymentTask struct {
-	ArtifactID   string
-	ArtifactType string
-	PackageID    string
-	DisplayName  string
 }
 
 func NewFlashpipeOrchestratorCommand() *cobra.Command {
@@ -423,11 +415,8 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		log.Info().Msgf("Max concurrent deployments: %d", parallelDeployments)
 		log.Info().Msg("")
 
-		err := deployAllArtifactsParallel(deploymentTasks, parallelDeployments, deployRetries,
+		deployAllArtifactsParallel(cmd.Context(), deploymentTasks, parallelDeployments, deployRetries,
 			deployDelaySeconds, &stats, serviceDetails)
-		if err != nil {
-			log.Error().Msgf("Deployment phase failed: %v", err)
-		}
 	}
 
 	// Print summary
@@ -768,103 +757,38 @@ func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
 	return tasks
 }
 
-func deployAllArtifactsParallel(tasks []DeploymentTask, maxConcurrent int,
-	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *api.ServiceDetails) error {
+func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, maxConcurrent int,
+	retries int, delaySeconds int, stats *ProcessingStats, serviceDetails *api.ServiceDetails) {
 
-	// Group tasks by package for better control
-	tasksByPackage := make(map[string][]DeploymentTask)
-	for _, task := range tasks {
-		tasksByPackage[task.PackageID] = append(tasksByPackage[task.PackageID], task)
+	// Version comparison is kept from the previous implementation: artifacts
+	// whose runtime version equals the designtime version are not redeployed
+	// (the synchroniser undeploys same-version artifacts whose content changed).
+	results := deployTasks(ctx, api.InitHTTPExecuter(serviceDetails), tasks, true, retries, delaySeconds, maxConcurrent)
+
+	failedByPackage := make(map[string]int)
+	var packageOrder []string
+	for _, r := range results {
+		if _, seen := failedByPackage[r.PackageID]; !seen {
+			packageOrder = append(packageOrder, r.PackageID)
+			failedByPackage[r.PackageID] = 0
+		}
+		if r.Status.Succeeded() {
+			stats.ArtifactsDeployedSuccess++
+			stats.SuccessfulArtifactDeploys[r.ID] = true
+		} else {
+			stats.ArtifactsDeployedFailed++
+			stats.DeployFailures++
+			stats.FailedArtifactDeploys[r.ID] = true
+			failedByPackage[r.PackageID]++
+		}
 	}
-
-	// Process each package's deployments
-	for packageID, packageTasks := range tasksByPackage {
-		log.Info().Msgf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		log.Info().Msgf("📦 Deploying %d artifacts for package: %s", len(packageTasks), packageID)
-
-		// Deploy artifacts in parallel with semaphore
-		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, maxConcurrent)
-		resultChan := make(chan deployResult, len(packageTasks))
-
-		for _, task := range packageTasks {
-			wg.Add(1)
-			go func(t DeploymentTask) {
-				defer wg.Done()
-
-				// Acquire semaphore
-				semaphore <- struct{}{}
-				defer func() { <-semaphore }()
-
-				// Deploy artifact
-				// Use mapArtifactTypeForSync because deployArtifacts calls api.NewDesigntimeArtifact
-				flashpipeType := mapArtifactTypeForSync(t.ArtifactType)
-				log.Info().Msgf("  → Deploying: %s (type: %s)", t.ArtifactID, t.ArtifactType)
-
-				// deployArtifacts takes the delay before the number of status checks
-				err := deployArtifacts([]string{t.ArtifactID}, flashpipeType, delaySeconds, retries, true, serviceDetails)
-
-				resultChan <- deployResult{
-					Task:  t,
-					Error: err,
-				}
-			}(task)
-		}
-
-		// Wait for all deployments to complete
-		wg.Wait()
-		close(resultChan)
-
-		// Process results
-		successCount := 0
-		failureCount := 0
-
-		for result := range resultChan {
-			if result.Error != nil {
-				log.Error().Msgf("  ✗ Deploy failed: %s - %v", result.Task.ArtifactID, result.Error)
-				stats.ArtifactsDeployedFailed++
-				stats.DeployFailures++
-				stats.FailedArtifactDeploys[result.Task.ArtifactID] = true
-				failureCount++
-			} else {
-				log.Info().Msgf("  ✓ Deployed: %s", result.Task.ArtifactID)
-				stats.ArtifactsDeployedSuccess++
-				stats.SuccessfulArtifactDeploys[result.Task.ArtifactID] = true
-				successCount++
-			}
-		}
-
-		if failureCount == 0 {
-			log.Info().Msgf("✓ All %d artifacts deployed successfully for package %s", successCount, packageID)
+	for _, packageID := range packageOrder {
+		if failedByPackage[packageID] == 0 {
 			stats.PackagesDeployed++
 		} else {
-			log.Warn().Msgf("⚠ Package %s: %d succeeded, %d failed", packageID, successCount, failureCount)
+			log.Warn().Msgf("⚠ Package %s: %d artifact deployment(s) failed", packageID, failedByPackage[packageID])
 			stats.PackagesFailed++
 		}
-	}
-
-	return nil
-}
-
-type deployResult struct {
-	Task  DeploymentTask
-	Error error
-}
-
-// mapArtifactType maps artifact types for deployment API calls
-func mapArtifactType(artifactType string) string {
-	switch strings.ToLower(artifactType) {
-	case "integrationflow", "integration flow", "iflow":
-		return "IntegrationDesigntimeArtifact"
-	case "valuemapping", "value mapping":
-		return "ValueMappingDesigntimeArtifact"
-	case "messageMapping", "message mapping":
-		return "MessageMappingDesigntimeArtifact"
-	case "scriptcollection", "script collection":
-		return "ScriptCollection"
-	default:
-		// Default to integration flow
-		return "IntegrationDesigntimeArtifact"
 	}
 }
 

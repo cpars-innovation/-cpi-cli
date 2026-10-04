@@ -2,6 +2,7 @@ package httpclnt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,6 +106,35 @@ func (e *HTTPExecuter) ReadRespBody(resp *http.Response) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// HTTPError is returned for tenant responses with an unexpected status code.
+// Its message is kept identical to the historic plain error string because
+// some callers still match on it.
+type HTTPError struct {
+	CallType   string
+	StatusCode int
+	Body       []byte
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%v call failed with response code = %d", e.CallType, e.StatusCode)
+}
+
+// StatusCode returns the HTTP status code carried by err (or any error it
+// wraps), or 0 if err is not an HTTPError.
+func StatusCode(err error) int {
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode
+	}
+	return 0
+}
+
+// IsAuthError reports whether err is an HTTP 401/403 from the tenant.
+func IsAuthError(err error) bool {
+	code := StatusCode(err)
+	return code == http.StatusUnauthorized || code == http.StatusForbidden
+}
+
 func (e *HTTPExecuter) LogError(resp *http.Response, callType string) (resBody []byte, err error) {
 	resBody, err = e.ReadRespBody(resp)
 	if err != nil {
@@ -115,5 +145,5 @@ func (e *HTTPExecuter) LogError(resp *http.Response, callType string) (resBody [
 		log.Warn().Msgf("Response body = %s", resBody)
 	}
 
-	return resBody, fmt.Errorf("%v call failed with response code = %d", callType, resp.StatusCode)
+	return resBody, &HTTPError{CallType: callType, StatusCode: resp.StatusCode, Body: resBody}
 }
