@@ -149,15 +149,13 @@ func forEach(ctx context.Context, artifacts []Artifact, parallelism int, fn func
 	sem := make(chan struct{}, max(parallelism, 1))
 	var wg sync.WaitGroup
 	for i, a := range artifacts {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r := fn(a)
 			r.ID, r.Type, r.PackageID = a.ID, a.Type, a.PackageID
 			results[i] = r
-		}()
+		})
 	}
 	wg.Wait()
 	return results

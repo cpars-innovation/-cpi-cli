@@ -149,12 +149,10 @@ func (s *Server) dispatch(ctx context.Context, line []byte, wg *sync.WaitGroup) 
 	case "tools/list":
 		s.reply(req.ID, map[string]any{"tools": s.tools}, nil)
 	case "tools/call":
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			result, rpcErr := s.callTool(ctx, req.ID, req.Params)
 			s.reply(req.ID, result, rpcErr)
-		}()
+		})
 	case "notifications/cancelled":
 		var p struct {
 			RequestID json.RawMessage `json:"requestId"`

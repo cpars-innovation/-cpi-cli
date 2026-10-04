@@ -36,7 +36,7 @@ type Package struct {
 	Artifacts   []Artifact `yaml:"artifacts"`
 }
 
-func (p *Package) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (p *Package) UnmarshalYAML(unmarshal func(any) error) error {
 	// Set defaults
 	type rawPackage Package
 	raw := rawPackage{
@@ -54,16 +54,16 @@ func (p *Package) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // Artifact represents a SAP CPI artifact (Integration Flow, Script Collection, etc.)
 type Artifact struct {
-	Id              string                 `yaml:"artifactId"`
-	ArtifactDir     string                 `yaml:"artifactDir"`
-	DisplayName     string                 `yaml:"displayName,omitempty"`
-	Type            string                 `yaml:"type"`
-	Sync            bool                   `yaml:"sync"`
-	Deploy          bool                   `yaml:"deploy"`
-	ConfigOverrides map[string]interface{} `yaml:"configOverrides,omitempty"`
+	Id              string         `yaml:"artifactId"`
+	ArtifactDir     string         `yaml:"artifactDir"`
+	DisplayName     string         `yaml:"displayName,omitempty"`
+	Type            string         `yaml:"type"`
+	Sync            bool           `yaml:"sync"`
+	Deploy          bool           `yaml:"deploy"`
+	ConfigOverrides map[string]any `yaml:"configOverrides,omitempty"`
 }
 
-func (a *Artifact) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (a *Artifact) UnmarshalYAML(unmarshal func(any) error) error {
 	// Set defaults
 	type rawArtifact Artifact
 	raw := rawArtifact{

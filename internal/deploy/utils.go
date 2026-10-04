@@ -135,7 +135,7 @@ func UpdateManifestBundleName(manifestPath, bundleSymbolicName, bundleName, outp
 }
 
 // MergeParametersFile reads parameters.prop, applies overrides, and writes to outputPath
-func MergeParametersFile(paramsPath string, overrides map[string]interface{}, outputPath string) error {
+func MergeParametersFile(paramsPath string, overrides map[string]any, outputPath string) error {
 	var lineEnding string = "\n"
 	params := make(map[string]string)
 	paramKeys := []string{} // Track order of keys
@@ -154,9 +154,9 @@ func MergeParametersFile(paramsPath string, overrides map[string]interface{}, ou
 		}
 
 		// Split and process lines
-		lines := strings.Split(content, lineEnding)
+		lines := strings.SplitSeq(content, lineEnding)
 
-		for _, line := range lines {
+		for line := range lines {
 			trimmed := strings.TrimSpace(line)
 
 			// Keep comments and empty lines as-is

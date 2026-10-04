@@ -14,7 +14,7 @@ type ConfigurePackage struct {
 	Artifacts   []ConfigureArtifact `yaml:"artifacts"`
 }
 
-func (p *ConfigurePackage) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (p *ConfigurePackage) UnmarshalYAML(unmarshal func(any) error) error {
 	// Set defaults
 	type rawPackage ConfigurePackage
 	raw := rawPackage{
@@ -40,7 +40,7 @@ type ConfigureArtifact struct {
 	Batch       *BatchSettings           `yaml:"batch,omitempty"`      // Optional batch processing settings
 }
 
-func (a *ConfigureArtifact) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (a *ConfigureArtifact) UnmarshalYAML(unmarshal func(any) error) error {
 	// Set defaults
 	type rawArtifact ConfigureArtifact
 	raw := rawArtifact{
@@ -68,7 +68,7 @@ type BatchSettings struct {
 	BatchSize int  `yaml:"batchSize,omitempty"` // Number of parameters per batch request
 }
 
-func (b *BatchSettings) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (b *BatchSettings) UnmarshalYAML(unmarshal func(any) error) error {
 	// Set defaults
 	type rawBatch BatchSettings
 	raw := rawBatch{

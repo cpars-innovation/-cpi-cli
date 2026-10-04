@@ -285,7 +285,7 @@ func TestMergeParametersFile_NewFile(t *testing.T) {
 	paramsPath := filepath.Join(tempDir, "parameters.prop")
 	outputPath := filepath.Join(tempDir, "output.prop")
 
-	overrides := map[string]interface{}{
+	overrides := map[string]any{
 		"param1": "value1",
 		"param2": 123,
 		"param3": true,
@@ -319,7 +319,7 @@ param3=oldvalue3
 
 	outputPath := filepath.Join(tempDir, "output.prop")
 
-	overrides := map[string]interface{}{
+	overrides := map[string]any{
 		"param2": "newvalue2",
 		"param4": "newvalue4",
 	}
@@ -352,7 +352,7 @@ mmm=value3
 
 	outputPath := filepath.Join(tempDir, "output.prop")
 
-	overrides := map[string]interface{}{
+	overrides := map[string]any{
 		"bbb": "newvalue",
 	}
 
@@ -390,7 +390,7 @@ func TestMergeParametersFile_PreservesLineEndings_LF(t *testing.T) {
 
 	outputPath := filepath.Join(tempDir, "output.prop")
 
-	err = MergeParametersFile(paramsPath, map[string]interface{}{}, outputPath)
+	err = MergeParametersFile(paramsPath, map[string]any{}, outputPath)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(outputPath)
@@ -412,7 +412,7 @@ func TestMergeParametersFile_PreservesLineEndings_CRLF(t *testing.T) {
 
 	outputPath := filepath.Join(tempDir, "output.prop")
 
-	err = MergeParametersFile(paramsPath, map[string]interface{}{}, outputPath)
+	err = MergeParametersFile(paramsPath, map[string]any{}, outputPath)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(outputPath)

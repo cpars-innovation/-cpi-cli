@@ -30,7 +30,7 @@ func session(t *testing.T, mock *cpitest.Tenant, root string, msgs ...string) ma
 	require.NoError(t, srv.Serve(context.Background(), strings.NewReader(strings.Join(msgs, "\n")+"\n"), &out))
 
 	byID := map[string]rpcResp{}
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if line == "" {
 			continue
 		}

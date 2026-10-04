@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
@@ -478,8 +479,8 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 	}
 
 	// Create package JSON
-	packageJSON := map[string]interface{}{
-		"d": map[string]interface{}{
+	packageJSON := map[string]any{
+		"d": map[string]any{
 			"Id":          finalPackageID,
 			"Name":        finalPackageName,
 			"Description": description,
@@ -778,12 +779,7 @@ func shouldInclude(id string, filter []string) bool {
 	if len(filter) == 0 {
 		return true
 	}
-	for _, f := range filter {
-		if f == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(filter, id)
 }
 
 func printSummary(stats *ProcessingStats) {

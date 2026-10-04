@@ -325,7 +325,7 @@ func (g *ConfigGenerator) Generate() error {
 						Type:            artifactType,
 						Sync:            true,
 						Deploy:          true,
-						ConfigOverrides: make(map[string]interface{}),
+						ConfigOverrides: make(map[string]any),
 					}
 
 					if bundleName != "" {
@@ -345,7 +345,7 @@ func (g *ConfigGenerator) Generate() error {
 					Type:            artifactType,
 					Sync:            true,
 					Deploy:          true,
-					ConfigOverrides: make(map[string]interface{}),
+					ConfigOverrides: make(map[string]any),
 				}
 
 				if bundleName != "" {

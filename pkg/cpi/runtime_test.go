@@ -103,7 +103,7 @@ func (suite *RuntimeSuite) TestRuntime_Get() {
 	// Retry checking status of the runtime artifact if it is still STARTING
 	if status == "STARTING" {
 		maxCheckLimit := 5
-		for i := 0; i < maxCheckLimit; i++ {
+		for range maxCheckLimit {
 			suite.T().Log("Runtime artifact in status STARTING. Retrying after a while")
 			time.Sleep(15 * time.Second)
 			version, status, err = rt.Get("Integration_Test_IFlow")

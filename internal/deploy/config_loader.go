@@ -377,7 +377,7 @@ func MergeConfigs(configs []*DeployConfigFile) (*models.DeployConfig, error) {
 }
 
 // readYAML reads and unmarshals a YAML file
-func readYAML(path string, v interface{}) error {
+func readYAML(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)

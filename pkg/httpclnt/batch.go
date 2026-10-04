@@ -116,10 +116,7 @@ func (br *BatchRequest) ExecuteInBatches(batchSize int) (*BatchResponse, error) 
 	var allResponses []BatchOperationResponse
 
 	for i := 0; i < len(allOps); i += batchSize {
-		end := i + batchSize
-		if end > len(allOps) {
-			end = len(allOps)
-		}
+		end := min(i+batchSize, len(allOps))
 
 		// Create a batch for this chunk
 		batch := br.exe.NewBatchRequest()
@@ -317,8 +314,8 @@ func (br *BatchRequest) parseChangeset(changesetReader io.Reader) ([]BatchOperat
 	// Find the boundary (first line starting with --)
 	var changesetBoundary string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "--") {
-			changesetBoundary = strings.TrimPrefix(line, "--")
+		if after, ok := strings.CutPrefix(line, "--"); ok {
+			changesetBoundary = after
 			break
 		}
 	}

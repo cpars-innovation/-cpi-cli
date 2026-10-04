@@ -196,7 +196,7 @@ func TestExitCodes(t *testing.T) {
 			assert.Equal(t, res.code == 0, env.OK)
 
 			// stderr: JSON lines only
-			for _, line := range strings.Split(strings.TrimSpace(res.stderr), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(res.stderr), "\n") {
 				if line != "" {
 					assert.True(t, json.Valid([]byte(line)), "stderr line is not JSON: %q", line)
 				}
