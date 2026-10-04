@@ -58,6 +58,7 @@ capabilities for automating time-consuming manual tasks like:
 func NewCLI(version string) *cobra.Command {
 	rootCmd := NewCmdRoot(version)
 	rootCmd.AddCommand(NewDeployCommand())
+	rootCmd.AddCommand(NewUndeployCommand())
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
 	syncCmd.AddCommand(NewAPIProductCommand())
