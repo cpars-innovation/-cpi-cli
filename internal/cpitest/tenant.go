@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,14 @@ type Artifact struct {
 	// return the artifact (-1: never disappears).
 	UndeployAfter int
 
+	// Package and Name are used by the package artifact listing.
+	Package string
+	Name    string
+	// Parameters are the externalised configuration parameters.
+	Parameters map[string]string
+	// ConfigUpdateStatus overrides the 202 of a parameter update.
+	ConfigUpdateStatus int
+
 	triggered      bool
 	runtimeGets    int
 	taskGets       int
@@ -52,10 +61,16 @@ type Artifact struct {
 	undeployedGets int
 }
 
+// Package is an integration package of the mock tenant.
+type Package struct {
+	ID, Name, Version string
+}
+
 // Tenant is a mock CPI tenant.
 type Tenant struct {
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
+	Packages  []Package
 	// StatusOverride, if non-zero, is returned for every API call (e.g. 401).
 	StatusOverride int
 	requests       []string
@@ -105,8 +120,20 @@ var (
 	reDeploy  = regexp.MustCompile(`^/api/v1/Deploy(\w+)DesigntimeArtifact$`)
 	reTask    = regexp.MustCompile(`^/api/v1/BuildAndDeployStatus\(TaskId='task-([^']+)'\)$`)
 	reRuntime = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)$`)
+	rePkgArts = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)/(\w+)DesigntimeArtifacts$`)
+	reConfigs = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/Configurations$`)
+	reConfig  = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/\$links/Configurations\('([^']+)'\)$`)
 	reErrInfo = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 func odataDate(t time.Time) string {
 	if t.IsZero() {
@@ -149,6 +176,55 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case r.Method == http.MethodGet && path == "/api/v1/IntegrationPackages":
+		results := []map[string]string{}
+		for _, p := range m.Packages {
+			results = append(results, map[string]string{"Id": p.ID, "Name": p.Name, "Version": p.Version})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results}})
+
+	case r.Method == http.MethodGet && rePkgArts.MatchString(path):
+		mm := rePkgArts.FindStringSubmatch(path)
+		results := []map[string]string{}
+		for _, id := range sortedKeys(m.Artifacts) {
+			a := m.Artifacts[id]
+			if a.Package == mm[1] && a.Type == mm[2] {
+				results = append(results, map[string]string{"Id": id, "Name": a.Name, "Version": a.DesignVersion})
+			}
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results}})
+
+	case r.Method == http.MethodGet && reConfigs.MatchString(path):
+		a := m.Artifacts[reConfigs.FindStringSubmatch(path)[1]]
+		if a == nil || a.DesignVersion == "" {
+			notFound(w)
+			return
+		}
+		results := []map[string]string{}
+		for _, k := range sortedKeys(a.Parameters) {
+			results = append(results, map[string]string{"ParameterKey": k, "ParameterValue": a.Parameters[k], "DataType": "xsd:string"})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results}})
+
+	case r.Method == http.MethodPut && reConfig.MatchString(path):
+		mm := reConfig.FindStringSubmatch(path)
+		a := m.Artifacts[mm[1]]
+		if a == nil {
+			notFound(w)
+			return
+		}
+		if a.ConfigUpdateStatus != 0 {
+			w.WriteHeader(a.ConfigUpdateStatus)
+			return
+		}
+		var body struct{ ParameterValue string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if a.Parameters == nil {
+			a.Parameters = map[string]string{}
+		}
+		a.Parameters[mm[2]] = body.ParameterValue
+		w.WriteHeader(http.StatusAccepted)
+
 	case r.Method == http.MethodGet && reDesign.MatchString(path):
 		mm := reDesign.FindStringSubmatch(path)
 		a := m.Artifacts[mm[2]]

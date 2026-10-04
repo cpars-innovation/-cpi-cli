@@ -358,12 +358,28 @@ func GetManifestHeaders(manifestPath string) (textproto.MIMEHeader, error) {
 	return headers, nil
 }
 
+// UploadOutcome describes what UploadArtifact changed on the tenant.
+type UploadOutcome struct {
+	Action string `json:"action"` // CREATED, UPDATED or UNCHANGED
+	// RuntimeUndeployed is true when a running artifact with the same version
+	// was undeployed so that the changed content can be deployed again.
+	RuntimeUndeployed bool `json:"runtimeUndeployed,omitempty"`
+}
+
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
+	_, err := s.UploadArtifact(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile, scriptMap)
+	return err
+}
+
+// UploadArtifact creates or updates a designtime artifact from a local
+// directory and reports what was done.
+func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) (UploadOutcome, error) {
+	outcome := UploadOutcome{Action: "UNCHANGED"}
 	dt := cpi.NewDesigntimeArtifact(artifactType, s.exe)
 
 	exists, err := artifactExists(artifactId, artifactType, packageId, dt, s.ip)
 	if err != nil {
-		return err
+		return outcome, err
 	}
 
 	if !exists {
@@ -371,20 +387,21 @@ func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifact
 		if artifactType == "Integration" {
 			err = file.UpdateBPMN(artifactDir, scriptMap)
 			if err != nil {
-				return err
+				return outcome, err
 			}
 		}
 
 		err = prepareUploadDir(workDir, artifactDir, dt)
 		if err != nil {
-			return err
+			return outcome, err
 		}
 
 		err = createArtifact(artifactId, artifactName, packageId, workDir+"/upload", dt)
 		if err != nil {
-			return err
+			return outcome, err
 		}
 
+		outcome.Action = "CREATED"
 		log.Info().Msg("🏆 Designtime artifact created successfully")
 	} else {
 		log.Info().Msg("Checking if designtime artifact needs to be updated")
@@ -392,42 +409,44 @@ func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifact
 		zipFile := fmt.Sprintf("%v/%v.zip", workDir, artifactId)
 		err = dt.Download(zipFile, artifactId)
 		if err != nil {
-			return err
+			return outcome, err
 		}
 
 		changesFound, err := compareArtifactContents(workDir, zipFile, artifactDir, scriptMap, dt)
 		if err != nil {
-			return err
+			return outcome, err
 		}
 
 		if changesFound {
 			log.Info().Msg("Changes found in designtime artifact. Designtime artifact will be updated in CPI tenant")
 			err = prepareUploadDir(workDir, artifactDir, dt)
 			if err != nil {
-				return err
+				return outcome, err
 			}
 			err = updateArtifact(artifactId, artifactName, packageId, workDir+"/upload", dt)
 			if err != nil {
-				return err
+				return outcome, err
 			}
 
 			designtimeVersion, _, _, err := dt.Get(artifactId, "active")
 			if err != nil {
-				return err
+				return outcome, err
 			}
 			r := cpi.NewRuntime(s.exe)
 			runtimeVersion, _, err := r.Get(artifactId)
 			if err != nil {
-				return err
+				return outcome, err
 			}
 			if runtimeVersion == designtimeVersion {
 				log.Info().Msg("Undeploying existing runtime artifact with same version number due to changes in design")
 				err = r.UnDeploy(artifactId)
 				if err != nil {
-					return err
+					return outcome, err
 				}
+				outcome.RuntimeUndeployed = true
 			}
 
+			outcome.Action = "UPDATED"
 			log.Info().Msg("🏆 Designtime artifact updated successfully")
 		} else {
 			log.Info().Msg("🏆 No changes detected. Designtime artifact does not need to be updated")
@@ -437,11 +456,11 @@ func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifact
 			log.Info().Msg("Updating configured parameter(s) of Integration designtime artifact where necessary")
 			err = updateConfiguration(artifactId, parametersFile, s.exe)
 			if err != nil {
-				return err
+				return outcome, err
 			}
 		}
 	}
-	return nil
+	return outcome, nil
 }
 
 func artifactExists(artifactId string, artifactType string, packageId string, dt cpi.DesigntimeArtifact, ip *cpi.IntegrationPackage) (bool, error) {
