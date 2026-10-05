@@ -1,5 +1,34 @@
 # Configuration
 
+## Quick setup
+
+Pick one of these, depending on how many tenants you work with:
+
+| Situation | Setup | Example |
+|-----------|-------|---------|
+| One tenant | `$HOME/cpictl.yaml` with the connection (chmod 600) | [examples/cpictl.yaml](examples/cpictl.yaml) |
+| Several tenants, switching often | one profile per tenant in `~/.cpictl/`, `cpictl profile use <name>` | [examples/profiles/](examples/profiles) |
+| CI pipelines | `CPICTL_*` environment variables from the CI secret store | [ci.md](ci.md) |
+| Defaults for one repository | `cpictl.yaml` in the repository root, committed, no secrets | [examples/project-cpictl.yaml](examples/project-cpictl.yaml) |
+
+Profiles step by step:
+
+```bash
+mkdir -p ~/.cpictl && chmod 700 ~/.cpictl
+cp docs/examples/profiles/dev.yaml ~/.cpictl/dev.yaml     # fill in host, client ID and secret
+cp docs/examples/profiles/qa.yaml  ~/.cpictl/qa.yaml
+chmod 600 ~/.cpictl/*.yaml
+
+cpictl profile list            # * marks the active profile
+cpictl profile use dev         # default from now on
+cpictl packages                # logs "Profile dev (<host>)" first
+cpictl --profile qa status --runtime-status ERROR   # one command against QA
+```
+
+The values come from the service keys in SAP BTP: `url` → `tmn-host`, `tokenurl` → `oauth-host`
+(host only), `clientid` / `clientsecret`. See
+[Creating an OAuth client](#creating-an-oauth-client-in-sap-btp).
+
 ## Where settings come from
 
 For every flag, the first of these that is set wins:

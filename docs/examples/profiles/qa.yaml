@@ -1,0 +1,12 @@
+# Profile "qa": copy to ~/.cpictl/qa.yaml and chmod 600 it.
+# For a QA or production tenant, give the OAuth client read roles only and
+# start agents with `cpictl mcp --profile qa --read-only`.
+
+tmn-host: mytenant-qa.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-qa.authentication.eu10.hana.ondemand.com
+oauth-clientid: "sb-22222222-2222-2222-2222-222222222222!b1234|it!b5678"
+oauth-clientsecret: "<client secret>"
+
+# Basic Auth instead of OAuth:
+# tmn-userid: S0000000000
+# tmn-password: "<password>"

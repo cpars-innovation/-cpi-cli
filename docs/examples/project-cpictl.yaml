@@ -1,0 +1,29 @@
+# Project file: save as cpictl.yaml in the root of an integration content
+# repository and commit it. It is read in that directory and its
+# subdirectories, on top of your profile or $HOME/cpictl.yaml.
+#
+# Rules (the file comes with the repository):
+#   - no secrets: tmn-password, oauth-clientsecret, runtime-oauth-clientsecret
+#     and runtime-password are refused (exit code 2);
+#   - if it sets tmn-host / oauth-host, they must match the hosts of the
+#     profile or home file the credentials come from, otherwise cpictl stops
+#     instead of sending your credentials to another host.
+# Leave the hosts out if the repository is used with several tenants.
+
+# tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+
+# Defaults for this repository's layout and pipelines
+orchestrator:
+  packagesDir: ./packages
+  deployConfig: ./001-deploy-config.yml
+  parallelDeployments: 3
+
+configure:
+  configPath: ./config/dev.yml
+
+pd-deploy:
+  resources-path: ./partner-directory
+  replace: true
+
+pd-snapshot:
+  resources-path: ./partner-directory

@@ -1,0 +1,21 @@
+# Profile "dev": copy to ~/.cpictl/dev.yaml and chmod 600 it.
+# Use it with `cpictl profile use dev`, `--profile dev` or CPICTL_PROFILE=dev.
+# Same keys as cpictl.yaml. Secrets are allowed here because the file is
+# personal; never commit a filled-in copy.
+
+# Tenant management host (service key "url", host only) and token server
+# (service key "tokenurl", host only); service key of plan "api"
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: "sb-00000000-0000-0000-0000-000000000000!b1234|it!b5678"
+oauth-clientsecret: "<client secret>"
+
+# Runtime endpoints for test messages (cpictl send / send_test_message):
+# service key of plan "integration-flow" with role ESBMessaging.send
+runtime-oauth-clientid: "sb-11111111-1111-1111-1111-111111111111!b1234|it-rt-mytenant-dev!b5678"
+runtime-oauth-clientsecret: "<runtime client secret>"
+
+# Defaults per command work as in cpictl.yaml
+deploy:
+  delayLength: 10
+  maxCheckLimit: 30
