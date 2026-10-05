@@ -12,13 +12,31 @@ For every flag, the first of these that is set wins:
    flag's help text as `(config: ...)`)
 5. The flag's default
 
-The config file is `$HOME/cpictl.yaml`, or the file given with `--config`.
+The config file is the one given with `--config`, else `$CPICTL_CONFIG`, else
+`$HOME/cpictl.yaml`.
 A missing default file is fine; a file given with `--config` that cannot be parsed is a
 usage error (exit code 2).
 
-> **Secrets:** the config file is read as plain YAML. `${VAR}` is **not** expanded, so do not
-> write `oauth-clientsecret: ${SECRET}`; set `CPICTL_OAUTH_CLIENTSECRET` in the environment
-> instead and leave the key out of the file.
+> **Secrets:** you may keep `oauth-clientsecret`, `tmn-password` and the runtime secrets in a
+> personal config file (like `~/.netrc` or `~/.aws/credentials`): make it readable only by you
+> (`chmod 600`; cpictl warns otherwise) and never commit it. In CI and shared setups use
+> environment variables instead. The file is read as plain YAML: `${VAR}` is **not** expanded.
+
+### One file per tenant
+
+```bash
+mkdir -p ~/.cpictl && chmod 700 ~/.cpictl
+# ~/.cpictl/dev.yaml, ~/.cpictl/qa.yaml: tmn-host, oauth-host, oauth-clientid, oauth-clientsecret, ...
+chmod 600 ~/.cpictl/*.yaml
+
+export CPICTL_CONFIG=~/.cpictl/dev.yaml      # default for this shell
+cpictl packages
+cpictl --config ~/.cpictl/qa.yaml status --runtime-status ERROR
+```
+
+For the MCP server, point each server entry at its file instead of listing variables:
+`"args": ["mcp", "--root", ".", "--config", "/home/me/.cpictl/dev.yaml"]` (or
+`"env": {"CPICTL_CONFIG": "..."}`).
 
 Flags that are marked as required (for example `sync --package-id`) must come from the
 command line, the environment or a top-level key; a command section key is read too late

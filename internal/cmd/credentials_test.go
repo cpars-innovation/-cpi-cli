@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
@@ -71,4 +72,40 @@ func TestHomeBinaryIsNotReadAsConfig(t *testing.T) {
 	root.SetArgs([]string{"undeploy", "--artifact-ids", "A",
 		"--tmn-host", fmt.Sprintf("http://%s:%d", host, port), "--tmn-userid", "user", "--tmn-password", "secret"})
 	require.NoError(t, root.Execute())
+}
+
+// CPICTL_CONFIG selects the config file; secrets in a file that others can
+// read produce a warning.
+func TestConfigFromEnvAndPermissionWarning(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {}})
+	host, port := mock.HostPort()
+	t.Setenv("HOME", t.TempDir())
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	file := filepath.Join(t.TempDir(), "dev.yaml")
+	cfg := fmt.Sprintf("tmn-host: http://%s:%d\ntmn-userid: user\ntmn-password: secret\n", host, port)
+	require.NoError(t, os.WriteFile(file, []byte(cfg), 0o644))
+	t.Setenv("CPICTL_CONFIG", file)
+
+	var stderr bytes.Buffer
+	root := NewCLI("test")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"undeploy", "--artifact-ids", "A"})
+	require.NoError(t, root.Execute())
+	assert.Equal(t, 1, mock.Count("GET /api/v1/IntegrationRuntimeArtifacts('A')"))
+	if runtime.GOOS != "windows" {
+		assert.Contains(t, stderr.String(), "chmod 600")
+		assert.NotContains(t, stderr.String(), "secret\\n", "the value is never logged")
+	}
+
+	require.NoError(t, os.Chmod(file, 0o600))
+	viper.Reset()
+	stderr.Reset()
+	root = NewCLI("test")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"undeploy", "--artifact-ids", "A"})
+	require.NoError(t, root.Execute())
+	assert.NotContains(t, stderr.String(), "chmod 600")
 }

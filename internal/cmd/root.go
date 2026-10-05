@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -44,7 +45,7 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 		},
 	}
 
-	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/cpictl.yaml)")
+	rootCmd.PersistentFlags().String("config", "", "config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml)")
 
 	// Define cobra flags, the default value has the lowest (least significant) precedence
 	rootCmd.PersistentFlags().String("tmn-host", "", "Tenant host of Cloud Integration (or API portal host for API Management)")
@@ -276,8 +277,33 @@ func readConfigFile(cfgFile string) error {
 	return viper.ReadInConfig()
 }
 
+// secretConfigKeys are settings that hold secrets.
+var secretConfigKeys = []string{"tmn-password", "oauth-clientsecret", "runtime-oauth-clientsecret", "runtime-password"}
+
+// configPermissionWarning warns when the config file holds secrets but can be
+// read by other users (Unix permissions; not checked on Windows).
+func configPermissionWarning() string {
+	file := viper.ConfigFileUsed()
+	if file == "" || runtime.GOOS == "windows" {
+		return ""
+	}
+	info, err := os.Stat(file)
+	if err != nil || info.Mode().Perm()&0o077 == 0 {
+		return ""
+	}
+	for _, k := range secretConfigKeys {
+		if viper.InConfig(k) {
+			return fmt.Sprintf("%s contains %s but can be read by other users; run: chmod 600 %s", file, k, file)
+		}
+	}
+	return ""
+}
+
 func initializeConfig(cmd *cobra.Command) error {
 	cfgFile := config.GetString(cmd, "config")
+	if cfgFile == "" {
+		cfgFile = os.Getenv(envPrefix + "_CONFIG")
+	}
 	if err := readConfigFile(cfgFile); err != nil {
 		return output.Usage(err)
 	}
@@ -305,6 +331,9 @@ func initializeConfig(cmd *cobra.Command) error {
 	}
 
 	logger.Init(cmd.ErrOrStderr(), format == output.FormatJSON, viper.GetBool("debug"))
+	if w := configPermissionWarning(); w != "" {
+		log.Warn().Msg(w)
+	}
 	legacy := legacySettingsHint(cfgFile)
 	if legacy != "" {
 		log.Warn().Msg(legacy)
