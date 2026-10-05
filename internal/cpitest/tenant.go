@@ -103,6 +103,12 @@ type ReceivedMessage struct {
 	Body         string
 }
 
+// PDBinary is a binary Partner Directory parameter.
+type PDBinary struct {
+	ContentType string
+	Content     []byte
+}
+
 // Package is an integration package of the mock tenant.
 type Package struct {
 	ID, Name, Version string
@@ -163,6 +169,11 @@ type Tenant struct {
 	// LastMessageLogQuery is the raw query string of the last MPL query.
 	LastMessageLogQuery string
 	mplQueries          int
+
+	// PDStrings and PDBinaries are the Partner Directory parameters, keyed
+	// "<pid>/<id>".
+	PDStrings  map[string]string
+	PDBinaries map[string]PDBinary
 
 	// LogLevels records the log level set per artifact via the operations
 	// command (request body as received).
@@ -256,6 +267,9 @@ var (
 	reMPL             = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
 	reAttValue        = regexp.MustCompile(`^/api/v1/MessageProcessingLogAttachments\('([^']+)'\)/\$value$`)
 	reStoreValue      = regexp.MustCompile(`^/api/v1/MessageStoreEntries\('([^']+)'\)/\$value$`)
+	rePDCollection    = regexp.MustCompile(`^/api/v1/(String|Binary)Parameters$`)
+	rePDEntity        = regexp.MustCompile(`^/api/v1/(String|Binary)Parameters\(Pid='([^']*)',Id='([^']*)'\)$`)
+	rePDFilter        = regexp.MustCompile(`^Pid eq '([^']*)'$`)
 	reStepTraces      = regexp.MustCompile(`^/api/v1/MessageProcessingLogRunSteps\(RunId='([^']+)',ChildCount=([0-9]+)\)/TraceMessages$`)
 	reTrace           = regexp.MustCompile(`^/api/v1/TraceMessages\(([0-9]+)\)/(\$value|Properties|ExchangeProperties)$`)
 	reRunSteps        = regexp.MustCompile(`^/api/v1/MessageProcessingLogRuns\('([^']+)'\)/RunSteps$`)
@@ -328,6 +342,114 @@ func (m *Tenant) handleCredential(w http.ResponseWriter, r *http.Request, mm []s
 		}
 		delete(store, name)
 		w.WriteHeader(http.StatusAccepted)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (m *Tenant) handlePD(w http.ResponseWriter, r *http.Request) {
+	if m.PDStrings == nil {
+		m.PDStrings = map[string]string{}
+	}
+	if m.PDBinaries == nil {
+		m.PDBinaries = map[string]PDBinary{}
+	}
+	row := func(kind, key string) map[string]string {
+		pid, id, _ := strings.Cut(key, "/")
+		if kind == "String" {
+			return map[string]string{"Pid": pid, "Id": id, "Value": m.PDStrings[key]}
+		}
+		b := m.PDBinaries[key]
+		return map[string]string{"Pid": pid, "Id": id, "ContentType": b.ContentType, "Value": base64.StdEncoding.EncodeToString(b.Content)}
+	}
+	exists := func(kind, key string) bool {
+		if kind == "String" {
+			_, ok := m.PDStrings[key]
+			return ok
+		}
+		_, ok := m.PDBinaries[key]
+		return ok
+	}
+	store := func(kind, key string, body map[string]string) bool {
+		if kind == "String" {
+			m.PDStrings[key] = body["Value"]
+			return true
+		}
+		content, err := base64.StdEncoding.DecodeString(body["Value"])
+		if err != nil {
+			return false
+		}
+		m.PDBinaries[key] = PDBinary{ContentType: body["ContentType"], Content: content}
+		return true
+	}
+	if mm := rePDCollection.FindStringSubmatch(r.URL.Path); mm != nil {
+		kind := mm[1]
+		switch r.Method {
+		case http.MethodGet:
+			pidFilter := ""
+			if f := r.URL.Query().Get("$filter"); f != "" {
+				fm := rePDFilter.FindStringSubmatch(f)
+				if fm == nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				pidFilter = fm[1]
+			}
+			keys := sortedKeys(m.PDStrings)
+			if kind == "Binary" {
+				keys = sortedKeys(m.PDBinaries)
+			}
+			rows := []map[string]string{}
+			for _, k := range keys {
+				if pidFilter == "" || strings.HasPrefix(k, pidFilter+"/") {
+					rows = append(rows, row(kind, k))
+				}
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		case http.MethodPost:
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["Pid"] == "" || body["Id"] == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			key := body["Pid"] + "/" + body["Id"]
+			if exists(kind, key) {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			if !store(kind, key, body) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	mm := rePDEntity.FindStringSubmatch(r.URL.Path)
+	kind, key := mm[1], mm[2]+"/"+mm[3]
+	if !exists(kind, key) {
+		notFound(w)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"d": row(kind, key)})
+	case http.MethodPut:
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !store(kind, key, body) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if kind == "String" {
+			delete(m.PDStrings, key)
+		} else {
+			delete(m.PDBinaries, key)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -475,6 +597,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case rePDCollection.MatchString(path) || rePDEntity.MatchString(path):
+		m.handlePD(w, r)
+
 	case reCredential.MatchString(path):
 		m.handleCredential(w, r, reCredential.FindStringSubmatch(path))
 

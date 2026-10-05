@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
@@ -87,7 +88,7 @@ func (pd *PartnerDirectory) GetStringParameters(selectFields string) ([]StringPa
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("get string parameters failed with response code = %d", resp.StatusCode)
+			return nil, pdStatusError("Get string parameters", resp)
 		}
 
 		body, err := pd.exe.ReadRespBody(resp)
@@ -159,7 +160,7 @@ func (pd *PartnerDirectory) GetBinaryParameters(selectFields string) ([]BinaryPa
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("get binary parameters failed with response code = %d", resp.StatusCode)
+			return nil, pdStatusError("Get binary parameters", resp)
 		}
 
 		body, err := pd.exe.ReadRespBody(resp)
@@ -225,7 +226,7 @@ func (pd *PartnerDirectory) GetStringParameter(pid, id string) (*StringParameter
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get string parameter failed with response code = %d", resp.StatusCode)
+		return nil, pdStatusError("Get string parameter", resp)
 	}
 
 	body, err := pd.exe.ReadRespBody(resp)
@@ -264,7 +265,7 @@ func (pd *PartnerDirectory) GetBinaryParameter(pid, id string) (*BinaryParameter
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get binary parameter failed with response code = %d", resp.StatusCode)
+		return nil, pdStatusError("Get binary parameter", resp)
 	}
 
 	body, err := pd.exe.ReadRespBody(resp)
@@ -308,8 +309,7 @@ func (pd *PartnerDirectory) CreateStringParameter(param StringParameter) error {
 	}
 
 	if resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create string parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Create string parameter", resp)
 	}
 
 	return nil
@@ -340,8 +340,7 @@ func (pd *PartnerDirectory) UpdateStringParameter(param StringParameter) error {
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update string parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Update string parameter", resp)
 	}
 
 	return nil
@@ -363,8 +362,7 @@ func (pd *PartnerDirectory) DeleteStringParameter(pid, id string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete string parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Delete string parameter", resp)
 	}
 
 	return nil
@@ -396,8 +394,7 @@ func (pd *PartnerDirectory) CreateBinaryParameter(param BinaryParameter) error {
 	}
 
 	if resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create binary parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Create binary parameter", resp)
 	}
 
 	return nil
@@ -431,8 +428,7 @@ func (pd *PartnerDirectory) UpdateBinaryParameter(param BinaryParameter) error {
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update binary parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Update binary parameter", resp)
 	}
 
 	return nil
@@ -454,9 +450,61 @@ func (pd *PartnerDirectory) DeleteBinaryParameter(pid, id string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete binary parameter failed with response code = %d: %s", resp.StatusCode, string(bodyBytes))
+		return pdStatusError("Delete binary parameter", resp)
 	}
 
 	return nil
+}
+
+// pdStatusError turns an unexpected Partner Directory response into an
+// *httpclnt.HTTPError, so that callers classify it like every other tenant
+// error (401/403 = auth, ...).
+func pdStatusError(callType string, resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	_ = resp.Body.Close()
+	return &httpclnt.HTTPError{CallType: callType, StatusCode: resp.StatusCode, Body: body}
+}
+
+// ListParameters returns the string and binary parameters of one partner ID
+// (binary values included, base64).
+func (pd *PartnerDirectory) ListParameters(pid string) ([]StringParameter, []BinaryParameter, error) {
+	filter := "&$filter=" + url.QueryEscape("Pid eq '"+strings.ReplaceAll(pid, "'", "''")+"'")
+	var strs []StringParameter
+	if err := pd.listPaged("/api/v1/StringParameters?$top=1000"+filter, "Get string parameters", func(raw json.RawMessage) (int, error) {
+		var page []StringParameter
+		err := json.Unmarshal(raw, &page)
+		strs = append(strs, page...)
+		return len(page), err
+	}); err != nil {
+		return nil, nil, err
+	}
+	var bins []BinaryParameter
+	if err := pd.listPaged("/api/v1/BinaryParameters?$top=1000"+filter, "Get binary parameters", func(raw json.RawMessage) (int, error) {
+		var page []BinaryParameter
+		err := json.Unmarshal(raw, &page)
+		bins = append(bins, page...)
+		return len(page), err
+	}); err != nil {
+		return nil, nil, err
+	}
+	return strs, bins, nil
+}
+
+func (pd *PartnerDirectory) listPaged(path, callType string, add func(json.RawMessage) (int, error)) error {
+	for skip := 0; ; skip += 1000 {
+		var raw json.RawMessage
+		if err := getResults(pd.exe, fmt.Sprintf("%s&$skip=%d", path, skip), callType, &raw); err != nil {
+			return err
+		}
+		if len(raw) == 0 {
+			return nil
+		}
+		n, err := add(raw)
+		if err != nil {
+			return err
+		}
+		if n < 1000 {
+			return nil
+		}
+	}
 }

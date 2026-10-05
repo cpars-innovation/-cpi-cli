@@ -62,6 +62,26 @@ Any failed parameter, deletion or local read makes `pd-deploy` exit with code 7 
 failure); `--output json` lists `created`, `updated`, `unchanged`, `deleted` and `errors`
 for string and binary parameters.
 
+## Inspect and change single parameters
+
+```bash
+cpictl pd get --pid ONE_OMS                          # tenant values (binaries: type, size, sha256)
+cpictl pd get --pid ONE_OMS --key now_email --content
+cpictl pd diff --resources-path ./partner-directory  # create / update / unchanged / remote_only
+cpictl pd-deploy --keys ONE_OMS:now_email --dry-run  # then without --dry-run
+```
+
+- `pd diff` shows what `pd-deploy` would change; `remote_only` parameters are the ones
+  `--full-sync` would delete. A PID whose local files cannot be read is an error (exit 7), never
+  "empty".
+- `pd-deploy --keys PID:ID,...` creates or updates only those parameters and deletes nothing
+  (not combinable with `--full-sync` or `--pids`). The content type of a binary comes from
+  `_metadata.json`, else from the extension (`.xsl`/`.xslt` → `xsl`, `.xml`, `.json`, `.xsd`);
+  other extensions need a `_metadata.json` entry. The result lists `CREATED`, `UPDATED` or
+  `UNCHANGED` per key.
+
+MCP: `get_pd_parameters`, `pd_diff`, `pd_deploy` with `keys`.
+
 ## Config file
 
 ```yaml

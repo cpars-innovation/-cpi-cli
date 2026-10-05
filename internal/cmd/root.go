@@ -101,6 +101,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(NewPDSnapshotCommand())
 	rootCmd.AddCommand(NewPDDeployCommand())
+	rootCmd.AddCommand(NewPDCommand())
 	rootCmd.AddCommand(NewConfigGenerateCommand())
 	rootCmd.AddCommand(NewOrchestratorCommand())
 	rootCmd.AddCommand(NewConfigureCommand())

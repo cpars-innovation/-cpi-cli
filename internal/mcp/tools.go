@@ -39,7 +39,9 @@ handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory: usage (fix the
 arguments), auth (stop, ask the user), tenant_http (retry later), failed (the tenant rejected the
 content or the message failed: read error, fix), timeout (check status), partial (see items).
-undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false. send_test_message
+undeploy requires confirm=true. Partner Directory: get_pd_parameters (tenant values), pd_diff (local vs tenant), then
+pd_deploy keys=["PID:ID"] to change one parameter without redeploying flows. pd_deploy is a
+dry run unless dry_run=false. send_test_message
 triggers real processing, including receiver calls. Security material is read-only here
 (list_credentials, list_keystore): secrets never pass through this server.`
 
@@ -749,13 +751,16 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "pd_deploy", Title: "Deploy Partner Directory parameters",
-			Description: "Upload Partner Directory parameters from a local directory ({PID}/String.properties, {PID}/Binary/). Runs as a dry run unless dry_run=false. full_sync deletes remote parameters of the managed PIDs that do not exist locally.",
+			Description: "Upload Partner Directory parameters from a local directory ({PID}/String.properties, {PID}/Binary/). Runs as a dry run unless dry_run=false. " +
+				"keys=[\"PID:ID\"] deploys only those parameters (create or update, nothing else is touched): use it to fix one mapping. " +
+				"full_sync deletes remote parameters of the managed PIDs that do not exist locally; check with pd_diff first.",
 			InputSchema: object(props{
 				"resources_path": str("Local partner directory root, relative to the server root"),
 				"pids":           strArray("Restrict to these partner IDs"),
 				"replace":        boolean("Update existing parameters whose value differs (default true)"),
 				"full_sync":      boolean("Delete remote parameters not present locally (default false)"),
 				"dry_run":        boolean("Only report what would change (default true)"),
+				"keys":           strArray("Only these parameters, \"PID:ID\" (not with full_sync or pids)"),
 			}, "resources_path"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -765,6 +770,7 @@ func Tools(cfg Config) []Tool {
 					Replace       *bool    `json:"replace"`
 					FullSync      bool     `json:"full_sync"`
 					DryRun        *bool    `json:"dry_run"`
+					Keys          []string `json:"keys"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -773,7 +779,7 @@ func Tools(cfg Config) []Tool {
 				if err != nil {
 					return nil, err
 				}
-				opts := ops.PDDeployOptions{Replace: true, FullSync: a.FullSync, DryRun: true, PIDs: a.PIDs}
+				opts := ops.PDDeployOptions{Replace: true, FullSync: a.FullSync, DryRun: true, PIDs: a.PIDs, Keys: a.Keys}
 				if a.Replace != nil {
 					opts.Replace = *a.Replace
 				}
@@ -781,6 +787,57 @@ func Tools(cfg Config) []Tool {
 					opts.DryRun = *a.DryRun
 				}
 				return ops.PDDeploy(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), opts)
+			},
+		},
+		{
+			Name: "get_pd_parameters", Title: "Read Partner Directory parameters",
+			Description: "String and binary Partner Directory parameters of one partner ID on the tenant (all, or only keys). " +
+				"Binaries show content type, size and sha256; their content only with include_content. Use it before pd_deploy to see the tenant's value.",
+			InputSchema: object(props{
+				"pid":             str("Partner ID"),
+				"keys":            strArray("Only these parameter IDs"),
+				"include_content": boolean("Return binary content (text inline, else base64; default false)"),
+				"max_bytes":       maxBytesSchema(),
+			}, "pid"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Pid            string   `json:"pid"`
+					Keys           []string `json:"keys"`
+					IncludeContent bool     `json:"include_content"`
+					MaxBytes       int      `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetPDParameters(cpi.NewPartnerDirectory(cfg.Exe), a.Pid, a.Keys, a.IncludeContent, a.MaxBytes)
+			},
+		},
+		{
+			Name: "pd_diff", Title: "Compare local Partner Directory files with the tenant",
+			Description: "Per parameter: create, update (value, content or content type), unchanged, or remote_only (exists only on the tenant: pd_deploy full_sync would delete it). " +
+				"Binaries are compared by content hash and content type. A PID whose local files cannot be read is reported as an error, never as empty.",
+			InputSchema: object(props{
+				"resources_path": str("Local partner directory root, relative to the server root"),
+				"pids":           strArray("Only these partner IDs"),
+			}, "resources_path"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ResourcesPath string   `json:"resources_path"`
+					PIDs          []string `json:"pids"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.ResourcesPath)
+				if err != nil {
+					return nil, err
+				}
+				return ops.PDDiff(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), a.PIDs)
 			},
 		},
 		{

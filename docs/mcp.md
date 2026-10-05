@@ -109,7 +109,7 @@ leaves a tool enabled by accident.
 
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
-| read | list_\*, get_\*, `validate_artifact`, `check_guidelines` | kept |
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff` | kept |
 | local files (inside `--root`) | `download_artifact`, `discover_tenant` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level` | removed |
 
@@ -158,7 +158,9 @@ read roles.
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`; `local_dir` for a local repository |
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
-| `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false` |
+| `get_pd_parameters` | | Partner Directory parameters of one PID (binaries: content type, size, sha256; content with `include_content`) |
+| `pd_diff` | | Local Partner Directory files vs tenant: create / update / unchanged / remote_only per parameter |
+| `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false`; `keys: ["PID:ID"]` changes only those parameters |
 
 Content tools (`get_resource`, `get_message_attachment`, `get_message_store_entry`) return
 `{size, text | base64, truncated}`; `max_bytes` (default 64 KB, max 1 MB) limits the size.

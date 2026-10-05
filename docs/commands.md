@@ -41,6 +41,9 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`params`](#params) | Read or change externalised parameters of an integration flow |
 | [`params get`](#params-get) | Show the parameters of an integration flow |
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
+| [`pd`](#pd) | Inspect Partner Directory parameters (get, diff) |
+| [`pd diff`](#pd-diff) | Compare local Partner Directory files with the tenant |
+| [`pd get`](#pd-get) | Show the Partner Directory parameters of a partner ID on the tenant |
 | [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
 | [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
 | [`profile`](#profile) | Switch between tenants (profiles in $HOME/.cpictl) |
@@ -901,6 +904,58 @@ Set parameters of an integration flow (deploy afterwards to activate)
   cpictl params set --artifact-id MyIFlow --param Host=example.com --param Port=443
 ```
 
+## pd
+
+Inspect Partner Directory parameters (get, diff)
+
+## pd diff
+
+Compare local Partner Directory files with the tenant
+
+```
+Compare the local tree (layout of pd-snapshot) with the tenant: per parameter
+create, update, unchanged or remote_only (only on the tenant: pd-deploy --full-sync
+would delete it). Exit code 7 when a PID could not be read locally.
+```
+
+**Usage:** `cpictl pd diff [flags]`
+
+**Flags:**
+
+```
+      --pids strings            Only these partner IDs
+      --resources-path string   Path to partner directory parameters (default "./partner-directory")
+```
+
+**Examples:**
+
+```
+  cpictl pd diff --resources-path ./partner-directory --pids ONE_OMS
+```
+
+## pd get
+
+Show the Partner Directory parameters of a partner ID on the tenant
+
+**Usage:** `cpictl pd get [flags]`
+
+**Flags:**
+
+```
+      --content         Include binary content
+      --key strings     Only these parameter IDs (repeatable)
+      --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string      Write the content to this file instead of stdout / the JSON result
+      --pid string      Partner ID
+```
+
+**Examples:**
+
+```
+  cpictl pd get --pid ONE_OMS
+  cpictl pd get --pid ONE_OMS --key now_email --content
+```
+
 ## pd-deploy
 
 Upload Partner Directory parameters from local files
@@ -932,6 +987,7 @@ See docs/partner-directory.md for the file format and full sync safety rules.
 ```
       --dry-run                 Show what would be changed without making changes
       --full-sync               Delete remote parameters not present locally (local is source of truth)
+      --keys strings            Deploy only these parameters, PID:ID (create or update, never delete; not with --full-sync)
       --pids strings            Comma separated list of Partner IDs to deploy (e.g., 'PID1,PID2')
       --replace                 Replace existing values (false = add only missing values) (default true)
       --resources-path string   Path to partner directory parameters (default "./partner-directory")
@@ -951,6 +1007,9 @@ See docs/partner-directory.md for the file format and full sync safety rules.
 
   # Dry run to see what would be changed
   cpictl pd-deploy --dry-run
+
+  # Only one mapping (no other parameter is touched)
+  cpictl pd-deploy --keys ONE_OMS:now_email
 ```
 
 ## pd-snapshot

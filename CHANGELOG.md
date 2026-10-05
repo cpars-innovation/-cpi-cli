@@ -14,6 +14,8 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact (including designtime and runtime version).
+- Partner Directory: `pd get` / `get_pd_parameters`, `pd diff` / `pd_diff`, and
+  `pd-deploy --keys PID:ID` / `pd_deploy keys` for single-parameter changes.
 - Downgrade guard: a designtime version older than the running one is not deployed unless
   `--allow-downgrade` / `allow_downgrade`.
 - Message processing logs: `logs` (query, `--wait` for final status, error texts),
