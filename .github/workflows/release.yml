@@ -1,0 +1,117 @@
+name: Release
+
+# Builds cpictl for all platforms and publishes a GitHub release with the
+# archives and SHA256SUMS attached.
+#
+# Start it from the Actions tab ("Run workflow") and choose the version bump;
+# the next version is computed from the latest vX.Y.Z tag (first release:
+# v0.1.0). Pushing a tag vX.Y.Z yourself releases exactly that version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      prerelease:
+        description: "Mark as pre-release"
+        type: boolean
+        default: false
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all tags, for the version computation
+
+      - name: Only release from main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases are created from main (this run: ${GITHUB_REF})"
+          exit 1
+
+      - name: Determine version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="$(scripts/next-version.sh "${BUMP}")"
+            if git rev-parse -q --verify "refs/tags/${version}" >/dev/null; then
+              echo "::error::Tag ${version} already exists"
+              exit 1
+            fi
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Same checks as CI: nothing is released that would not pass them
+      - name: Checks
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+          go vet ./...
+          go vet -tags integration ./...
+          go test -race ./...
+
+      - name: Build archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: make dist VERSION="${VERSION}"
+
+      - name: Smoke test
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tar -xzf "dist/cpictl_${VERSION}_linux_amd64.tar.gz" -C "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/cpictl_${VERSION}_linux_amd64/cpictl" --version | tee /dev/stderr | grep -F "${VERSION}"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          cat > "${RUNNER_TEMP}/notes.md" <<NOTES
+          ## Install
+
+          Download the archive for your platform, extract it and put \`cpictl\` on your PATH:
+
+          \`\`\`bash
+          curl -sSL -o cpictl.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/cpictl_${VERSION}_linux_amd64.tar.gz
+          tar -xzf cpictl.tar.gz && sudo install cpictl_${VERSION}_linux_amd64/cpictl /usr/local/bin/
+          cpictl --version
+          \`\`\`
+
+          Verify downloads with \`sha256sum -c SHA256SUMS --ignore-missing\`.
+          NOTES
+          flags=()
+          if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
+          # For a manual run this also creates the tag on the checked-out commit
+          gh release create "${VERSION}" dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
+            --target "${GITHUB_SHA}" \
+            --title "cpictl ${VERSION}" \
+            --notes-file "${RUNNER_TEMP}/notes.md" \
+            --generate-notes \
+            "${flags[@]}"
+          echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}" >> "$GITHUB_STEP_SUMMARY"

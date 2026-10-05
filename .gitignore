@@ -28,6 +28,7 @@
 !docs/**
 !licenses/**
 !test/**
+!scripts/**
 
 
 !Makefile

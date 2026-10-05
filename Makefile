@@ -37,6 +37,7 @@ help: ## Show this help message
 	@echo "  build-linux    - Build for Linux amd64"
 	@echo "  build-darwin   - Build for macOS (Intel and Apple Silicon)"
 	@echo "  build-all      - Build for all platforms"
+	@echo "  dist           - Release archives + SHA256SUMS in dist/ (VERSION=v1.2.3)"
 	@echo "  test           - Run offline tests (no tenant access)"
 	@echo "  cover          - Offline tests with coverage report"
 	@echo "  test-integration - Run tenant integration tests (WRITES TO A REAL TENANT)"
@@ -95,6 +96,33 @@ build-all: build-windows build-linux build-linux-arm64 build-darwin
 	@echo "All platforms built successfully"
 	@echo "Output files in $(DIST_DIR):"
 	@ls -lh $(DIST_DIR) 2>/dev/null || dir $(DIST_DIR)
+
+# Release packaging (used by .github/workflows/release.yml)
+RELEASE_DIR := dist
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+RELEASE_LDFLAGS := -ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
+
+.PHONY: dist
+dist: ## Build release archives for all platforms into dist/ (VERSION=v1.2.3)
+	@rm -rf $(RELEASE_DIR) && mkdir -p $(RELEASE_DIR)
+	@for platform in $(PLATFORMS); do \
+		os=$${platform%/*}; arch=$${platform#*/}; \
+		name=$(BINARY_NAME)_$(VERSION)_$${os}_$${arch}; \
+		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
+		echo "Building $$name"; \
+		mkdir -p $(RELEASE_DIR)/$$name; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath $(RELEASE_LDFLAGS) \
+			-o $(RELEASE_DIR)/$$name/$(BINARY_NAME)$$ext ./$(CMD_DIR) || exit 1; \
+		cp LICENSE NOTICE README.md CHANGELOG.md $(RELEASE_DIR)/$$name/; \
+		if [ "$$os" = "windows" ]; then \
+			(cd $(RELEASE_DIR) && zip -qr $$name.zip $$name) || exit 1; \
+		else \
+			tar -C $(RELEASE_DIR) -czf $(RELEASE_DIR)/$$name.tar.gz $$name || exit 1; \
+		fi; \
+		rm -rf $(RELEASE_DIR)/$$name; \
+	done
+	@cd $(RELEASE_DIR) && sha256sum *.tar.gz *.zip > SHA256SUMS
+	@echo "Release archives in $(RELEASE_DIR):" && ls -1 $(RELEASE_DIR)
 
 .PHONY: test
 test:
@@ -160,6 +188,7 @@ clean:
 	@rm -rf $(DIST_DIR) 2>/dev/null || true
 	@rm -f $(BINARY_NAME)$(EXE_EXT) 2>/dev/null || true
 	@rm -f coverage.out coverage.html 2>/dev/null || true
+	@rm -rf $(RELEASE_DIR) 2>/dev/null || true
 	@echo "Clean complete"
 
 .PHONY: install
