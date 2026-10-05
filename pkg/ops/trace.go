@@ -43,6 +43,8 @@ type LogLevelResult struct {
 	Level      string `json:"level"`
 	// Until is when TRACE ends (approximate, set by the tenant).
 	Until *time.Time `json:"until,omitempty"`
+	// RevertsAt is when the MCP server sets the flow back to INFO.
+	RevertsAt *time.Time `json:"revertsAt,omitempty"`
 }
 
 // SetLogLevel changes the message processing log level of a deployed flow.
@@ -90,8 +92,11 @@ type StepTrace struct {
 
 // MessageTrace lists what was traced for a message.
 type MessageTrace struct {
-	MessageGuid string      `json:"messageGuid"`
-	Steps       []StepTrace `json:"steps"`
+	MessageGuid string `json:"messageGuid"`
+	// Status is "missing_role" when the tenant refuses trace content (403);
+	// empty otherwise.
+	Status string      `json:"status,omitempty"`
+	Steps  []StepTrace `json:"steps"`
 	// Hint explains an empty result.
 	Hint string `json:"hint,omitempty"`
 }
@@ -111,6 +116,10 @@ func GetMessageTrace(exe *httpclnt.HTTPExecuter, guid, modelStepID string) (*Mes
 				continue
 			}
 			traces, err := mpl.TraceMessages(st.RunID, st.ChildCount)
+			if httpclnt.StatusCode(err) == http.StatusForbidden {
+				res.Status, res.Hint, res.Steps = TraceMissingRole, missingRoleHint, []StepTrace{}
+				return res, nil
+			}
 			if err != nil {
 				if httpclnt.StatusCode(err) == http.StatusNotFound {
 					continue
@@ -130,11 +139,19 @@ func GetMessageTrace(exe *httpclnt.HTTPExecuter, guid, modelStepID string) (*Mes
 
 // TraceMessageDetail is the payload and headers of a message at one step.
 type TraceMessageDetail struct {
-	TraceID            string          `json:"traceId"`
+	TraceID string `json:"traceId"`
+	// Status and Hint are set when the tenant refuses trace content (403).
+	Status             string          `json:"status,omitempty"`
+	Hint               string          `json:"hint,omitempty"`
 	Payload            Content         `json:"payload"`
 	Headers            []cpi.NameValue `json:"headers"`
 	ExchangeProperties []cpi.NameValue `json:"exchangeProperties"`
 }
+
+// TraceMissingRole is the status of trace results the tenant refuses (403).
+const TraceMissingRole = "missing_role"
+
+const missingRoleHint = "the tenant refused trace content (HTTP 403): the service key needs a role that allows reading message content (trace and payloads); continue without it and tell the user"
 
 var traceIDPattern = regexp.MustCompile(`^[0-9]+$`)
 
@@ -150,6 +167,10 @@ func GetTraceMessage(exe *httpclnt.HTTPExecuter, traceID string, max int) (*Trac
 	}
 	mpl := cpi.NewMessageLogs(exe)
 	payload, err := mpl.TracePayload(traceID)
+	if httpclnt.StatusCode(err) == http.StatusForbidden {
+		return &TraceMessageDetail{TraceID: traceID, Status: TraceMissingRole, Hint: missingRoleHint,
+			Headers: []cpi.NameValue{}, ExchangeProperties: []cpi.NameValue{}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

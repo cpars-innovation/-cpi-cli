@@ -196,6 +196,9 @@ type Tenant struct {
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
 	Packages  []Package
+	// ForbidTraces answers 403 for TraceMessages (key without the role to
+	// read message content).
+	ForbidTraces bool
 	// StatusOverride, if non-zero, is returned for every API call (e.g. 401).
 	StatusOverride int
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
@@ -786,6 +789,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 				"Status": st.Status, "Error": st.Error, "StepStart": odataDate(l.Start), "StepStop": odataDate(l.End)})
 		}
 		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case m.ForbidTraces && (reStepTraces.MatchString(path) || reTrace.MatchString(path)):
+		w.WriteHeader(http.StatusForbidden)
 
 	case r.Method == http.MethodGet && reStepTraces.MatchString(path):
 		mm := reStepTraces.FindStringSubmatch(path)

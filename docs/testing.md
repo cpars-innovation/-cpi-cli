@@ -101,6 +101,12 @@ cpictl logs trace --message-guid <guid>                    # traced steps with t
 cpictl logs trace-message --id <trace-id>                  # payload, headers, exchange properties
 ```
 
+Over MCP, `set_log_level` is time-boxed: the server sets the flow back to INFO after
+`revert_after_minutes` (default 10 for TRACE and DEBUG; 0 = never) on the next tool call, and when
+it stops. (The tenant itself also ends TRACE after 10 minutes; DEBUG stays until changed.) If the
+service key lacks the role to read message content, the trace tools answer `ok` with
+`status: "missing_role"` instead of failing, so an agent can continue and report it.
+
 The log level is set through the Web UI's operations command
 `/Operations/com.sap.it.op.tmn.commands.dashboard.webui.IntegrationComponentSetMplLogLevelCommand`
 (there is no OData API for it). `--node-type` (default `IFLMAP`) and `--runtime-location-id`

@@ -165,8 +165,8 @@ read roles.
 | `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
 | `get_message_attachment` | | Content of a log attachment |
 | `get_message_store_entry` | | Payload persisted by a Persist step |
-| `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow (TRACE for 10 minutes) |
-| `get_message_trace` | | Traced steps of a message with trace IDs |
+| `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow; the server sets it back to INFO after `revert_after_minutes` (default 10 for TRACE and DEBUG) and on shutdown; result `revertsAt` |
+| `get_message_trace` | | Traced steps of a message with trace IDs; `status: "missing_role"` (ok) when the key may not read message content |
 | `get_trace_message` | | Payload, headers, exchange properties at one traced step (sensitive values masked) |
 | `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |

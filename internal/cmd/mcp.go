@@ -57,8 +57,11 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			mode := config.GetString(cmd, "mode")
 			root := config.GetString(cmd, "root")
 			ledger := mcp.NewLedger(root)
+			exe := tenantExecuter(cmd)
+			levels := mcp.NewLogLevelReverter(exe)
 			all := ledger.Wrap(mcp.Tools(mcp.Config{
-				Exe:          tenantExecuter(cmd),
+				Exe:          exe,
+				LogLevels:    levels,
 				Root:         config.GetString(cmd, "root"),
 				PollInterval: time.Duration(config.GetInt(cmd, "poll-interval")) * time.Second,
 				MaxChecks:    config.GetInt(cmd, "max-checks"),
@@ -78,7 +81,10 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			}
 			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed)+mcp.ModeInstructions(mode), tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
-			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+			err = server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+			// time-boxed log levels (TRACE) are set back when the server stops
+			levels.RevertAll()
+			return err
 		},
 	}
 	c.Flags().String("root", ".", "Directory that local paths of tool calls are confined to")

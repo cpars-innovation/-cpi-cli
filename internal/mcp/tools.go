@@ -69,6 +69,9 @@ type Config struct {
 	TenantHost string
 	// DenyFullSync makes pd_deploy refuse full_sync (develop mode).
 	DenyFullSync bool
+	// LogLevels reverts set_log_level changes; created by Tools when nil.
+	// Call RevertAll when the server stops.
+	LogLevels *LogLevelReverter
 }
 
 // Tools returns the CPI tool set.
@@ -85,6 +88,22 @@ func Tools(cfg Config) []Tool {
 	readOnly := map[string]any{"readOnlyHint": true, "openWorldHint": true}
 	tenant := ops.NewTenant(cfg.Exe)
 	endpoints := cachedEndpointExecuters(cfg.NewEndpointExecuter)
+	if cfg.LogLevels == nil {
+		cfg.LogLevels = NewLogLevelReverter(cfg.Exe)
+	}
+	reverter := cfg.LogLevels
+	tools := toolList(cfg, readOnly, tenant, endpoints, reverter)
+	for i := range tools {
+		inner := tools[i].Handler
+		tools[i].Handler = func(ctx context.Context, raw json.RawMessage) (any, error) {
+			reverter.RunDue()
+			return inner(ctx, raw)
+		}
+	}
+	return tools
+}
+
+func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints ops.EndpointExecuterFunc, reverter *LogLevelReverter) []Tool {
 
 	return []Tool{
 		{
@@ -305,6 +324,8 @@ func Tools(cfg Config) []Tool {
 				"level":               enum("Log level", ops.LogLevels...),
 				"node_type":           str(`Runtime node type, default "IFLMAP"`),
 				"runtime_location_id": str(`Runtime location, default "cloudintegration" (edge integration cells use their own)`),
+				"revert_after_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 1440,
+					"description": "Set the flow back to INFO after this many minutes (on the next tool call, or when the server stops); default 10 for TRACE and DEBUG, 0 = never"},
 			}, "artifact_id", "level"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -313,11 +334,31 @@ func Tools(cfg Config) []Tool {
 					Level             string `json:"level"`
 					NodeType          string `json:"node_type"`
 					RuntimeLocationID string `json:"runtime_location_id"`
+					RevertAfter       *int   `json:"revert_after_minutes"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
 				}
-				return ops.SetLogLevel(cfg.Exe, ops.LogLevelRequest{ArtifactID: a.ArtifactID, Level: a.Level, NodeType: a.NodeType, RuntimeLocationID: a.RuntimeLocationID})
+				req := ops.LogLevelRequest{ArtifactID: a.ArtifactID, Level: a.Level, NodeType: a.NodeType, RuntimeLocationID: a.RuntimeLocationID}
+				res, err := ops.SetLogLevel(cfg.Exe, req)
+				if err != nil {
+					return res, err
+				}
+				minutes := 0
+				if res.Level == "TRACE" || res.Level == "DEBUG" {
+					minutes = 10
+				}
+				if a.RevertAfter != nil {
+					minutes = *a.RevertAfter
+				}
+				if minutes > 0 && res.Level != "INFO" {
+					at := reverter.now().UTC().Add(time.Duration(minutes) * time.Minute).Truncate(time.Second)
+					res.RevertsAt = &at
+					reverter.schedule(req, at)
+				} else {
+					reverter.schedule(req, time.Time{})
+				}
+				return res, nil
 			},
 		},
 		{

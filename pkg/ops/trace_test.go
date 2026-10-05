@@ -95,3 +95,18 @@ func TestSendThroughHarness(t *testing.T) {
 }
 
 func nameValue(n, v string) cpi.NameValue { return cpi.NameValue{Name: n, Value: v} }
+
+func TestTraceMissingRole(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	mock.ForbidTraces = true
+	mock.MessageLogSteps = [][]cpitest.MessageLog{{{Guid: "G1", Artifact: "A", Status: "FAILED", Steps: []cpitest.Step{{StepID: "s0", ModelStepID: "CallActivity_1"}}}}}
+
+	tr, err := GetMessageTrace(mock.Executer(), "G1", "")
+	require.NoError(t, err, "a missing role is not an error the agent has to stop for")
+	assert.Equal(t, TraceMissingRole, tr.Status)
+	assert.Contains(t, tr.Hint, "role")
+
+	d, err := GetTraceMessage(mock.Executer(), "42", 0)
+	require.NoError(t, err)
+	assert.Equal(t, TraceMissingRole, d.Status)
+}
