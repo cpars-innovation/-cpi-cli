@@ -27,6 +27,7 @@ First release.
   `logs trace` / `logs trace-message` (payload and headers per step), `discover`
   (inventory of existing flows for conventions), `packages create`.
 - CSRF tokens handled once per session with transparent refresh and retry.
+- `cpictl mcp --read-only / --tools / --disable-tools`: limit the tools per server.
 - MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
   upload, validation, deploy, undeploy, Partner Directory deploy and read-only security
   material.

@@ -180,7 +180,9 @@ environment:
 }
 ```
 
-Full example with a QA tenant: [docs/examples/claude-code.mcp.json](docs/examples/claude-code.mcp.json);
+Limit what agents may do per server with `--read-only`, `--tools list_*,get_*` or
+`--disable-tools undeploy,pd_deploy` ([details](docs/mcp.md#limiting-tools)).
+Full example with a read-only QA tenant: [docs/examples/claude-code.mcp.json](docs/examples/claude-code.mcp.json);
 for other clients (Claude Desktop, Cursor, ...): [docs/examples/mcp.json](docs/examples/mcp.json).
 The runtime credentials are only needed for `send_test_message`
 ([configuration.md](docs/configuration.md#runtime-endpoints-test-messages)).

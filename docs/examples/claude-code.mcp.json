@@ -14,7 +14,7 @@
     },
     "cpi-qa": {
       "command": "${CPICTL_BIN:-cpictl}",
-      "args": ["mcp", "--root", ".", "--max-checks", "60"],
+      "args": ["mcp", "--root", ".", "--read-only"],
       "env": {
         "CPICTL_TMN_HOST": "${CPI_QA_TMN_HOST}",
         "CPICTL_OAUTH_HOST": "${CPI_QA_OAUTH_HOST}",

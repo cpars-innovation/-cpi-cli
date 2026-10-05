@@ -711,6 +711,13 @@ send_test_message uses the --runtime-* credentials (default: the API
 credentials), see 'cpictl send --help'.
 
 Local paths given to tools are resolved against --root and may not leave it.
+
+Limit the tools per server, e.g. for a QA or production tenant:
+  --read-only                     no tool that changes the tenant or sends messages
+  --tools list_*,get_*            only matching tools
+  --disable-tools undeploy,pd_*   everything except these
+Also as CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+listed and cannot be called; a pattern that matches no tool is an error.
 ```
 
 **Usage:** `cpictl mcp [flags]`
@@ -718,14 +725,17 @@ Local paths given to tools are resolved against --root and may not leave it.
 **Flags:**
 
 ```
+      --disable-tools strings               Do not offer these tools (names or patterns); wins over --tools
       --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
       --poll-interval int                   Default seconds between deploy/undeploy status checks (default 10)
+      --read-only                           Offer only tools that do not change the tenant or trigger processing
       --root string                         Directory that local paths of tool calls are confined to (default ".")
       --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
       --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints
       --runtime-oauth-host string           OAuth token server host for runtime endpoints (default: --oauth-host)
       --runtime-password string             Password for Basic Auth on runtime endpoints
       --runtime-userid string               User ID for Basic Auth on runtime endpoints
+      --tools strings                       Offer only these tools (names or patterns such as list_*)
 ```
 
 **Examples:**

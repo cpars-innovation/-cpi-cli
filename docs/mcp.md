@@ -71,13 +71,13 @@ direnv, a secret manager):
 }
 ```
 
-The example also has a `cpi-qa` server; Claude Code asks each developer once to approve
+The example also has a read-only `cpi-qa` server; Claude Code asks each developer once to approve
 project MCP servers. `--root .` is the repository root (the server's working directory).
 If you use the [Claude Code plugin](plugin.md), it already starts a server named `cpi`
 from the plain `CPICTL_*` variables; use a project file for additional tenants.
 
 Use one server entry per tenant (e.g. `cpi-dev`, `cpi-qa`). Point agents at a development
-tenant; there is no read-only mode yet.
+tenant and give other tenants a read-only server ([Limiting tools](#limiting-tools)).
 
 For `send_test_message` add the runtime credentials (`CPICTL_RUNTIME_OAUTH_CLIENTID`,
 `CPICTL_RUNTIME_OAUTH_CLIENTSECRET`), see
@@ -93,6 +93,35 @@ server: [plugin.md](plugin.md).
 | `--root` | `.` | Local paths in tool arguments are resolved against this directory and may not leave it (symlinks are resolved) |
 | `--poll-interval` | `10` | Default seconds between deploy/undeploy status checks |
 | `--max-checks` | `30` | Default maximum number of status checks per artifact |
+| `--read-only` | `false` | Offer only tools that do not change the tenant or trigger processing |
+| `--tools` | all | Offer only these tools: names or patterns, e.g. `list_*,get_*,validate_artifact` |
+| `--disable-tools` | none | Do not offer these tools (names or patterns); wins over `--tools` |
+
+### Limiting tools
+
+The server enforces the limits itself, for every MCP client: disabled tools are not listed in
+`tools/list`, calls to them are rejected, and the server instructions tell the agent which tools
+are unavailable. A pattern that matches no tool stops the server with exit code 2, so a typo never
+leaves a tool enabled by accident.
+
+| Tool class | Tools | `--read-only` |
+|------------|-------|---------------|
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines` | kept |
+| local files (inside `--root`) | `download_artifact`, `discover_tenant` | kept |
+| tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level` | removed |
+
+```json
+"cpi-qa":   { "command": "cpictl", "args": ["mcp", "--root", ".", "--read-only"] },
+"cpi-dev":  { "command": "cpictl", "args": ["mcp", "--root", ".", "--disable-tools", "undeploy,pd_deploy"] },
+"cpi-logs": { "command": "cpictl", "args": ["mcp", "--tools", "list_message_logs,get_message_*,get_runtime_status"] }
+```
+
+The settings can also come from the environment (`CPICTL_READ_ONLY=true`,
+`CPICTL_TOOLS`, `CPICTL_DISABLE_TOOLS`, comma-separated) or `cpictl.yaml`. Server-side limits
+complement the client's own permission rules (in Claude Code, `permissions.deny` entries such
+as `mcp__cpi-dev__undeploy` in `.claude/settings.json`), which still prompt or block per call.
+The strongest limit is the tenant's: give the OAuth client of a QA or production server only
+read roles.
 
 ## Tools
 
