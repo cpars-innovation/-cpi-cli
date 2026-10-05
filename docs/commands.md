@@ -43,6 +43,10 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
 | [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
 | [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
+| [`profile`](#profile) | Switch between tenants (profiles in $HOME/.cpictl) |
+| [`profile current`](#profile-current) | Show the profile that commands use now |
+| [`profile list`](#profile-list) | List profiles and mark the active one |
+| [`profile use`](#profile-use) | Make a profile the default (stored in $HOME/.cpictl/current); 'use -' clears it |
 | [`resources`](#resources) | List the resources (scripts, mappings, schemas, ...) of an integration flow |
 | [`resources get`](#resources-get) | Download one resource of an integration flow |
 | [`send`](#send) | Send a test message to a deployed integration flow |
@@ -61,13 +65,14 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 ## Global flags
 
 ```
-      --config string               config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)
+      --config string               config file (default: the profile, else $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)
       --debug                       Show debug logs
       --oauth-clientid string       Client ID for using OAuth
       --oauth-clientsecret string   Client Secret for using OAuth
       --oauth-host string           OAuth token server host
       --oauth-path string           Path for OAuth token server (default "/oauth/token")
       --output string               Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines (default "text")
+      --profile string              Profile to use: $HOME/.cpictl/<name>.yaml (default: $CPICTL_PROFILE, else the one chosen with 'cpictl profile use')
       --tmn-host string             Tenant host of Cloud Integration (or API portal host for API Management)
       --tmn-password string         Password for Basic Auth
       --tmn-userid string           User ID for Basic Auth
@@ -989,6 +994,42 @@ See docs/partner-directory.md for the file format and full sync safety rules.
   # Snapshot only specific PIDs
   cpictl pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"
 ```
+
+## profile
+
+Switch between tenants (profiles in $HOME/.cpictl)
+
+```
+A profile is a personal config file $HOME/.cpictl/<name>.yaml with the connection
+of one tenant (same keys as cpictl.yaml, credentials included; keep it chmod 600).
+
+  cpictl profile use qa          make qa the default for every following command
+  cpictl --profile dev deploy …  one command against another tenant
+  CPICTL_PROFILE=dev             per shell (overrides 'profile use')
+  cpictl mcp --profile dev       one MCP server per tenant
+
+Precedence: --config, --profile, CPICTL_PROFILE, CPICTL_CONFIG, 'profile use',
+$HOME/cpictl.yaml. A repository's cpictl.yaml is still overlaid; its hosts must
+match the profile's.
+```
+
+## profile current
+
+Show the profile that commands use now
+
+**Usage:** `cpictl profile current`
+
+## profile list
+
+List profiles and mark the active one
+
+**Usage:** `cpictl profile list`
+
+## profile use
+
+Make a profile the default (stored in $HOME/.cpictl/current); 'use -' clears it
+
+**Usage:** `cpictl profile use <name>`
 
 ## resources
 

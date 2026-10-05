@@ -71,6 +71,9 @@ direnv, a secret manager):
 }
 ```
 
+With [profiles](configuration.md#profiles-switching-tenants) the entries are even shorter:
+`"args": ["mcp", "--root", ".", "--profile", "dev"]`, no `env` needed.
+
 The example also has a read-only `cpi-qa` server; Claude Code asks each developer once to approve
 project MCP servers. `--root .` is the repository root (the server's working directory).
 If you use the [Claude Code plugin](plugin.md), it already starts a server named `cpi`

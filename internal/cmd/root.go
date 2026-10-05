@@ -45,7 +45,8 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 		},
 	}
 
-	rootCmd.PersistentFlags().String("config", "", "config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)")
+	rootCmd.PersistentFlags().String("config", "", "config file (default: the profile, else $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)")
+	rootCmd.PersistentFlags().String("profile", "", "Profile to use: $HOME/.cpictl/<name>.yaml (default: $CPICTL_PROFILE, else the one chosen with 'cpictl profile use')")
 
 	// Define cobra flags, the default value has the lowest (least significant) precedence
 	rootCmd.PersistentFlags().String("tmn-host", "", "Tenant host of Cloud Integration (or API portal host for API Management)")
@@ -85,6 +86,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewSendCommand())
 	rootCmd.AddCommand(NewLogLevelCommand())
 	rootCmd.AddCommand(NewDiscoverCommand())
+	rootCmd.AddCommand(NewProfileCommand())
 	rootCmd.AddCommand(NewMCPCommand(version))
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
@@ -281,13 +283,22 @@ var hostConfigKeys = []string{"tmn-host", "oauth-host", "runtime-oauth-host"}
 // parent up to the repository root). Default files are opened by their full
 // name: a search by base name would also pick up an extension-less
 // $HOME/cpictl (for example the binary itself).
-func loadConfigFiles(explicit string) ([]configFile, error) {
+func loadConfigFiles(explicit, profile string) ([]configFile, error) {
 	var paths []configFile
 	if explicit != "" {
 		paths = append(paths, configFile{path: explicit})
 	} else {
 		home, _ := os.UserHomeDir()
-		if home != "" {
+		if profile != "" {
+			p, err := profilePath(profile)
+			if err != nil {
+				return nil, err
+			}
+			if !fileExists(p) {
+				return nil, fmt.Errorf("profile %q not found (%s); available: %s", profile, p, strings.Join(listProfileNames(), ", "))
+			}
+			paths = append(paths, configFile{path: p})
+		} else if home != "" {
 			if p := filepath.Join(home, "cpictl.yaml"); fileExists(p) {
 				paths = append(paths, configFile{path: p})
 			}
@@ -410,11 +421,11 @@ func configPermissionWarning(files []configFile) string {
 }
 
 func initializeConfig(cmd *cobra.Command) error {
-	cfgFile := config.GetString(cmd, "config")
-	if cfgFile == "" {
-		cfgFile = os.Getenv(envPrefix + "_CONFIG")
+	cfgFile, profile, err := resolveConfigSource(config.GetString(cmd, "config"), config.GetString(cmd, "profile"))
+	if err != nil {
+		return output.Usage(err)
 	}
-	files, err := loadConfigFiles(cfgFile)
+	files, err := loadConfigFiles(cfgFile, profile)
 	if err != nil {
 		return output.Usage(err)
 	}
@@ -444,6 +455,9 @@ func initializeConfig(cmd *cobra.Command) error {
 	logger.Init(cmd.ErrOrStderr(), format == output.FormatJSON, viper.GetBool("debug"))
 	for _, f := range files {
 		log.Debug().Msgf("Config file %s", f.path)
+	}
+	if profile != "" && cmd.Annotations[annotationOffline] != "true" {
+		log.Info().Msgf("Profile %s (%s)", profile, viper.GetString("tmn-host"))
 	}
 	if w := configPermissionWarning(files); w != "" {
 		log.Warn().Msg(w)

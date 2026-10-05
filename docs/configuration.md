@@ -12,10 +12,15 @@ For every flag, the first of these that is set wins:
    flag's help text as `(config: ...)`)
 5. The flag's default
 
-Config files:
+Config files, first match wins:
 
-- `--config <file>` or `CPICTL_CONFIG=<file>`: this file only.
-- Otherwise `$HOME/cpictl.yaml` (your personal settings and credentials), overlaid by the
+1. `--config <file>`: this file only.
+2. A **profile** ([Profiles](#profiles-switching-tenants)): `--profile <name>`, `CPICTL_PROFILE`,
+   or the one chosen with `cpictl profile use`.
+3. `CPICTL_CONFIG=<file>`: this file only.
+4. Otherwise `$HOME/cpictl.yaml` (your personal settings and credentials).
+
+A profile and `$HOME/cpictl.yaml` are overlaid by the
   **project file**: `cpictl.yaml` in the current directory or a parent directory, up to the
   repository root (the directory with `.git`). See [Project file](#project-file).
 A missing default file is fine; a file given with `--config` that cannot be parsed is a
@@ -55,21 +60,41 @@ Rules, because the file comes with the repository:
 
 `--debug` logs which config files were read.
 
-### One file per tenant
+### Profiles (switching tenants)
+
+One file per tenant in `~/.cpictl/`, with the connection and credentials:
 
 ```bash
 mkdir -p ~/.cpictl && chmod 700 ~/.cpictl
-# ~/.cpictl/dev.yaml, ~/.cpictl/qa.yaml: tmn-host, oauth-host, oauth-clientid, oauth-clientsecret, ...
-chmod 600 ~/.cpictl/*.yaml
-
-export CPICTL_CONFIG=~/.cpictl/dev.yaml      # default for this shell
-cpictl packages
-cpictl --config ~/.cpictl/qa.yaml status --runtime-status ERROR
+cat > ~/.cpictl/dev.yaml <<'YAML'
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: sb-...
+oauth-clientsecret: ...
+runtime-oauth-clientid: sb-...        # for cpictl send
+runtime-oauth-clientsecret: ...
+YAML
+chmod 600 ~/.cpictl/*.yaml            # same for qa.yaml, prod.yaml, ...
 ```
 
-For the MCP server, point each server entry at its file instead of listing variables:
-`"args": ["mcp", "--root", ".", "--config", "/home/me/.cpictl/dev.yaml"]` (or
-`"env": {"CPICTL_CONFIG": "..."}`).
+Switch:
+
+```bash
+cpictl profile list                   # * marks the active profile
+cpictl profile use qa                 # default for every following command (all shells)
+cpictl --profile dev deploy --artifact-ids OrderIntake   # one command elsewhere
+export CPICTL_PROFILE=dev             # this shell only, overrides 'profile use'
+cpictl profile current
+cpictl profile use -                  # back to $HOME/cpictl.yaml
+```
+
+Every command against a tenant logs `Profile <name> (<host>)` first, so you always see where
+it goes. A repository's `cpictl.yaml` is still overlaid; if its hosts differ from the
+profile's, cpictl stops instead of sending the profile's credentials there.
+
+For MCP, start one server per profile, e.g. `"args": ["mcp", "--root", ".", "--profile", "dev"]`
+and `["mcp", "--root", ".", "--profile", "qa", "--read-only"]`. The server keeps its profile
+for its whole lifetime; `cpictl profile use` does not change a running server.
 
 Flags that are marked as required (for example `sync --package-id`) must come from the
 command line, the environment or a top-level key; a command section key is read too late

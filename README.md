@@ -68,6 +68,10 @@ export CPICTL_OAUTH_CLIENTID='sb-xxxxxxxx!b1234|it!b5678'
 export CPICTL_OAUTH_CLIENTSECRET='...'
 ```
 
+Working with several tenants? Put each one into a profile (`~/.cpictl/dev.yaml`, `qa.yaml`, ...)
+and switch with `cpictl profile use qa` or `--profile dev`
+([profiles](docs/configuration.md#profiles-switching-tenants)).
+
 Every setting is available as a flag (`--tmn-host`), as an environment variable
 (`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml` (or the file in
 `CPICTL_CONFIG`, e.g. one per tenant), which can also hold defaults per command. A
