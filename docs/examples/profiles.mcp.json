@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "command": "cpictl",
+      "args": ["mcp", "--root", ".", "--profile", "${CPICTL_DEV_PROFILE:-dev}", "--mode", "develop"]
+    },
+    "cpi-qa": {
+      "command": "cpictl",
+      "args": ["mcp", "--root", ".", "--profile", "${CPICTL_QA_PROFILE:-qa}", "--read-only"]
+    }
+  }
+}

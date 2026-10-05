@@ -23,7 +23,7 @@ cpictl status --artifact-ids OrderIntake --output json
 ## Contents
 
 - [Install](#install)
-- [Connect to a tenant](#connect-to-a-tenant)
+- [Configuration and profiles](#configuration-and-profiles)
 - [Everyday workflow](#everyday-workflow)
 - [Commands](#commands)
 - [Output and exit codes](#output-and-exit-codes)
@@ -56,34 +56,117 @@ make build                 # -> bin/cpictl
 
 `make build-all` cross-compiles for Windows, Linux (amd64, arm64) and macOS.
 
-## Connect to a tenant
+## Configuration and profiles
 
-Create an OAuth client for the Cloud Integration API in SAP BTP
-([how](docs/configuration.md#creating-an-oauth-client-in-sap-btp)) and export its values:
+### 1. Get the credentials
+
+cpictl talks to the Cloud Integration API with an OAuth client. In the SAP BTP cockpit, create
+a service instance of *SAP Process Integration Runtime*, plan **api**, and a service key
+([step by step](docs/configuration.md#creating-an-oauth-client-in-sap-btp)). For test messages
+(`cpictl send`, MCP `send_test_message`) create a second key, plan **integration-flow**, with the
+role `ESBMessaging.send`.
+
+| Service key field | Setting | Note |
+|-------------------|---------|------|
+| `url` | `tmn-host` | host only, without `https://` |
+| `tokenurl` | `oauth-host` | host only, without `/oauth/token` |
+| `clientid` / `clientsecret` | `oauth-clientid` / `oauth-clientsecret` | |
+| integration-flow key: `clientid` / `clientsecret` | `runtime-oauth-clientid` / `runtime-oauth-clientsecret` | only for test messages |
+
+### 2. Put each tenant into a profile
+
+A profile is one YAML file per tenant in `~/.cpictl/`, named after the tenant. It holds the
+connection and the credentials, so it is personal: readable only by you, never committed.
 
 ```bash
-export CPICTL_TMN_HOST=mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
-export CPICTL_OAUTH_HOST=mytenant.authentication.eu10.hana.ondemand.com
-export CPICTL_OAUTH_CLIENTID='sb-xxxxxxxx!b1234|it!b5678'
-export CPICTL_OAUTH_CLIENTSECRET='...'
+mkdir -p ~/.cpictl && chmod 700 ~/.cpictl
+cp docs/examples/profiles/dev.yaml ~/.cpictl/dev.yaml     # then fill in the values
+cp docs/examples/profiles/qa.yaml  ~/.cpictl/qa.yaml
+chmod 600 ~/.cpictl/*.yaml
 ```
 
-Working with several tenants? Put each one into a profile and switch with one command:
-
-```bash
-mkdir -p ~/.cpictl && cp docs/examples/profiles/dev.yaml ~/.cpictl/dev.yaml   # fill in, chmod 600
-cpictl profile use dev          # or: cpictl --profile qa <command>, CPICTL_PROFILE=qa
+```yaml
+# ~/.cpictl/dev.yaml
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: "sb-...!b1234|it!b5678"
+oauth-clientsecret: "..."
+runtime-oauth-clientid: "sb-...|it-rt-mytenant-dev!b5678"   # optional, for test messages
+runtime-oauth-clientsecret: "..."
+deploy:                                                      # optional command defaults
+  maxCheckLimit: 30
 ```
 
-Examples: [profiles](docs/examples/profiles), [project file](docs/examples/project-cpictl.yaml),
-[setup guide](docs/configuration.md#quick-setup).
+### 3. Switch between tenants
 
-Every setting is available as a flag (`--tmn-host`), as an environment variable
-(`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml` (or the file in
-`CPICTL_CONFIG`, e.g. one per tenant), which can also hold defaults per command. A
-`cpictl.yaml` in a repository (without secrets) sets that repository's tenant and defaults
-([project file](docs/configuration.md#project-file)). Instead of
-exporting variables you can put the connection into that file; keep it `chmod 600`. Details: [docs/configuration.md](docs/configuration.md).
+| You want | Do |
+|----------|----|
+| Make a tenant the default (all shells, until changed) | `cpictl profile use dev` |
+| Run one command against another tenant | `cpictl --profile qa status --runtime-status ERROR` |
+| Use a tenant in this terminal only | `export CPICTL_PROFILE=qa` |
+| See which profiles exist and which is active | `cpictl profile list` (`*` = active) |
+| See what the next command will use | `cpictl profile current` |
+| Go back to `~/cpictl.yaml` | `cpictl profile use -` |
+
+Every command that talks to a tenant first logs `Profile dev (<host>)`, so you always see where
+it goes. `profile use` stores the name in `~/.cpictl/current`.
+
+### How cpictl finds its settings
+
+For each setting the first source that has it wins:
+
+1. a command-line flag (`--max-check-limit 40`)
+2. an environment variable: `CPICTL_` + the flag name in upper case (`CPICTL_MAX_CHECK_LIMIT=40`)
+3. the repository's `cpictl.yaml` (see below)
+4. the active profile, or `~/cpictl.yaml` when no profile is active
+5. the built-in default
+
+Which profile is active: `--profile`, else `CPICTL_PROFILE`, else the one from `profile use`.
+`--config <file>` (or `CPICTL_CONFIG`) reads only that file: no profile, no repository file.
+Command sections (`deploy:`, `configure:`, ...) are merged key by key. `--debug` logs which files
+were read.
+
+### Settings for one repository
+
+A `cpictl.yaml` in the root of an integration content repository is read whenever you run
+cpictl in that repository (or a subfolder) and is meant to be committed. Use it for the
+repository's defaults; [example](docs/examples/project-cpictl.yaml):
+
+```yaml
+# <repository>/cpictl.yaml
+orchestrator:
+  packagesDir: ./packages
+configure:
+  configPath: ./config/dev.yml
+pd-deploy:
+  resources-path: ./partner-directory
+```
+
+Two rules protect your credentials, because the file comes with the repository:
+
+- It may not contain secrets (`oauth-clientsecret`, `tmn-password`, runtime secrets): cpictl
+  stops with exit code 2. Secrets belong in a profile or in environment variables.
+- If it sets `tmn-host` or `oauth-host`, they must match the profile's. Otherwise cpictl stops
+  instead of sending the profile's credentials to a host the repository chose. Leave the hosts
+  out when the repository is used with several tenants.
+
+### CI pipelines
+
+No files needed: set `CPICTL_TMN_HOST`, `CPICTL_OAUTH_HOST`, `CPICTL_OAUTH_CLIENTID` and
+`CPICTL_OAUTH_CLIENTSECRET` from the CI secret store ([docs/ci.md](docs/ci.md)).
+
+### When something does not work
+
+| Message | Cause and fix |
+|---------|---------------|
+| `no tenant configured` | No profile active and no `~/cpictl.yaml`: `cpictl profile use <name>` |
+| `profile "x" not found (...); available: ...` | Typo, or the file is not `~/.cpictl/x.yaml` |
+| `<repo>/cpictl.yaml contains oauth-clientsecret` | Move the file to a profile: `mv cpictl.yaml ~/.cpictl/<name>.yaml && cpictl profile use <name>` |
+| `<repo>/cpictl.yaml sets tmn-host to ... but the credentials ... come from ...` | The repository points at another tenant than your profile: switch profile or remove the host from the repository file |
+| `... can be read by other users; run: chmod 600 ...` | A file with secrets is readable by others |
+| exit code 3 (`auth`) | Wrong client ID / secret, or the key lacks roles |
+
+All settings: [docs/configuration.md](docs/configuration.md).
 
 ## Everyday workflow
 
@@ -174,38 +257,35 @@ Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPL
 
 ## AI agents (MCP)
 
-`cpictl mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio.
-Add it to Claude Code:
-
-```bash
-claude mcp add cpi \
-  -e CPICTL_TMN_HOST=... -e CPICTL_OAUTH_HOST=... \
-  -e CPICTL_OAUTH_CLIENTID=... -e CPICTL_OAUTH_CLIENTSECRET=... \
-  -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
-```
-
-Or share the setup with your team: commit a `.mcp.json` to the root of the integration content
-repository. It contains no secrets; Claude Code fills in `${VAR}` from each developer's
-environment:
+`cpictl mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio. It
+uses the same profiles as the CLI, so the MCP configuration only names the profile. Commit this
+as `.mcp.json` in the root of the integration content repository
+([example](docs/examples/profiles.mcp.json)):
 
 ```json
 {
   "mcpServers": {
     "cpi-dev": {
-      "command": "${CPICTL_BIN:-cpictl}",
-      "args": ["mcp", "--root", "."],
-      "env": {
-        "CPICTL_TMN_HOST": "${CPI_DEV_TMN_HOST}",
-        "CPICTL_OAUTH_HOST": "${CPI_DEV_OAUTH_HOST}",
-        "CPICTL_OAUTH_CLIENTID": "${CPI_DEV_OAUTH_CLIENTID}",
-        "CPICTL_OAUTH_CLIENTSECRET": "${CPI_DEV_OAUTH_CLIENTSECRET}",
-        "CPICTL_RUNTIME_OAUTH_CLIENTID": "${CPI_DEV_RUNTIME_OAUTH_CLIENTID}",
-        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "${CPI_DEV_RUNTIME_OAUTH_CLIENTSECRET}"
-      }
+      "command": "cpictl",
+      "args": ["mcp", "--root", ".", "--profile", "${CPICTL_DEV_PROFILE:-dev}", "--mode", "develop"]
+    },
+    "cpi-qa": {
+      "command": "cpictl",
+      "args": ["mcp", "--root", ".", "--profile", "${CPICTL_QA_PROFILE:-qa}", "--read-only"]
     }
   }
 }
 ```
+
+- No credentials in the file: each developer has their own `~/.cpictl/dev.yaml`; whoever named
+  the profile differently sets `CPICTL_DEV_PROFILE`.
+- A server keeps its profile while it runs; `cpictl profile use` does not affect it.
+- `--root .` confines local paths of tool calls to the repository. Use the full path of `cpictl`
+  if Claude Code does not find it on the `PATH`.
+- Without profiles, pass the `CPICTL_*` variables in `env` instead
+  ([example](docs/examples/claude-code.mcp.json)); other clients (Claude Desktop, Cursor, ...):
+  [docs/examples/mcp.json](docs/examples/mcp.json). Ad hoc in Claude Code:
+  `claude mcp add cpi -- cpictl mcp --root . --profile dev`.
 
 Limit what agents may do per server with `--read-only`, `--tools list_*,get_*` or
 `--disable-tools undeploy,pd_deploy` ([details](docs/mcp.md#limiting-tools)).

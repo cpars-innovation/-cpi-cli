@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestDocsExamples(t *testing.T) {
 		assert.False(t, pkg.Artifacts[1].Batch.Enabled)
 	})
 
-	for _, name := range []string{"mcp.json", "claude-code.mcp.json"} {
+	for _, name := range []string{"mcp.json", "claude-code.mcp.json", "profiles.mcp.json"} {
 		t.Run(name, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join(examplesDir, name))
 			require.NoError(t, err)
@@ -76,16 +77,25 @@ func TestDocsExamples(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(data, &cfg))
 			require.Contains(t, cfg.MCPServers, "cpi-dev")
-			mcpFlags := NewMCPCommand("test").Flags()
+			root := NewCLI("test")
+			mcpCmd, _, err := root.Find([]string{"mcp"})
+			require.NoError(t, err)
+			lookup := func(name string) bool {
+				return mcpCmd.Flags().Lookup(name) != nil || root.PersistentFlags().Lookup(name) != nil
+			}
 			for id, server := range cfg.MCPServers {
 				require.NotEmpty(t, server.Args, id)
 				assert.Equal(t, "mcp", server.Args[0], id)
 				for _, arg := range server.Args[1:] {
 					if flag, ok := strings.CutPrefix(arg, "--"); ok {
-						assert.NotNil(t, mcpFlags.Lookup(flag), "%s: unknown flag %s", id, arg)
+						assert.True(t, lookup(flag), "%s: unknown flag %s", id, arg)
 					}
 				}
-				assert.Contains(t, server.Env, "CPICTL_TMN_HOST", id)
+				if slices.Contains(server.Args, "--profile") {
+					assert.Empty(t, server.Env, "%s: a profile holds the connection", id)
+				} else {
+					assert.Contains(t, server.Env, "CPICTL_TMN_HOST", id)
+				}
 				for k, v := range server.Env {
 					assert.True(t, strings.HasPrefix(k, "CPICTL_"), "%s: %s", id, k)
 					if name == "claude-code.mcp.json" {
