@@ -61,7 +61,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 ## Global flags
 
 ```
-      --config string               config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml)
+      --config string               config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)
       --debug                       Show debug logs
       --oauth-clientid string       Client ID for using OAuth
       --oauth-clientsecret string   Client Secret for using OAuth

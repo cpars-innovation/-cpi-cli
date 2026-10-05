@@ -70,7 +70,9 @@ export CPICTL_OAUTH_CLIENTSECRET='...'
 
 Every setting is available as a flag (`--tmn-host`), as an environment variable
 (`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml` (or the file in
-`CPICTL_CONFIG`, e.g. one per tenant), which can also hold defaults per command. Instead of
+`CPICTL_CONFIG`, e.g. one per tenant), which can also hold defaults per command. A
+`cpictl.yaml` in a repository (without secrets) sets that repository's tenant and defaults
+([project file](docs/configuration.md#project-file)). Instead of
 exporting variables you can put the connection into that file; keep it `chmod 600`. Details: [docs/configuration.md](docs/configuration.md).
 
 ## Everyday workflow

@@ -45,7 +45,7 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 		},
 	}
 
-	rootCmd.PersistentFlags().String("config", "", "config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml)")
+	rootCmd.PersistentFlags().String("config", "", "config file (default: $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)")
 
 	// Define cobra flags, the default value has the lowest (least significant) precedence
 	rootCmd.PersistentFlags().String("tmn-host", "", "Tenant host of Cloud Integration (or API portal host for API Management)")
@@ -259,41 +259,151 @@ func hintSuffix(hint string) string {
 	return ". Note: " + hint
 }
 
-// readConfigFile reads the --config file or, without one, $HOME/cpictl.yaml if it
-// exists. The default file is set by its full name: a search by base name would also
-// pick up an extension-less $HOME/cpictl (for example the binary itself).
-func readConfigFile(cfgFile string) error {
-	if cfgFile == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		cfgFile = filepath.Join(home, "cpictl.yaml")
-		if _, err := os.Stat(cfgFile); err != nil {
-			return nil
-		}
-	}
-	viper.SetConfigFile(cfgFile)
-	return viper.ReadInConfig()
+// configFile is a loaded config file.
+type configFile struct {
+	path    string
+	v       *viper.Viper
+	project bool
 }
 
 // secretConfigKeys are settings that hold secrets.
 var secretConfigKeys = []string{"tmn-password", "oauth-clientsecret", "runtime-oauth-clientsecret", "runtime-password"}
 
-// configPermissionWarning warns when the config file holds secrets but can be
-// read by other users (Unix permissions; not checked on Windows).
-func configPermissionWarning() string {
-	file := viper.ConfigFileUsed()
-	if file == "" || runtime.GOOS == "windows" {
+// credentialConfigKeys identify an account (secrets included).
+var credentialConfigKeys = append([]string{"tmn-userid", "oauth-clientid", "runtime-oauth-clientid", "runtime-userid"}, secretConfigKeys...)
+
+// hostConfigKeys are the hosts that credentials are sent to.
+var hostConfigKeys = []string{"tmn-host", "oauth-host", "runtime-oauth-host"}
+
+// loadConfigFiles reads the config files and merges them into viper: the
+// explicit file (--config or CPICTL_CONFIG) alone, or else $HOME/cpictl.yaml
+// overlaid by the project file (cpictl.yaml in the current directory or a
+// parent up to the repository root). Default files are opened by their full
+// name: a search by base name would also pick up an extension-less
+// $HOME/cpictl (for example the binary itself).
+func loadConfigFiles(explicit string) ([]configFile, error) {
+	var paths []configFile
+	if explicit != "" {
+		paths = append(paths, configFile{path: explicit})
+	} else {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			if p := filepath.Join(home, "cpictl.yaml"); fileExists(p) {
+				paths = append(paths, configFile{path: p})
+			}
+		}
+		if p := findProjectConfig(home); p != "" {
+			paths = append(paths, configFile{path: p, project: true})
+		}
+	}
+	files := make([]configFile, 0, len(paths))
+	for _, f := range paths {
+		f.v = viper.New()
+		f.v.SetConfigFile(f.path)
+		if err := f.v.ReadInConfig(); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	if err := checkProjectConfig(files); err != nil {
+		return nil, err
+	}
+	for _, f := range files {
+		if err := viper.MergeConfigMap(f.v.AllSettings()); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// findProjectConfig looks for cpictl.yaml from the working directory up to
+// the first directory with a .git entry; home itself is not a project.
+func findProjectConfig(home string) string {
+	dir, err := os.Getwd()
+	if err != nil {
 		return ""
 	}
-	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm()&0o077 == 0 {
-		return ""
+	for {
+		if dir == home {
+			return ""
+		}
+		if p := filepath.Join(dir, "cpictl.yaml"); fileExists(p) {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if fileExists(filepath.Join(dir, ".git")) || parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// checkProjectConfig enforces the rules for project files, which are usually
+// committed and come with the repository: they hold no secrets, and they
+// cannot send the credentials of the home file to other hosts.
+func checkProjectConfig(files []configFile) error {
+	var home, project *configFile
+	for i := range files {
+		if files[i].project {
+			project = &files[i]
+		} else {
+			home = &files[i]
+		}
+	}
+	if project == nil {
+		return nil
 	}
 	for _, k := range secretConfigKeys {
-		if viper.InConfig(k) {
-			return fmt.Sprintf("%s contains %s but can be read by other users; run: chmod 600 %s", file, k, file)
+		if project.v.InConfig(k) {
+			return fmt.Errorf("%s contains %s: a project config file is shared with the repository, keep secrets in $HOME/cpictl.yaml, CPICTL_CONFIG or the environment", project.path, k)
+		}
+	}
+	if home == nil {
+		return nil
+	}
+	var homeCreds []string
+	for _, k := range credentialConfigKeys {
+		if home.v.InConfig(k) && os.Getenv(envKey(k)) == "" {
+			homeCreds = append(homeCreds, k)
+		}
+	}
+	if len(homeCreds) == 0 {
+		return nil
+	}
+	for _, k := range hostConfigKeys {
+		if project.v.InConfig(k) && project.v.GetString(k) != home.v.GetString(k) {
+			return fmt.Errorf("%s sets %s to %q, but the credentials (%s) come from %s, which is configured for %q. "+
+				"Credentials from your home config are only sent to its own hosts: put this tenant's connection into its own file (CPICTL_CONFIG / --config) or the environment, or remove %s from %s",
+				project.path, k, project.v.GetString(k), strings.Join(homeCreds, ", "), home.path, home.v.GetString(k), k, project.path)
+		}
+	}
+	return nil
+}
+
+func envKey(key string) string {
+	return envPrefix + "_" + strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
+}
+
+// configPermissionWarning warns when a config file holds secrets but can be
+// read by other users (Unix permissions; not checked on Windows).
+func configPermissionWarning(files []configFile) string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	for _, f := range files {
+		info, err := os.Stat(f.path)
+		if err != nil || info.Mode().Perm()&0o077 == 0 {
+			continue
+		}
+		for _, k := range secretConfigKeys {
+			if f.v.InConfig(k) {
+				return fmt.Sprintf("%s contains %s but can be read by other users; run: chmod 600 %s", f.path, k, f.path)
+			}
 		}
 	}
 	return ""
@@ -304,7 +414,8 @@ func initializeConfig(cmd *cobra.Command) error {
 	if cfgFile == "" {
 		cfgFile = os.Getenv(envPrefix + "_CONFIG")
 	}
-	if err := readConfigFile(cfgFile); err != nil {
+	files, err := loadConfigFiles(cfgFile)
+	if err != nil {
 		return output.Usage(err)
 	}
 
@@ -331,7 +442,10 @@ func initializeConfig(cmd *cobra.Command) error {
 	}
 
 	logger.Init(cmd.ErrOrStderr(), format == output.FormatJSON, viper.GetBool("debug"))
-	if w := configPermissionWarning(); w != "" {
+	for _, f := range files {
+		log.Debug().Msgf("Config file %s", f.path)
+	}
+	if w := configPermissionWarning(files); w != "" {
 		log.Warn().Msg(w)
 	}
 	legacy := legacySettingsHint(cfgFile)

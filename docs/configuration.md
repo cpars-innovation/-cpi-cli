@@ -12,8 +12,12 @@ For every flag, the first of these that is set wins:
    flag's help text as `(config: ...)`)
 5. The flag's default
 
-The config file is the one given with `--config`, else `$CPICTL_CONFIG`, else
-`$HOME/cpictl.yaml`.
+Config files:
+
+- `--config <file>` or `CPICTL_CONFIG=<file>`: this file only.
+- Otherwise `$HOME/cpictl.yaml` (your personal settings and credentials), overlaid by the
+  **project file**: `cpictl.yaml` in the current directory or a parent directory, up to the
+  repository root (the directory with `.git`). See [Project file](#project-file).
 A missing default file is fine; a file given with `--config` that cannot be parsed is a
 usage error (exit code 2).
 
@@ -21,6 +25,35 @@ usage error (exit code 2).
 > personal config file (like `~/.netrc` or `~/.aws/credentials`): make it readable only by you
 > (`chmod 600`; cpictl warns otherwise) and never commit it. In CI and shared setups use
 > environment variables instead. The file is read as plain YAML: `${VAR}` is **not** expanded.
+
+### Project file
+
+A `cpictl.yaml` in a content repository sets that repository's tenant and command defaults
+for everyone who works in it (CLI and `cpictl mcp`, which runs in the repository):
+
+```yaml
+# <repo>/cpictl.yaml - committed, no secrets
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: sb-xxxxxxxx!b1234|it!b5678
+deploy:
+  maxCheckLimit: 40
+orchestrator:
+  packagesDir: ./packages
+```
+
+Rules, because the file comes with the repository:
+
+- It may not contain secrets (`tmn-password`, `oauth-clientsecret`, `runtime-oauth-clientsecret`,
+  `runtime-password`): exit code 2. Provide them with environment variables
+  (`CPICTL_OAUTH_CLIENTSECRET`, for example from a git-ignored `.envrc` with direnv) or a
+  personal file (`CPICTL_CONFIG`).
+- Credentials from `$HOME/cpictl.yaml` are only sent to the hosts in that file. If the project
+  file sets a different `tmn-host`, `oauth-host` or `runtime-oauth-host` while the credentials
+  come from the home file, cpictl stops with exit code 2 instead of sending them elsewhere.
+  Credentials from the environment or `--config` are used as given.
+
+`--debug` logs which config files were read.
 
 ### One file per tenant
 

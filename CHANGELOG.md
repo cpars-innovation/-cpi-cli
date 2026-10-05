@@ -34,6 +34,8 @@ First release.
 - Claude Code plugin `cpi` (marketplace in this repository): skills cpi-discover, cpi-plan,
   cpi-build, cpi-test, cpi-review and the read-only cpi-reviewer agent; conventions live in
   each content repository under `.cpi/`.
+- Project file: `cpictl.yaml` in the repository (no secrets; home credentials are never sent
+  to hosts it sets), merged over `$HOME/cpictl.yaml`.
 - `CPICTL_CONFIG` selects the config file; a warning when a config file with secrets is
   readable by others.
 - Settings via flags, `CPICTL_*` environment variables and `$HOME/cpictl.yaml`.
