@@ -82,6 +82,26 @@ type Artifact struct {
 	undeployedGets int
 }
 
+// Inbound is the behaviour of a runtime endpoint.
+type Inbound struct {
+	Status      int // default 200
+	Response    string
+	ContentType string
+	// MessageGuid is returned as SAP_MessageProcessingLogID.
+	MessageGuid string
+	// RequireCSRF makes the endpoint CSRF protected: modifying requests need a
+	// token fetched from the endpoint itself.
+	RequireCSRF bool
+	token       string
+}
+
+// ReceivedMessage is a request received by a runtime endpoint.
+type ReceivedMessage struct {
+	Method, Path string
+	Header       http.Header
+	Body         string
+}
+
 // Package is an integration package of the mock tenant.
 type Package struct {
 	ID, Name, Version string
@@ -131,6 +151,12 @@ type Tenant struct {
 	// LastMessageLogQuery is the raw query string of the last MPL query.
 	LastMessageLogQuery string
 	mplQueries          int
+
+	// Inbound configures runtime endpoints (paths starting with /http/ or
+	// /cxf/, as in ServiceEndpoints URLs) that receive test messages.
+	Inbound map[string]*Inbound
+	// Received are the messages received by runtime endpoints.
+	Received []ReceivedMessage
 
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
@@ -222,6 +248,7 @@ var (
 	reCredential      = regexp.MustCompile(`^/api/v1/(UserCredentials|OAuth2ClientCredentials|SecureParameters)(?:\('(.+)'\))?$`)
 	reKeystoreCert    = regexp.MustCompile(`^/api/v1/KeystoreEntries\('([0-9A-Fa-f]+)'\)/Certificate/\$value$`)
 	reCertImport      = regexp.MustCompile(`^/api/v1/CertificateResources\('([0-9A-Fa-f]+)'\)/\$value$`)
+	rePackage         = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)$`)
 	reDesignCreate    = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts$`)
 	reErrInfo         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
@@ -288,6 +315,43 @@ func (m *Tenant) handleCredential(w http.ResponseWriter, r *http.Request, mm []s
 	}
 }
 
+func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
+	in := m.Inbound[r.URL.Path]
+	if in == nil {
+		notFound(w)
+		return
+	}
+	if in.RequireCSRF {
+		if r.Method == http.MethodGet && strings.EqualFold(r.Header.Get("X-CSRF-Token"), "fetch") {
+			if in.token == "" {
+				m.csrfSerial++
+				in.token = fmt.Sprintf("rt-token-%d", m.csrfSerial)
+			}
+			w.Header().Set("X-CSRF-Token", in.token)
+			return
+		}
+		if r.Method != http.MethodGet && (in.token == "" || r.Header.Get("X-CSRF-Token") != in.token) {
+			w.Header().Set("X-CSRF-Token", "Required")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+	}
+	body, _ := io.ReadAll(r.Body)
+	m.Received = append(m.Received, ReceivedMessage{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: string(body)})
+	if in.MessageGuid != "" {
+		w.Header().Set("SAP_MessageProcessingLogID", in.MessageGuid)
+	}
+	if in.ContentType != "" {
+		w.Header().Set("Content-Type", in.ContentType)
+	}
+	status := in.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(in.Response))
+}
+
 func mplJSON(l MessageLog) map[string]any {
 	return map[string]any{
 		"MessageGuid": l.Guid, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
@@ -350,6 +414,10 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 
 	if m.StatusOverride != 0 {
 		w.WriteHeader(m.StatusOverride)
+		return
+	}
+	if strings.HasPrefix(path, "/http/") || strings.HasPrefix(path, "/cxf/") {
+		m.handleInbound(w, r)
 		return
 	}
 	if r.Method == http.MethodGet && path == "/api/v1/" { // CSRF token fetch
@@ -621,6 +689,33 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = w.Write(a.Zip)
+
+	case r.Method == http.MethodGet && rePackage.MatchString(path):
+		id := rePackage.FindStringSubmatch(path)[1]
+		for _, p := range m.Packages {
+			if p.ID == id {
+				writeJSON(w, map[string]any{"d": map[string]string{"Id": p.ID, "Name": p.Name, "Version": p.Version}})
+				return
+			}
+		}
+		notFound(w)
+
+	case r.Method == http.MethodPost && path == "/api/v1/IntegrationPackages":
+		var body struct {
+			D struct{ Id, Name string } `json:"d"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.D.Id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for _, p := range m.Packages {
+			if p.ID == body.D.Id {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+		}
+		m.Packages = append(m.Packages, Package{ID: body.D.Id, Name: body.D.Name, Version: "1.0.0"})
+		w.WriteHeader(http.StatusCreated)
 
 	case r.Method == http.MethodGet && path == "/api/v1/IntegrationPackages":
 		results := []map[string]string{}

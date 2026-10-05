@@ -24,10 +24,14 @@ The server uses the same tenant settings as every other command (flags,
 CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
-Tools: list/get packages, artifacts, resources and parameters; download, upload,
-validate, guideline check, deploy, undeploy (requires confirm=true); runtime
-status and endpoints; message logs, steps, attachments and persisted messages;
+Tools: list packages, artifacts, resources and parameters; create packages;
+download, upload, validate, guideline check, deploy, undeploy (requires
+confirm=true); runtime status and endpoints; send test messages; message logs,
+steps, attachments and persisted messages; discovery of existing content;
 pd_deploy (dry run unless dry_run=false). See docs/mcp.md.
+
+send_test_message uses the --runtime-* credentials (default: the API
+credentials), see 'cpictl send --help'.
 
 Local paths given to tools are resolved against --root and may not leave it.`,
 		Example: `  # Claude Code / any MCP client configuration
@@ -45,6 +49,9 @@ Local paths given to tools are resolved against --root and may not leave it.`,
 				Root:         config.GetString(cmd, "root"),
 				PollInterval: time.Duration(config.GetInt(cmd, "poll-interval")) * time.Second,
 				MaxChecks:    config.GetInt(cmd, "max-checks"),
+				TenantHost:   config.GetString(cmd, "tmn-host"),
+
+				NewEndpointExecuter: endpointExecuter(cmd),
 			})
 			server := mcp.NewServer("cpicli", version, mcp.Instructions, tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
@@ -54,5 +61,6 @@ Local paths given to tools are resolved against --root and may not leave it.`,
 	c.Flags().String("root", ".", "Directory that local paths of tool calls are confined to")
 	c.Flags().Int("poll-interval", 10, "Default seconds between deploy/undeploy status checks")
 	c.Flags().Int("max-checks", 30, "Default maximum number of deploy/undeploy status checks")
+	addRuntimeAuthFlags(c)
 	return c
 }

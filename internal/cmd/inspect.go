@@ -62,7 +62,7 @@ artifacts, optionally filtered with --runtime-status (e.g. ERROR).`,
 }
 
 func NewPackagesCommand() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:          "packages",
 		Short:        "List integration packages",
 		SilenceUsage: true,
@@ -78,6 +78,38 @@ func NewPackagesCommand() *cobra.Command {
 			return nil
 		},
 	}
+	c.AddCommand(newPackagesCreateCommand())
+	return c
+}
+
+func newPackagesCreateCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "create",
+		Short: "Create an integration package if it does not exist",
+		Long: `Create an integration package. An existing package with the same ID is left
+unchanged (action EXISTS). To create or update a package from a JSON file use
+'update package'.`,
+		Example:      `  cpictl packages create --package-id SalesOrders --name "Sales Orders"`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.CreatePackage(tenantExecuter(cmd), ops.PackageRequest{
+				ID: config.GetString(cmd, "package-id"), Name: config.GetString(cmd, "name"),
+				Description: config.GetString(cmd, "description"), ShortText: config.GetString(cmd, "short-text"),
+			})
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			log.Info().Msgf("Package %s: %s", res.ID, res.Action)
+			return nil
+		},
+	}
+	c.Flags().String("package-id", "", "Package ID (letters, digits, '_' and '.')")
+	c.Flags().String("name", "", "Display name (default: package ID)")
+	c.Flags().String("description", "", "Description")
+	c.Flags().String("short-text", "", "Short description (default: name)")
+	_ = c.MarkFlagRequired("package-id")
+	return c
 }
 
 func NewArtifactsCommand() *cobra.Command {

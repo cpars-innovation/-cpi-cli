@@ -18,6 +18,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`credentials set-secure-param`](#credentials-set-secure-param) | Create or update a secure parameter (Neo environment) |
 | [`credentials set-user`](#credentials-set-user) | Create or update a user credential |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
+| [`discover`](#discover) | Inventory existing integration flows to derive conventions |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
@@ -33,6 +34,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
+| [`packages create`](#packages-create) | Create an integration package if it does not exist |
 | [`params`](#params) | Read or change externalised parameters of an integration flow |
 | [`params get`](#params-get) | Show the parameters of an integration flow |
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
@@ -40,6 +42,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
 | [`resources`](#resources) | List the resources (scripts, mappings, schemas, ...) of an integration flow |
 | [`resources get`](#resources-get) | Download one resource of an integration flow |
+| [`send`](#send) | Send a test message to a deployed integration flow |
 | [`snapshot`](#snapshot) | Save all integration packages of the tenant to a Git repository |
 | [`snapshot restore`](#snapshot-restore) | Create or update integration packages on the tenant from a Git repository |
 | [`status`](#status) | Show runtime status, version and errors of artifacts |
@@ -366,6 +369,41 @@ Configuration:
       --max-check-limit int    Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
 ```
 
+## discover
+
+Inventory existing integration flows to derive conventions
+
+```
+Inventory the packages and integration flows of the tenant (or of a local
+directory with --dir) and write the facts as JSON: adapters, steps, exception
+subprocesses, log levels, scripts (identical scripts across flows), externalised
+parameter keys, credential names, headers and properties that are set, and
+naming patterns of packages and flows.
+
+The tenant is only read; every integration flow is downloaded and analysed in
+memory. The file is the input for writing a repository's conventions (see the
+cpi-discover skill of the Claude Code plugin).
+```
+
+**Usage:** `cpictl discover [flags]`
+
+**Flags:**
+
+```
+      --dir string            Analyse this local directory instead of the tenant
+      --max-iflows int        Stop after this many integration flows (0: all)
+      --output-file string    JSON file to write (default ".cpi/discovery.json")
+      --package-ids strings   Only these packages (default: all)
+```
+
+**Examples:**
+
+```
+  cpictl discover --output-file .cpi/discovery.json
+  cpictl discover --package-ids SalesOrders,Finance
+  cpictl discover --dir ./content   # local repository from 'sync' or 'snapshot', offline
+```
+
 ## download
 
 Download a designtime artifact and extract it into a directory
@@ -597,10 +635,14 @@ The server uses the same tenant settings as every other command (flags,
 CPICTL_* environment variables or cpictl.yaml). stdout carries the
 protocol only; logs go to stderr as JSON lines.
 
-Tools: list/get packages, artifacts, resources and parameters; download, upload,
-validate, guideline check, deploy, undeploy (requires confirm=true); runtime
-status and endpoints; message logs, steps, attachments and persisted messages;
+Tools: list packages, artifacts, resources and parameters; create packages;
+download, upload, validate, guideline check, deploy, undeploy (requires
+confirm=true); runtime status and endpoints; send test messages; message logs,
+steps, attachments and persisted messages; discovery of existing content;
 pd_deploy (dry run unless dry_run=false). See docs/mcp.md.
+
+send_test_message uses the --runtime-* credentials (default: the API
+credentials), see 'cpictl send --help'.
 
 Local paths given to tools are resolved against --root and may not leave it.
 ```
@@ -610,9 +652,14 @@ Local paths given to tools are resolved against --root and may not leave it.
 **Flags:**
 
 ```
-      --max-checks int      Default maximum number of deploy/undeploy status checks (default 30)
-      --poll-interval int   Default seconds between deploy/undeploy status checks (default 10)
-      --root string         Directory that local paths of tool calls are confined to (default ".")
+      --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
+      --poll-interval int                   Default seconds between deploy/undeploy status checks (default 10)
+      --root string                         Directory that local paths of tool calls are confined to (default ".")
+      --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
+      --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints
+      --runtime-oauth-host string           OAuth token server host for runtime endpoints (default: --oauth-host)
+      --runtime-password string             Password for Basic Auth on runtime endpoints
+      --runtime-userid string               User ID for Basic Auth on runtime endpoints
 ```
 
 **Examples:**
@@ -706,6 +753,33 @@ Configuration:
 List integration packages
 
 **Usage:** `cpictl packages`
+
+## packages create
+
+Create an integration package if it does not exist
+
+```
+Create an integration package. An existing package with the same ID is left
+unchanged (action EXISTS). To create or update a package from a JSON file use
+'update package'.
+```
+
+**Usage:** `cpictl packages create [flags]`
+
+**Flags:**
+
+```
+      --description string   Description
+      --name string          Display name (default: package ID)
+      --package-id string    Package ID (letters, digits, '_' and '.')
+      --short-text string    Short description (default: name)
+```
+
+**Examples:**
+
+```
+  cpictl packages create --package-id SalesOrders --name "Sales Orders"
+```
 
 ## params
 
@@ -880,6 +954,55 @@ Download one resource. In text mode the content is written to stdout (or
       --out string           Write the content to this file instead of stdout / the JSON result
       --type string          Resource type, e.g. groovy, xslt, mmap, xsd, wsdl, jar
       --version string       Designtime version (default "active")
+```
+
+## send
+
+Send a test message to a deployed integration flow
+
+```
+Send a test message to an endpoint of a deployed integration flow and print
+the HTTP status, the response and the message GUID. Only endpoint URLs that the
+tenant lists for the flow (see 'endpoints') are used.
+
+With --wait the command also waits for the message processing log and exits
+with code 5 when the message did not complete. The message is processed like any
+other, including calls to receivers: use test data on a development tenant.
+
+Runtime endpoints usually need other credentials than the API: set
+--runtime-oauth-clientid/--runtime-oauth-clientsecret (CPICTL_RUNTIME_OAUTH_*)
+from a service key of plan integration-flow with role ESBMessaging.send.
+Without them the API credentials are used.
+```
+
+**Usage:** `cpictl send [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string                  Integration flow ID (deployed)
+      --body string                         Message body
+      --body-file string                    Read the message body from this file ('-' for stdin)
+      --content-type string                 Content-Type of the body
+      --header strings                      Additional header name=value (repeatable)
+      --method string                       HTTP method (default "POST")
+      --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
+      --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints
+      --runtime-oauth-host string           OAuth token server host for runtime endpoints (default: --oauth-host)
+      --runtime-password string             Password for Basic Auth on runtime endpoints
+      --runtime-userid string               User ID for Basic Auth on runtime endpoints
+      --url string                          Endpoint URL, only needed when the flow has several endpoints
+      --wait duration                       Wait up to this long for the message processing log (e.g. 60s)
+```
+
+**Examples:**
+
+```
+  # Send a file and wait for the outcome
+  cpictl send --artifact-id OrderIntake --body-file order.xml --content-type application/xml --wait 60s
+
+  # Body from stdin, extra header
+  echo '{"id":1}' | cpictl send --artifact-id OrderIntake --body-file - --header X-Test=1
 ```
 
 ## snapshot

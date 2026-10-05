@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -18,17 +19,25 @@ import (
 
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
-Typical loop: download_artifact (once) -> edit files -> upload_artifact -> validate_artifact
--> deploy -> get_runtime_status; list_service_endpoints gives the URL for a test message;
-after sending it, list_message_logs (since=send time, wait_seconds), then get_message_log,
-get_message_steps (failing step) and get_message_attachment / get_message_store_entry
-for payloads; fix the local files and repeat. check_guidelines reports design issues. set_parameters changes
-externalised parameters; deploy afterwards to activate them.
-Every result has {ok, errorCategory, exitCode, error, result}; errorCategory is one of
-usage (fix the arguments), auth, tenant_http, failed, timeout, partial.
-undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false.
-Security material is read-only here (list_credentials, list_keystore): secrets never pass
-through this server.`
+
+Build loop: download_artifact (existing flow, once) or write files locally -> create_package (new
+package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
+-> on failure get_message_steps (failing step) and get_message_log / get_message_attachment /
+get_message_store_entry for payloads -> fix the local files and repeat.
+Configuration: get_parameters / set_parameters, then deploy to activate.
+Review: check_guidelines (tenant design guidelines) before a release.
+Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
+Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
+list_service_endpoints.
+Conventions: discover_tenant writes an inventory of existing flows (adapters, steps, error
+handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/conventions.md).
+
+Every result has {ok, errorCategory, exitCode, error, result}; errorCategory: usage (fix the
+arguments), auth (stop, ask the user), tenant_http (retry later), failed (the tenant rejected the
+content or the message failed: read error, fix), timeout (check status), partial (see items).
+undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false. send_test_message
+triggers real processing, including receiver calls. Security material is read-only here
+(list_credentials, list_keystore): secrets never pass through this server.`
 
 // Config configures the CPI tools.
 type Config struct {
@@ -41,6 +50,11 @@ type Config struct {
 	MaxChecks    int
 	// LogPollInterval is the interval used by list_message_logs wait_seconds.
 	LogPollInterval time.Duration
+	// NewEndpointExecuter connects to runtime endpoints for send_test_message
+	// (nil: the tool reports that runtime credentials are not configured).
+	NewEndpointExecuter ops.EndpointExecuterFunc
+	// TenantHost is recorded as the source of discover_tenant.
+	TenantHost string
 }
 
 // Tools returns the CPI tool set.
@@ -56,11 +70,12 @@ func Tools(cfg Config) []Tool {
 	}
 	readOnly := map[string]any{"readOnlyHint": true, "openWorldHint": true}
 	tenant := ops.NewTenant(cfg.Exe)
+	endpoints := cachedEndpointExecuters(cfg.NewEndpointExecuter)
 
 	return []Tool{
 		{
 			Name: "list_packages", Title: "List integration packages",
-			Description: "List all integration packages on the tenant.",
+			Description: "List all integration packages (ID, name, version). Start here to find where artifacts live, then list_artifacts. To add a package use create_package.",
 			InputSchema: object(nil),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -73,7 +88,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_artifacts", Title: "List artifacts of a package",
-			Description: "List designtime artifacts (integration flows, mappings, script collections, value mappings) of a package.",
+			Description: "List the designtime artifacts of one package: integration flows, message mappings, script collections and value mappings, with version and draft flag. Use it to find artifact IDs; for what is running use list_runtime_artifacts.",
 			InputSchema: object(props{"package_id": str("Integration package ID")}, "package_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -92,7 +107,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_runtime_status", Title: "Get runtime status",
-			Description: "Runtime status (STARTED, STARTING, ERROR or not deployed), version and deployment time of artifacts. Includes the error message for artifacts in ERROR.",
+			Description: "Runtime state of given artifacts: deployed or not, STARTED/STARTING/ERROR, version, deployment time and, for ERROR, the tenant's error message. Use it for known artifacts (e.g. after a deploy timeout); to find all broken deployments use list_runtime_artifacts with statuses [\"ERROR\"].",
 			InputSchema: object(props{"artifact_ids": strArray("Artifact IDs")}, "artifact_ids"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -127,7 +142,8 @@ func Tools(cfg Config) []Tool {
 		{
 			Name: "list_message_logs", Title: "Query message processing logs",
 			Description: "Message processing logs (newest first) filtered by artifact, status, time and IDs, with the error text of failed messages. " +
-				"To test an iFlow: note the time, send the test message, then call with artifact_id, since=<that time> and wait_seconds to wait until the message reached a final status.",
+				"Use it to see how an iFlow behaved at runtime: call with artifact_id, since=<time before the messages> and wait_seconds to wait until the messages reached a final status. " +
+				"After send_test_message prefer its wait_seconds, which already returns the log of that message.",
 			InputSchema: object(props{
 				"artifact_id":            str("Integration flow ID"),
 				"statuses":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": cpi.MessageLogStatuses}, "description": "Only these statuses"},
@@ -180,7 +196,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_message_log", Title: "Get one message processing log",
-			Description: "Details of one message: status, full error text, custom header properties, adapter attributes and attachment list.",
+			Description: "Details of one message: status, full error text, custom header properties, adapter attributes, attachments and persisted messages. Next: get_message_steps for the failing step, get_message_attachment / get_message_store_entry for payloads.",
 			InputSchema: object(props{"message_guid": str("Message GUID from list_message_logs")}, "message_guid"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -195,7 +211,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_message_steps", Title: "Get processing steps of a message",
-			Description: "Step-level trace of a message (runs and steps with status and error) and the first failing step. modelStepId identifies the step in the iFlow model (BPMN).",
+			Description: "Step-level trace of a message (runs and steps with status and error) and the first failing step. Use it for FAILED messages: modelStepId is the id of the element in the .iflw model to fix.",
 			InputSchema: object(props{"message_guid": str("Message GUID")}, "message_guid"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -210,7 +226,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_message_attachment", Title: "Download a message log attachment",
-			Description: "Content of a log attachment (attachment id from get_message_log). Text is returned inline, binary as base64; truncated to max_bytes.",
+			Description: "Content of a message log attachment (id from get_message_log attachments), e.g. a payload logged by a script. Text inline, binary base64; truncated to max_bytes.",
 			InputSchema: object(props{"attachment_id": str("Attachment ID"), "max_bytes": maxBytesSchema()}, "attachment_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -229,7 +245,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_message_store_entry", Title: "Download a persisted message",
-			Description: "Payload persisted by a Persist step (entry id from messageStoreEntries of get_message_log). Truncated to max_bytes.",
+			Description: "Payload written by a Persist step (id from messageStoreEntries of get_message_log). Truncated to max_bytes.",
 			InputSchema: object(props{"entry_id": str("Message store entry ID"), "max_bytes": maxBytesSchema()}, "entry_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -248,8 +264,8 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_runtime_artifacts", Title: "List deployed artifacts",
-			Description: "All deployed artifacts with status, version and deployment time; filter by runtime status (e.g. [\"ERROR\"] to find broken deployments, with their error message).",
-			InputSchema: object(props{"statuses": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"STARTED", "STARTING", "ERROR", "STOPPING"}}}}),
+			Description: "All artifacts deployed on the tenant with status, version and deployment time. Use statuses [\"ERROR\"] for a tenant-wide health check (includes error messages); for specific artifacts use get_runtime_status.",
+			InputSchema: object(props{"statuses": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"STARTED", "STARTING", "ERROR", "STOPPING"}}, "description": "Only artifacts in these runtime statuses (default: all)"}}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
@@ -264,7 +280,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_service_endpoints", Title: "List endpoint URLs",
-			Description: "Callable URLs of deployed integration flows (where to send test messages).",
+			Description: "Callable URLs of deployed integration flows with HTTP-based senders (HTTPS, SOAP, ...). send_test_message finds the URL itself; use this to show URLs or to choose between several endpoints of one flow.",
 			InputSchema: object(props{"artifact_id": str("Only endpoints of this integration flow")}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -280,7 +296,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "validate_artifact", Title: "Validate an integration flow",
-			Description: "Run the tenant's check of an integration flow (like Check in the Web UI) before deploying. status PASSED or FAILED with details; FAILED is errorCategory failed.",
+			Description: "Tenant check of an uploaded integration flow (Check in the Web UI): model errors such as missing mandatory settings. Checks the designtime version on the tenant, not local files: run it after upload_artifact and before deploy. status PASSED or FAILED (errorCategory failed) with details.",
 			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
 			Annotations: map[string]any{"readOnlyHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -296,7 +312,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "check_guidelines", Title: "Check design guidelines",
-			Description: "Run the design guidelines activated on the tenant against an integration flow and wait for the result; returns violations (not compliant, not skipped) with the violated components.",
+			Description: "Run the design guidelines activated on the tenant against an integration flow and wait for the result; returns violations with the violated components. Slower than validate_artifact: use it before a review or release, not after every edit.",
 			InputSchema: object(props{
 				"artifact_id":     str("Integration flow ID"),
 				"version":         str(`Designtime version, default "active"`),
@@ -321,7 +337,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_resources", Title: "List resources of an integration flow",
-			Description: "Scripts, mappings, schemas and other resources contained in an integration flow (name and type).",
+			Description: "Resources inside an integration flow on the tenant (scripts, mappings, schemas) with name and type. To read one file use get_resource; to edit the flow use download_artifact.",
 			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -338,7 +354,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_resource", Title: "Read a resource of an integration flow",
-			Description: "Content of one resource (e.g. a Groovy script or XSLT) from the tenant; text inline, binary as base64.",
+			Description: "Content of one resource of an integration flow on the tenant (e.g. a Groovy script or XSLT) without downloading the flow; text inline, binary base64.",
 			InputSchema: object(props{
 				"artifact_id": str("Integration flow ID"),
 				"name":        str("Resource name from list_resources"),
@@ -366,7 +382,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "download_artifact", Title: "Download an artifact into a local directory",
-			Description: "Download a designtime artifact from the tenant and extract it into a local directory (inside the server root) to edit it; upload it again with upload_artifact. The directory must be empty unless overwrite=true.",
+			Description: "Download a designtime artifact and extract it into a local directory inside the server root. Use it once before editing an existing artifact; then edit the files and upload_artifact. The directory must be empty unless overwrite=true.",
 			InputSchema: object(props{
 				"artifact_id":   str("Artifact ID"),
 				"artifact_type": enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),
@@ -401,8 +417,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_credentials", Title: "List security credentials",
-			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). " +
-				"Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
+			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
 			InputSchema: object(props{"kind": enum("Only this kind", cpi.CredentialKinds...)}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -417,7 +432,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "list_keystore", Title: "List keystore entries",
-			Description: "Certificates and key pairs of a tenant keystore with validity and days left; flags entries expiring within expiring_within_days.",
+			Description: "Certificates and key pairs of a tenant keystore with validity and days left; flags entries expiring within expiring_within_days. Use it to check that a key alias an adapter references exists and is valid.",
 			InputSchema: object(props{
 				"keystore":             enum(`Keystore, default "system"`, cpi.Keystores...),
 				"expiring_within_days": map[string]any{"type": "integer", "minimum": 0, "maximum": 3650, "description": "Flag entries expiring within this many days"},
@@ -436,7 +451,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "get_parameters", Title: "Get configuration parameters",
-			Description: "Externalised configuration parameters of an integration flow.",
+			Description: "Externalised parameters ({{...}} placeholders in the model) of an integration flow with their current values. Change them with set_parameters; no upload needed.",
 			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -456,7 +471,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "set_parameters", Title: "Set configuration parameters",
-			Description: "Set externalised parameters of an integration flow. Only changed values are written; unknown keys fail the call before anything is written. Deploy afterwards to activate.",
+			Description: "Set externalised parameters of an integration flow. Only changed values are written; unknown keys fail the call before anything is written. The running version keeps the old values until you deploy.",
 			InputSchema: object(props{
 				"artifact_id": str("Integration flow ID"),
 				"parameters":  map[string]any{"type": "object", "description": "Parameter key -> new value", "additionalProperties": map[string]any{"type": "string"}},
@@ -481,8 +496,31 @@ func Tools(cfg Config) []Tool {
 			},
 		},
 		{
+			Name: "create_package", Title: "Create an integration package",
+			Description: "Create an integration package if it does not exist (action CREATED or EXISTS; an existing package is never changed). Use it before upload_artifact of an artifact in a new package.",
+			InputSchema: object(props{
+				"package_id":  str("Package ID: letters, digits, '_' and '.'"),
+				"name":        str("Display name, defaults to package_id"),
+				"description": str("Description"),
+				"short_text":  str("Short description, defaults to name"),
+			}, "package_id"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					PackageID   string `json:"package_id"`
+					Name        string `json:"name"`
+					Description string `json:"description"`
+					ShortText   string `json:"short_text"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.CreatePackage(cfg.Exe, ops.PackageRequest{ID: a.PackageID, Name: a.Name, Description: a.Description, ShortText: a.ShortText})
+			},
+		},
+		{
 			Name: "upload_artifact", Title: "Upload artifact from a local directory",
-			Description: "Create the designtime artifact or update it when the local content differs (action CREATED, UPDATED or UNCHANGED). The directory must contain META-INF/MANIFEST.MF and src/main/resources. Does not deploy.",
+			Description: "Create or update a designtime artifact from a local directory (action CREATED, UPDATED or UNCHANGED). The package must exist (create_package); the directory needs META-INF/MANIFEST.MF and src/main/resources. Does not deploy: next validate_artifact, then deploy.",
 			InputSchema: object(props{
 				"artifact_id": str("Artifact ID (must match Bundle-SymbolicName)"),
 				"name":        str("Display name, defaults to artifact_id"),
@@ -511,7 +549,7 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "deploy", Title: "Deploy artifacts",
-			Description: "Deploy designtime artifacts to runtime and wait for the outcome. Returns one result per artifact: status DEPLOYED, SKIPPED, FAILED (with the tenant error message) or TIMEOUT. A redeploy is only reported as DEPLOYED once the runtime shows the new deployment.",
+			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. Next: send_test_message to test the flow.",
 			InputSchema: object(props{
 				"artifact_ids":          strArray("Artifact IDs"),
 				"artifact_type":         enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),
@@ -549,6 +587,51 @@ func Tools(cfg Config) []Tool {
 				opts.CompareVersions = a.CompareVersions
 				results := ops.Deploy(ctx, tenant, artifacts, opts)
 				return map[string]any{"results": results}, ops.Err(results)
+			},
+		},
+		{
+			Name: "send_test_message", Title: "Send a test message",
+			Description: "Send a test message to an endpoint of a deployed integration flow (only URLs the tenant lists for it) and return the HTTP status, the response and the message GUID. " +
+				"With wait_seconds it also waits for the message processing log and returns it (status, error text, custom headers, attachments). " +
+				"This triggers real processing, including calls to receivers: use test data on a development tenant. On failure: get_message_steps with the message GUID.",
+			InputSchema: object(props{
+				"artifact_id":  str("Integration flow ID (deployed)"),
+				"url":          str("Endpoint URL from list_service_endpoints; only needed when the flow has several endpoints"),
+				"method":       enum(`HTTP method, default "POST"`, "POST", "PUT", "PATCH", "GET", "DELETE"),
+				"body":         str("Message body (text)"),
+				"content_type": str("Content-Type of the body, e.g. application/xml"),
+				"headers":      map[string]any{"type": "object", "description": "Additional HTTP headers (not Authorization, Cookie or X-CSRF-Token)", "additionalProperties": map[string]any{"type": "string"}},
+				"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long for the message processing log to reach a final status"},
+				"max_bytes":    maxBytesSchema(),
+			}, "artifact_id"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID  string            `json:"artifact_id"`
+					URL         string            `json:"url"`
+					Method      string            `json:"method"`
+					Body        string            `json:"body"`
+					ContentType string            `json:"content_type"`
+					Headers     map[string]string `json:"headers"`
+					WaitSeconds int               `json:"wait_seconds"`
+					MaxBytes    int               `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				if a.WaitSeconds < 0 || a.WaitSeconds > 600 {
+					return nil, output.Usagef("wait_seconds must be between 0 and 600")
+				}
+				if endpoints == nil {
+					return nil, output.Usagef("sending test messages is not configured for this server")
+				}
+				return ops.SendTestMessage(ctx, cfg.Exe, endpoints, ops.TestMessage{
+					ArtifactID: a.ArtifactID, URL: a.URL, Method: a.Method, Body: []byte(a.Body), ContentType: a.ContentType,
+					Headers: a.Headers, MaxBytes: a.MaxBytes, Wait: time.Duration(a.WaitSeconds) * time.Second, PollInterval: cfg.LogPollInterval,
+				})
 			},
 		},
 		{
@@ -622,6 +705,85 @@ func Tools(cfg Config) []Tool {
 				return ops.PDDeploy(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), opts)
 			},
 		},
+		{
+			Name: "discover_tenant", Title: "Discover conventions of existing content",
+			Description: "Inventory packages and integration flows (adapters, steps, exception subprocesses, log levels, scripts, parameters, credential names, naming patterns) " +
+				"and write it as JSON to output_file inside the server root; returns the summary. Read-only on the tenant. " +
+				"Use it once to derive the conventions of a tenant; it downloads every flow, so limit with package_ids on large tenants. local_dir analyses a local repository instead.",
+			InputSchema: object(props{
+				"package_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Only these packages (default: all)"},
+				"max_iflows":  map[string]any{"type": "integer", "minimum": 0, "description": "Stop after this many integration flows (default: all)"},
+				"output_file": str(`JSON file relative to the server root, default ".cpi/discovery.json"`),
+				"local_dir":   str("Analyse this local directory (relative to the server root) instead of the tenant"),
+			}),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					PackageIDs []string `json:"package_ids"`
+					MaxIFlows  int      `json:"max_iflows"`
+					OutputFile string   `json:"output_file"`
+					LocalDir   string   `json:"local_dir"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if a.OutputFile == "" {
+					a.OutputFile = ".cpi/discovery.json"
+				}
+				out, err := resolvePath(cfg.Root, a.OutputFile)
+				if err != nil {
+					return nil, err
+				}
+				var d *ops.Discovery
+				if a.LocalDir != "" {
+					dir, err := resolvePath(cfg.Root, a.LocalDir)
+					if err != nil {
+						return nil, err
+					}
+					d, err = ops.DiscoverDir(ctx, dir)
+					if err != nil {
+						return nil, err
+					}
+					d.Source = a.LocalDir
+				} else {
+					d, err = ops.DiscoverTenant(ctx, cfg.Exe, cfg.TenantHost, ops.DiscoverOptions{PackageIDs: a.PackageIDs, MaxIFlows: a.MaxIFlows})
+					if err != nil {
+						return nil, err
+					}
+				}
+				if err := ops.WriteDiscovery(d, out); err != nil {
+					return nil, err
+				}
+				return map[string]any{"file": a.OutputFile, "source": d.Source, "summary": d.Summary, "errors": d.Errors}, nil
+			},
+		},
+	}
+}
+
+// cachedEndpointExecuters reuses one executer per endpoint URL, so OAuth and
+// CSRF tokens survive between test messages.
+func cachedEndpointExecuters(newExe ops.EndpointExecuterFunc) ops.EndpointExecuterFunc {
+	if newExe == nil {
+		return nil
+	}
+	type entry struct {
+		exe  *httpclnt.HTTPExecuter
+		path string
+	}
+	var mu sync.Mutex
+	cache := map[string]entry{}
+	return func(url string) (*httpclnt.HTTPExecuter, string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if e, ok := cache[url]; ok {
+			return e.exe, e.path, nil
+		}
+		exe, path, err := newExe(url)
+		if err != nil {
+			return nil, "", err
+		}
+		cache[url] = entry{exe, path}
+		return exe, path, nil
 	}
 }
 

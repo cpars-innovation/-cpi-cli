@@ -26,7 +26,12 @@ type rpcResp struct {
 // session sends the messages to a fresh server and returns the responses by id.
 func session(t *testing.T, mock *cpitest.Tenant, root string, msgs ...string) map[string]rpcResp {
 	t.Helper()
-	srv := NewServer("cpicli", "test", Instructions, Tools(Config{Exe: mock.Executer(), Root: root, PollInterval: time.Millisecond, MaxChecks: 3}))
+	return sessionWith(t, Config{Exe: mock.Executer(), Root: root, PollInterval: time.Millisecond, MaxChecks: 3}, msgs...)
+}
+
+func sessionWith(t *testing.T, cfg Config, msgs ...string) map[string]rpcResp {
+	t.Helper()
+	srv := NewServer("cpicli", "test", Instructions, Tools(cfg))
 	var out bytes.Buffer
 	require.NoError(t, srv.Serve(context.Background(), strings.NewReader(strings.Join(msgs, "\n")+"\n"), &out))
 
@@ -105,7 +110,8 @@ func TestProtocol(t *testing.T) {
 		"get_message_steps", "get_message_attachment", "get_message_store_entry", "list_runtime_artifacts", "list_service_endpoints",
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact",
 		"list_credentials", "list_keystore",
-		"get_parameters", "set_parameters", "upload_artifact", "deploy", "undeploy", "pd_deploy"}, names)
+		"get_parameters", "set_parameters", "create_package", "upload_artifact", "deploy", "send_test_message", "undeploy", "pd_deploy",
+		"discover_tenant"}, names)
 
 	assert.Nil(t, resp["3"].Error)
 	assert.Equal(t, codeMethodNotFound, resp["4"].Error.Code)

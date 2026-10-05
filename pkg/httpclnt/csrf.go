@@ -67,7 +67,11 @@ func (e *HTTPExecuter) csrfRefresh(seenGeneration int) (string, []*http.Cookie, 
 }
 
 func (e *HTTPExecuter) fetchCSRFLocked() error {
-	resp, err := e.send(http.MethodGet, CSRFFetchPath, nil, map[string]string{"X-CSRF-Token": "Fetch"}, nil)
+	path := CSRFFetchPath
+	if e.csrfPath != "" {
+		path = e.csrfPath
+	}
+	resp, err := e.send(http.MethodGet, path, nil, map[string]string{"X-CSRF-Token": "Fetch"}, nil)
 	if err != nil {
 		return err
 	}

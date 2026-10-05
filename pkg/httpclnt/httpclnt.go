@@ -23,6 +23,19 @@ type HTTPExecuter struct {
 	AuthType      string
 	showLogs      bool
 	csrf          csrf
+	// csrfPath is where CSRF tokens are fetched (default CSRFFetchPath);
+	// csrfOnDemand disables the up-front fetch for Basic Auth.
+	csrfPath     string
+	csrfOnDemand bool
+}
+
+// ForEndpoint configures the executer for a runtime endpoint of an integration
+// flow: CSRF tokens are fetched from path, and only after the endpoint asked for
+// one (403 "X-CSRF-Token: Required"), so no GET reaches an endpoint that does
+// not need a token.
+func (e *HTTPExecuter) ForEndpoint(path string) *HTTPExecuter {
+	e.csrfPath, e.csrfOnDemand = path, true
+	return e
 }
 
 // New returns an initialised HTTPExecuter instance.
@@ -78,7 +91,7 @@ func (e *HTTPExecuter) Exec(method string, path string, body io.Reader, headers 
 		return e.send(method, path, payload, headers, nil)
 	}
 
-	token, cookies, generation, err := e.csrfCurrent(e.AuthType == "BASIC")
+	token, cookies, generation, err := e.csrfCurrent(e.AuthType == "BASIC" && !e.csrfOnDemand)
 	if err != nil {
 		return nil, err
 	}

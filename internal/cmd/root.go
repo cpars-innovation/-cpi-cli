@@ -81,6 +81,8 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewPackagesCommand())
 	rootCmd.AddCommand(NewArtifactsCommand())
 	rootCmd.AddCommand(NewParamsCommand())
+	rootCmd.AddCommand(NewSendCommand())
+	rootCmd.AddCommand(NewDiscoverCommand())
 	rootCmd.AddCommand(NewMCPCommand(version))
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
@@ -216,7 +218,8 @@ const envPrefix = "CPICTL"
 // legacyEnvPrefix is the FlashPipe prefix, only used to warn about old settings.
 const legacyEnvPrefix = "FLASHPIPE"
 
-// annotationOffline marks commands that do not talk to a tenant.
+// annotationOffline marks commands that do not talk to a tenant: "true", or the
+// name of a flag that makes the command offline when set (e.g. discover --dir).
 const annotationOffline = "cpicli/offline"
 
 // legacySettingsHint warns about FlashPipe-era settings that are no longer read.
@@ -306,7 +309,7 @@ func initializeConfig(cmd *cobra.Command) error {
 		log.Warn().Msg(legacy)
 	}
 
-	if cmd.Annotations[annotationOffline] != "true" {
+	if offline := cmd.Annotations[annotationOffline]; offline != "true" && (offline == "" || config.GetString(cmd, offline) == "") {
 		hasAuth := config.GetString(cmd, "oauth-host") != "" || config.GetString(cmd, "tmn-userid") != ""
 		switch {
 		case config.GetString(cmd, "tmn-host") == "" && !hasAuth:
