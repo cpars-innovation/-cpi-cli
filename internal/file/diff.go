@@ -1,34 +1,158 @@
 package file
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io/fs"
+	"os"
+	"path"
+	"sort"
+	"strings"
+
 	"github.com/rs/zerolog/log"
-	"os/exec"
 )
 
-func DiffDirectories(firstDir string, secondDir string) bool {
-	log.Info().Msgf("Executing command: diff --ignore-matching-lines=^Origin.* --strip-trailing-cr --recursive --ignore-all-space --ignore-blank-lines --exclude=parameters.prop --exclude=.DS_Store %v %v", firstDir, secondDir)
-	cmd := exec.Command("diff", "--ignore-matching-lines=^Origin.*", "--strip-trailing-cr", "--recursive", "--ignore-all-space", "--ignore-blank-lines", "--exclude=parameters.prop", "--exclude=.DS_Store", firstDir, secondDir)
+// The comparisons below decide whether content changed (upload, sync,
+// drift). They are pure Go (no external diff program, so they work on every
+// platform) and ignore what the tenant rewrites on its own:
+//   - carriage returns, whitespace inside lines and blank lines;
+//   - in directories: lines starting with "Origin" (MANIFEST.MF headers the
+//     tenant adds) and the files parameters.prop and .DS_Store;
+//   - in single files: lines starting with "#" (comments and timestamps of
+//     .prop files).
 
-	stdoutStderr, err := cmd.CombinedOutput()
-	// An error means there is a difference
-	if err != nil {
-		log.Info().Msgf("Diff results:\n%v", string(stdoutStderr))
+var excludedNames = map[string]bool{"parameters.prop": true, ".DS_Store": true}
+
+// normalizeLines returns the significant lines of data.
+func normalizeLines(data []byte, ignorePrefix string) []string {
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.Join(strings.Fields(line), "")
+		if line == "" || (ignorePrefix != "" && strings.HasPrefix(line, ignorePrefix)) {
+			continue
+		}
+		out = append(out, line)
 	}
-
-	return err != nil
+	return out
 }
 
-func DiffFile(firstFile string, secondFile string) bool {
-	// - ignoring commented lines (beginning with #)
-	// - ignoring blank lines and extra white space
-	log.Info().Msgf("Executing command: diff --ignore-matching-lines=^#.* --strip-trailing-cr --ignore-all-space --ignore-blank-lines %v %v", firstFile, secondFile)
-	cmd := exec.Command("diff", "--ignore-matching-lines=^#.*", "--strip-trailing-cr", "--ignore-all-space", "--ignore-blank-lines", firstFile, secondFile)
+// normalizedTree reads all files of fsys below root (excluding
+// parameters.prop and .DS_Store) as relative path -> significant lines.
+func normalizedTree(fsys fs.FS, root string) (map[string][]string, error) {
+	tree := map[string][]string{}
+	err := fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || excludedNames[d.Name()] {
+			return nil
+		}
+		data, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(strings.TrimPrefix(p, root), "/")
+		tree[rel] = normalizeLines(data, "Origin")
+		return nil
+	})
+	return tree, err
+}
 
-	stdoutStderr, err := cmd.CombinedOutput()
-	// An error means there is a difference
-	if err != nil {
-		log.Info().Msgf("Diff results:\n%v", string(stdoutStderr))
+func equalLines(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
-	return err != nil
+// DiffDirectories reports whether two directory trees differ (see above for
+// what is ignored). A missing directory differs from an existing one.
+func DiffDirectories(firstDir string, secondDir string) bool {
+	a, errA := normalizedTree(os.DirFS(firstDir), ".")
+	b, errB := normalizedTree(os.DirFS(secondDir), ".")
+	if errA != nil || errB != nil {
+		if errA != nil && errB != nil && os.IsNotExist(errA) && os.IsNotExist(errB) {
+			return false
+		}
+		log.Info().Msgf("Comparing %v and %v: %v %v", firstDir, secondDir, errA, errB)
+		return true
+	}
+	var differing []string
+	for name, lines := range a {
+		if other, ok := b[name]; !ok || !equalLines(lines, other) {
+			differing = append(differing, name)
+		}
+	}
+	for name := range b {
+		if _, ok := a[name]; !ok {
+			differing = append(differing, name)
+		}
+	}
+	if len(differing) > 0 {
+		sort.Strings(differing)
+		log.Info().Msgf("Content differs: %s", strings.Join(differing, ", "))
+		return true
+	}
+	return false
+}
+
+// DiffFile reports whether two files differ, ignoring comment lines.
+func DiffFile(firstFile string, secondFile string) bool {
+	a, errA := os.ReadFile(firstFile)
+	b, errB := os.ReadFile(secondFile)
+	if errA != nil || errB != nil {
+		return true
+	}
+	if !equalLines(normalizeLines(a, "#"), normalizeLines(b, "#")) {
+		log.Info().Msgf("File differs: %v", path.Base(firstFile))
+		return true
+	}
+	return false
+}
+
+// ContentHash is a hash of the significant content of an artifact in fsys
+// (the root holds META-INF): META-INF, src/main/resources, metainfo.prop and
+// value_mapping.xml, normalized as in DiffDirectories / DiffFile. Equal hashes
+// mean upload would report UNCHANGED.
+func ContentHash(fsys fs.FS) (string, error) {
+	h := sha256.New()
+	add := func(name string, lines []string) {
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+		for _, l := range lines {
+			h.Write([]byte(l))
+			h.Write([]byte{'\n'})
+		}
+		h.Write([]byte{0})
+	}
+	for _, dir := range []string{"META-INF", "src/main/resources"} {
+		if _, err := fs.Stat(fsys, dir); err != nil {
+			continue
+		}
+		tree, err := normalizedTree(fsys, dir)
+		if err != nil {
+			return "", err
+		}
+		names := make([]string, 0, len(tree))
+		for n := range tree {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			add(dir+"/"+n, tree[n])
+		}
+	}
+	for _, f := range []string{"metainfo.prop", "value_mapping.xml"} {
+		if data, err := fs.ReadFile(fsys, f); err == nil {
+			add(f, normalizeLines(bytes.TrimSpace(data), "#"))
+		}
+	}
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:16]), nil
 }
