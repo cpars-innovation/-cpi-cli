@@ -43,7 +43,7 @@ func TestDeploy_PollsTaskStatusThenRuntime(t *testing.T) {
 	}, []string{"A"}, fastOpts())
 
 	require.Len(t, results, 1)
-	assert.Equal(t, Result{ID: "A", Type: "Integration", TaskID: "task-A", Status: StatusDeployed, Version: "1.0.1"}, results[0])
+	assert.Equal(t, Result{ID: "A", Type: "Integration", TaskID: "task-A", Status: StatusDeployed, Version: "1.0.1", DesigntimeVersion: "1.0.1"}, results[0])
 	assert.Equal(t, 2, mock.Count("GET /api/v1/BuildAndDeployStatus"))
 	assert.NoError(t, Err(results))
 }
@@ -237,4 +237,54 @@ func TestDeploy_CSRFTokenSharedAndRefreshed(t *testing.T) {
 	results = Undeploy(context.Background(), tenant, list[:1], fastOpts())
 	require.NoError(t, Err(results))
 	assert.Equal(t, 2, mock.CSRFFetches(), "expired token refreshed once")
+}
+
+func TestCompareVersions(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"1.0.10", "1.0.9", 1},
+		{"1.0.9", "1.0.10", -1},
+		{"1.0.0", "1.0.0", 0},
+		{"1.0", "1.0.0", 0},
+		{"2", "1.9.9", 1},
+		{"1.0.01", "1.0.1", 0},
+		{"1.0.0-SNAPSHOT", "1.0.0", 1},
+		{"1.0.beta", "1.0.9", 1},
+		{"1.0.alpha", "1.0.beta", -1},
+		{"Active", "1.0.10", 1},
+		{"99999999999999999999.0", "1.0", 1},
+	} {
+		assert.Equal(t, c.want, CompareVersions(c.a, c.b), "%s vs %s", c.a, c.b)
+	}
+}
+
+func TestDeploy_DowngradeGuard(t *testing.T) {
+	newer := &cpitest.Runtime{Version: "1.0.10", Status: "STARTED", DeployedOn: t0}
+	results, mock := run(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.9", Runtime: newer},
+	}, []string{"A"}, fastOpts())
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusFailed, results[0].Status)
+	assert.Contains(t, results[0].Error, "designtime version 1.0.9 is older than running 1.0.10")
+	assert.Equal(t, "1.0.9", results[0].DesigntimeVersion)
+	assert.Equal(t, "1.0.10", results[0].RuntimeVersion)
+	assert.Equal(t, 0, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"), "no deploy may be triggered")
+
+	opts := fastOpts()
+	opts.AllowDowngrade = true
+	results, mock = run(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.9", Runtime: newer, TaskStatuses: []string{"SUCCESS"},
+			AfterDeploy: []*cpitest.Runtime{{Version: "1.0.9", Status: "STARTED", DeployedOn: t1}}},
+	}, []string{"A"}, opts)
+	assert.Equal(t, StatusDeployed, results[0].Status, results[0].Error)
+	assert.Equal(t, 1, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+
+	results, _ = run(t, map[string]*cpitest.Artifact{
+		"B": {Type: "Integration", DesignVersion: "1.0.0", TaskStatuses: []string{"SUCCESS"},
+			AfterDeploy: []*cpitest.Runtime{{Version: "1.0.0", Status: "STARTED", DeployedOn: t1}}},
+	}, []string{"B"}, fastOpts())
+	assert.Equal(t, StatusDeployed, results[0].Status, "not deployed yet: no guard")
+	assert.Empty(t, results[0].RuntimeVersion)
 }

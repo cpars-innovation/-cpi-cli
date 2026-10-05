@@ -617,11 +617,12 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "deploy", Title: "Deploy artifacts",
-			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. Next: send_test_message to test the flow.",
+			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless allow_downgrade. Next: send_test_message to test the flow.",
 			InputSchema: object(props{
 				"artifact_ids":          strArray("Artifact IDs"),
 				"artifact_type":         enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),
 				"compare_versions":      boolean("Skip artifacts whose version is already running (default false: always deploy)"),
+				"allow_downgrade":       boolean("Deploy even if the designtime version is older than the running one (default false: such a deploy FAILS before it is triggered, because the tenant copy was probably not updated)"),
 				"poll_interval_seconds": integer("Seconds between status checks"),
 				"max_checks":            integer("Maximum number of status checks per artifact"),
 			}, "artifact_ids"),
@@ -631,6 +632,7 @@ func Tools(cfg Config) []Tool {
 					ArtifactIDs     []string `json:"artifact_ids"`
 					ArtifactType    string   `json:"artifact_type"`
 					CompareVersions bool     `json:"compare_versions"`
+					AllowDowngrade  bool     `json:"allow_downgrade"`
 					PollInterval    *int     `json:"poll_interval_seconds"`
 					MaxChecks       *int     `json:"max_checks"`
 				}
@@ -653,6 +655,7 @@ func Tools(cfg Config) []Tool {
 				}
 				opts := pollOptions(cfg, a.PollInterval, a.MaxChecks)
 				opts.CompareVersions = a.CompareVersions
+				opts.AllowDowngrade = a.AllowDowngrade
 				results := ops.Deploy(ctx, tenant, artifacts, opts)
 				return map[string]any{"results": results}, ops.Err(results)
 			},

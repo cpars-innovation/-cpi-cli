@@ -370,6 +370,7 @@ Configuration:
 **Flags:**
 
 ```
+      --allow-downgrade        Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)
       --artifact-ids strings   Comma separated list of artifact IDs (config: deploy.artifactIds)
       --artifact-type string   Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType) (default "Integration")
       --compare-versions       Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions) (default true)

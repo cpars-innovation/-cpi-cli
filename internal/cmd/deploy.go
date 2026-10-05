@@ -46,6 +46,7 @@ Configuration:
 	deployCmd.Flags().Int("delay-length", 30, "Delay (in seconds) between each check of artifact deployment status (config: deploy.delayLength)")
 	deployCmd.Flags().Int("max-check-limit", 10, "Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit)")
 	// To set to false, use --compare-versions=false
+	deployCmd.Flags().Bool("allow-downgrade", false, "Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)")
 	deployCmd.Flags().Bool("compare-versions", true, "Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions)")
 	deployCmd.Flags().String("artifact-type", "Integration", "Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType)")
 
@@ -63,6 +64,7 @@ func runDeploy(cmd *cobra.Command) error {
 	delayLength := config.GetIntWithFallback(cmd, "delay-length", "deploy.delayLength")
 	maxCheckLimit := config.GetIntWithFallback(cmd, "max-check-limit", "deploy.maxCheckLimit")
 	compareVersions := config.GetBoolWithFallback(cmd, "compare-versions", "deploy.compareVersions")
+	allowDowngrade := config.GetBoolWithFallback(cmd, "allow-downgrade", "deploy.allowDowngrade")
 
 	artifacts := make([]ops.Artifact, 0, len(artifactIds))
 	for _, id := range nonEmpty(artifactIds) {
@@ -79,6 +81,7 @@ func runDeploy(cmd *cobra.Command) error {
 		Interval:        time.Duration(delayLength) * time.Second,
 		MaxChecks:       maxCheckLimit,
 		CompareVersions: compareVersions,
+		AllowDowngrade:  allowDowngrade,
 		// All artifacts are triggered and polled concurrently, as before
 		Parallelism: len(artifacts),
 	})

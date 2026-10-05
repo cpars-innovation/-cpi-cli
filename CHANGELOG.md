@@ -13,7 +13,9 @@ First release.
   Git (`sync`, `snapshot`), API Management and Partner Directory commands.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
-  with one structured result per artifact.
+  with one structured result per artifact (including designtime and runtime version).
+- Downgrade guard: a designtime version older than the running one is not deployed unless
+  `--allow-downgrade` / `allow_downgrade`.
 - Message processing logs: `logs` (query, `--wait` for final status, error texts),
   `logs get` (error text, custom headers, adapter attributes, attachments, persisted messages),
   `logs steps` (failing step), `logs attachment`, `logs payload`.
