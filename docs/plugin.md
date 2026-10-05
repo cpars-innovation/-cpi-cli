@@ -51,7 +51,9 @@ stay inside the repository you opened.
 | agent `cpi-reviewer` | Does the review for cpi-review with a fresh context and read-only tools | none |
 
 Skills are picked automatically from what you ask ("build an interface that ...", "why do the
-orders fail?"), or called directly, e.g. `/cpi:cpi-discover`.
+orders fail?"), or called directly, e.g. `/cpi:cpi-discover`. To see what is available, run
+`/skills` in Claude Code, ask "what can the cpi server do?" (the MCP tool `help` lists tools,
+skills and workflows), or `cpictl skills list` in a terminal.
 
 Why a reviewer *agent* and the rest as skills: planning, building and testing are
 conversations with you and need the full context of the task, so they run in the main

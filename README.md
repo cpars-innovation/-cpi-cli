@@ -218,7 +218,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
 | Security | `credentials` (list, set-user, set-oauth2, set-secure-param, apply, delete), `keystore` (list, export-cert, import-cert) |
-| AI agents | `mcp` |
+| AI agents | `mcp`, `skills` (list, show, install) |
 
 All commands and flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
 
@@ -308,6 +308,14 @@ Tools cover the whole loop: `create_package`, `download_artifact`, `upload_artif
 through the agent.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
 See [docs/mcp.md](docs/mcp.md).
+
+### What can it do?
+
+Ask the agent: "what can you do with the cpi server?" The MCP tool `help` answers from the
+server itself: the tools available in its mode, the skills and their instructions, the CLI
+commands, and which tools and skill fit tasks such as "create a new flow from a template" or
+"find who calls this flow" ([details](docs/mcp.md#finding-your-way)). Without an agent:
+`cpictl --help`, `cpictl skills list`, [docs/commands.md](docs/commands.md).
 
 ### Claude Code plugin
 

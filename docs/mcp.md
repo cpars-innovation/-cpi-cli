@@ -147,6 +147,7 @@ read roles.
 
 | Tool | Changes | Purpose |
 |------|---------|---------|
+| `help` | | What this server offers: tools after mode and filters, the cpi skills (with their instructions), the CLI commands, and which tools and skill fit common tasks. `topic` for one tool, skill, skill file or command. Always available. See [Finding your way](#finding-your-way) |
 | `list_packages` | | All integration packages |
 | `create_package` | designtime | Create a package if it does not exist (`CREATED` / `EXISTS`, never changes one) |
 | `list_artifacts` | | Designtime artifacts of a package (all four types) |
@@ -204,6 +205,24 @@ error, never silently ignored. `tools/list` returns the schemas and MCP annotati
 `deploy` always deploys by default (`compare_versions: false`), unlike the CLI. After
 `set_parameters` the version does not change, so skipping by version would leave the old
 configuration running.
+
+## Finding your way
+
+Agents (and you, through the agent) can ask the server what it can do. `help` is added after
+the mode and tool filters, so it reports what is really available on this server:
+
+| Call | Returns |
+|------|---------|
+| `help` | Mode, available and disabled tools, workflows (task -> skill, tools, docs), skills, CLI commands |
+| `help {"topic": "copy_iflow"}` | Description and input schema of a tool, or why it is not available here |
+| `help {"topic": "cpi-test"}` | The skill's instructions (`SKILL.md`) and its reference files |
+| `help {"topic": "cpi-plan/brief-template.md"}` | One reference file of a skill |
+| `help {"topic": "iflow copy"}` | Usage, description and flags of a CLI command |
+| `help {"topic": "workflows"}` | Only the task overview (also `tools`, `skills`, `cli`) |
+
+Typical questions it answers: "what can you do on this tenant?", "which tool finds the flows that
+call X?", "how do I test a ProcessDirect flow?". On the command line the same information is in
+`cpictl --help`, `cpictl <command> --help`, [commands.md](commands.md) and `cpictl skills list`.
 
 ## Result format
 

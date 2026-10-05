@@ -9,7 +9,8 @@ This repository holds SAP Cloud Integration content for the tenant(s) reached th
 - To find flows, callers, shared credentials, scripts or Partner Directory parameters, use the
   graph tools (`graph_search`, `graph_neighbors`, `graph_path`) on `.cpi/graph.json` instead of
   reading `.cpi/discovery.json`.
-- Use the skills `cpi-plan`, `cpi-build`, `cpi-test` and `cpi-review` for that work.
+- Use the skills `cpi-plan`, `cpi-build`, `cpi-test` and `cpi-review` for that work. Unsure
+  which tool or skill fits? Call the MCP tool `help` (it can also return a skill's instructions).
 - Only change the development tenant. Never deploy, undeploy or send test messages to QA or
   production; ask the user instead.
 - No secrets, tokens or productive data in files, parameters or test messages.

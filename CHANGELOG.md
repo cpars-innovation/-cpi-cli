@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- MCP tool `help`: what the server offers in its mode (available and disabled tools), workflows
+  (task -> skill, tools, docs), the cpi skills with their instructions and reference files, and
+  the CLI commands; `topic` for details of one tool, skill, skill file or command. Lets clients
+  without skill support use the skills.
+- `cpictl skills list|show|install`: the skills are built into the binary; `install` copies them
+  into `.agents/skills`, `.cursor/skills`, `.gemini/skills` or `.claude/skills` (repository or
+  `--user`) without a checkout of this repository.
+- `docs/mcp.md` is checked to mention every MCP tool.
 - `cpictl iflow copy` (MCP `copy_iflow`): copy an integration flow from the tenant or a local
   folder under a new ID, name, description and version; renames the model and `.project`,
   keeps `;singleton:=true`, wraps manifest lines correctly, and changes every sender address

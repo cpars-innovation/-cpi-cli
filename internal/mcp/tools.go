@@ -19,7 +19,9 @@ import (
 )
 
 // Instructions is sent to the client on initialize.
-const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
+const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant. Unsure which tool or
+skill fits a task? Call help (overview, or a topic: a tool, a skill and its instructions, a CLI
+command).
 
 Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
 (existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses)

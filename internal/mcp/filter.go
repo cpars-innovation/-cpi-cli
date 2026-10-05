@@ -40,7 +40,7 @@ var toolEffects = map[string]Effect{
 	"list_jms_queues": EffectRead, "get_jms_broker": EffectRead, "list_number_ranges": EffectRead,
 	"list_log_files": EffectRead, "get_log_file": EffectRead, "list_idempotent_entries": EffectRead, "list_id_mappings": EffectRead,
 	"drift":        EffectRead,
-	"graph_search": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
+	"graph_search": EffectRead, "help": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
 	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal, "copy_iflow": EffectLocal,

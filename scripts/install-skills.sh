@@ -2,6 +2,7 @@
 # Installs the cpi skills (plugin/skills) for agents that read SKILL.md
 # folders: Codex, Cursor, Gemini CLI and others following the Agent Skills
 # format. Claude Code users install the plugin instead (docs/plugin.md).
+# Without a checkout, 'cpictl skills install' does the same from the binary.
 #
 #   scripts/install-skills.sh [--agent agents|codex|cursor|gemini] [--user] [REPO]
 #
@@ -15,7 +16,7 @@
 # Existing cpi-* skills in the target are replaced; other skills are kept.
 set -euo pipefail
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 agent=agents
 user=false

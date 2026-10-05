@@ -20,7 +20,8 @@ func toolNames(tools []Tool) []string {
 
 // A new tool must be classified, otherwise read-only servers could offer it.
 func TestEveryToolHasAnEffect(t *testing.T) {
-	all := NewLedger(t.TempDir()).Wrap(Tools(Config{}))
+	// help is added by the server command after filtering
+	all := append(NewLedger(t.TempDir()).Wrap(Tools(Config{})), HelpTool(HelpInfo{}))
 	for _, tool := range all {
 		effect, ok := toolEffects[tool.Name]
 		require.True(t, ok, "add %s to toolEffects", tool.Name)

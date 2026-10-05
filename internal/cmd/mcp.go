@@ -79,6 +79,9 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			if len(removed) > 0 {
 				log.Info().Msgf("Tools disabled by configuration: %s", strings.Join(removed, ", "))
 			}
+			// help reports the tools that are really available, so it is added after filtering
+			tools = append(tools, mcp.HelpTool(mcp.HelpInfo{Tools: tools, Removed: removed, Mode: mode, ReadOnly: readOnly,
+				Commands: commandInfos(cmd.Root())}))
 			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed)+mcp.ModeInstructions(mode), tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
 			err = server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())

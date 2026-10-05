@@ -95,14 +95,17 @@ path (`which cpictl`, usually `~/go/bin/cpictl` after `go install`).
 ## 3. Skills
 
 The skills are plain [Agent Skills](https://agentskills.io) folders (`SKILL.md` and reference
-files) in `plugin/skills`. Copy them into the content repository, so the whole team gets the same
+files). They are built into `cpictl`, in the version of the binary, so no checkout of this
+repository is needed. Copy them into the content repository, so the whole team gets the same
 version and you can review updates like any other change:
 
 ```bash
-git clone --depth 1 https://github.com/cpars-innovation/cpicli /tmp/cpicli
-/tmp/cpicli/scripts/install-skills.sh --agent codex  /path/to/content-repo   # .agents/skills
-/tmp/cpicli/scripts/install-skills.sh --agent cursor /path/to/content-repo   # .cursor/skills
-/tmp/cpicli/scripts/install-skills.sh --agent gemini /path/to/content-repo   # .gemini/skills
+cd /path/to/content-repo
+cpictl skills list                      # what is there
+cpictl skills install --agent codex     # .agents/skills
+cpictl skills install --agent cursor    # .cursor/skills
+cpictl skills install --agent gemini    # .gemini/skills
+cpictl skills show cpi-build            # read one
 ```
 
 | `--agent` | Folder | Read by |
@@ -110,11 +113,17 @@ git clone --depth 1 https://github.com/cpars-innovation/cpicli /tmp/cpicli
 | `agents`, `codex` (default) | `.agents/skills` | Codex, Cursor, other agents following the shared location |
 | `cursor` | `.cursor/skills` | Cursor |
 | `gemini` | `.gemini/skills` | Gemini CLI |
+| `claude` | `.claude/skills` | Claude Code without the plugin |
 
 `--user` installs into your home directory instead (`~/.agents/skills`, ...), for all
-repositories. Run the script again to update; it replaces the `cpi-*` skills and keeps the
+repositories. Run it again after updating cpictl; it replaces the `cpi-*` skills and keeps the
 others. It removes the `allowed-tools` line, which names the tools as the Claude Code plugin
-sees them.
+sees them. (`scripts/install-skills.sh` in this repository does the same from a checkout.)
+
+**Clients without skill support** (Claude Desktop, other MCP clients): the MCP tool `help`
+returns the skills too. Ask the agent to "read the cpi-build skill with the help tool and
+follow it"; `help {"topic": "cpi-build"}` returns its instructions, and
+`help {"topic": "cpi-build/iflow-structure.md"}` a reference file.
 
 Then, in the content repository, ask the agent to run `cpi-discover` once: it writes
 `.cpi/conventions.md`, which the other skills read.

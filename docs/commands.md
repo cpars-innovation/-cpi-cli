@@ -76,6 +76,10 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`resources`](#resources) | List the resources (scripts, mappings, schemas, ...) of an integration flow |
 | [`resources get`](#resources-get) | Download one resource of an integration flow |
 | [`send`](#send) | Send a test message to a deployed integration flow |
+| [`skills`](#skills) | List, read and install the cpi skills built into cpictl |
+| [`skills install`](#skills-install) | Copy the skills into the skill folder of an agent |
+| [`skills list`](#skills-list) | List the skills and what they are for |
+| [`skills show`](#skills-show) | Print a skill's SKILL.md or one of its reference files |
 | [`snapshot`](#snapshot) | Save all integration packages of the tenant to a Git repository |
 | [`snapshot restore`](#snapshot-restore) | Create or update integration packages on the tenant from a Git repository |
 | [`status`](#status) | Show runtime status, version and errors of artifacts |
@@ -1669,6 +1673,72 @@ reports that flow's message (found by correlation ID). See docs/testing.md.
 
   # A flow with a ProcessDirect sender, through the test harness
   cpictl send --artifact-id Billing --process-direct /billing/in --body-file invoice.xml --wait 60s
+```
+
+## skills
+
+List, read and install the cpi skills built into cpictl
+
+```
+The skills of the Claude Code plugin (cpi-discover, cpi-plan, cpi-build, cpi-test,
+cpi-review) are built into cpictl, in the version of this binary. Use them in
+agents other than Claude Code (Codex, Cursor, Gemini CLI, ...), or read them.
+Claude Code users install the plugin instead (docs/plugin.md); over MCP, the
+help tool shows the same skills.
+```
+
+## skills install
+
+Copy the skills into the skill folder of an agent
+
+```
+Copy the skills into a content repository (default: the current directory) or,
+with --user, into your home directory, in the folder the agent reads:
+
+  agents, codex   .agents/skills   (Codex; Cursor and others read it too)
+  cursor          .cursor/skills
+  gemini          .gemini/skills
+  claude          .claude/skills   (Claude Code without the plugin)
+
+Existing cpi-* skills there are replaced; other skills are kept. The
+allowed-tools line is removed, it names tools as the Claude Code plugin sees
+them. Run it again after updating cpictl.
+```
+
+**Usage:** `cpictl skills install [REPO] [flags]`
+
+**Flags:**
+
+```
+      --agent string   Agent whose skill folder to use: agents, claude, codex, cursor, gemini (default "agents")
+      --user           Install into your home directory instead of a repository
+```
+
+**Examples:**
+
+```
+  cpictl skills install --agent codex
+  cpictl skills install --agent cursor ../content-repo
+  cpictl skills install --agent gemini --user
+```
+
+## skills list
+
+List the skills and what they are for
+
+**Usage:** `cpictl skills list`
+
+## skills show
+
+Print a skill's SKILL.md or one of its reference files
+
+**Usage:** `cpictl skills show SKILL [FILE]`
+
+**Examples:**
+
+```
+  cpictl skills show cpi-build
+  cpictl skills show cpi-plan brief-template.md
 ```
 
 ## snapshot
