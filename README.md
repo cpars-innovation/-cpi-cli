@@ -280,6 +280,8 @@ as `.mcp.json` in the root of the integration content repository
 - No credentials in the file: each developer has their own `~/.cpictl/dev.yaml`; whoever named
   the profile differently sets `CPICTL_DEV_PROFILE`.
 - A server keeps its profile while it runs; `cpictl profile use` does not affect it.
+- `--mode`: `discover` (read-only), `operate` (read + `set_log_level`), `develop` (all tools, no
+  Partner Directory full sync), `full` (no restrictions). Details: [docs/mcp.md](docs/mcp.md#modes).
 - `--root .` confines local paths of tool calls to the repository. Use the full path of `cpictl`
   if Claude Code does not find it on the `PATH`.
 - Without profiles, pass the `CPICTL_*` variables in `env` instead

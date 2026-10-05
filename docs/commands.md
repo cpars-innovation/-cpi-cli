@@ -985,7 +985,7 @@ Limit the tools per server, e.g. for a QA or production tenant:
   --read-only                     no tool that changes the tenant or sends messages
   --tools list_*,get_*            only matching tools
   --disable-tools undeploy,pd_*   everything except these
-  --mode discover|operate|develop presets (combined with the above, the most
+  --mode discover|operate|develop|full presets (combined with the above, the most
                                   restrictive wins)
 Also as CPICTL_MODE, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
 listed and cannot be called; a pattern that matches no tool is an error.
@@ -998,7 +998,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
 ```
       --disable-tools strings               Do not offer these tools (names or patterns); wins over --tools
       --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
-      --mode string                         Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync)
+      --mode string                         Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)
       --poll-interval int                   Default seconds between deploy/undeploy status checks (default 10)
       --read-only                           Offer only tools that do not change the tenant or trigger processing
       --root string                         Directory that local paths of tool calls are confined to (default ".")

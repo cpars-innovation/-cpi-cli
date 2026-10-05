@@ -110,6 +110,10 @@ restrictive wins:
 | `discover` | read-only (same as `--read-only`) |
 | `operate` | read tools, local files and `set_log_level`: monitoring and diagnosis |
 | `develop` | all tools; `pd_deploy` refuses `full_sync`, `undeploy` needs `confirm` |
+| `full` | all tools without restrictions, including `pd_deploy` with `full_sync` (same as no `--mode`) |
+
+`undeploy` and `delete_data_store_entry` always need `confirm: true`; that is part of the tool,
+not of a mode.
 
 The mode is added to the server instructions.
 

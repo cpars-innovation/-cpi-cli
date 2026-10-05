@@ -23,7 +23,7 @@ First release.
   report a missing role (403) as `status: "missing_role"` instead of an auth error.
 - Build loops: `loop_start` / `loop_status` / `loop_end` with server-enforced limits
   (iterations, repeated errors, wall clock, deploys); exit code 8 / `stopped`. `cpictl mcp --mode
-  discover|operate|develop`.
+  discover|operate|develop|full`.
 - Tracing across flows: `send` / `send_test_message` send a W3C `traceparent` and return the
   `traceId`; `logs tree` / `get_trace_tree` build the call tree and the first failure;
   `logs --header name=value` / `custom_header` and `--package-id` search by custom header

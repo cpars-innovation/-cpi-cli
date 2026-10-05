@@ -67,7 +67,10 @@ func SetLogLevel(exe *httpclnt.HTTPExecuter, req LogLevelRequest) (*LogLevelResu
 	}
 	body, _ := json.Marshal(map[string]string{"artifactSymbolicName": req.ArtifactID, "mplLogLevel": level,
 		"nodeType": req.NodeType, "runtimeLocationId": req.RuntimeLocationID})
-	resp, err := exe.Exec(http.MethodPost, setLogLevelPath, bytes.NewReader(body), map[string]string{"Content-Type": "application/json", "Accept": "application/json"})
+	// The Web UI command does not answer with application/json: a JSON-only
+	// Accept header gets 406 Not Acceptable, so accept any representation (the
+	// body is not used).
+	resp, err := exe.Exec(http.MethodPost, setLogLevelPath, bytes.NewReader(body), map[string]string{"Content-Type": "application/json", "Accept": "*/*"})
 	if err != nil {
 		return nil, err
 	}

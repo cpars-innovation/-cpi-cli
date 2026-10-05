@@ -970,6 +970,11 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(a.Zip)
 
 	case r.Method == http.MethodPost && path == "/Operations/com.sap.it.op.tmn.commands.dashboard.webui.IntegrationComponentSetMplLogLevelCommand":
+		// like the tenant: the command does not produce JSON
+		if accept := r.Header.Get("Accept"); accept != "" && !strings.Contains(accept, "*/*") {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || m.Artifacts[body["artifactSymbolicName"]] == nil {
 			w.WriteHeader(http.StatusBadRequest)

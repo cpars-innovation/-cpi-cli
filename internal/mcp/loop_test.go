@@ -152,3 +152,12 @@ func TestDevelopModeRefusesFullSync(t *testing.T) {
 	assert.Equal(t, "usage", res.ErrorCategory)
 	assert.Contains(t, res.Error, "full_sync is not allowed")
 }
+
+func TestFullModeAllowsEverything(t *testing.T) {
+	all := NewLedger(t.TempDir()).Wrap(Tools(Config{}))
+	kept, removed, err := ApplyFilters(all, "full", ToolFilter{})
+	require.NoError(t, err)
+	assert.Len(t, kept, len(all))
+	assert.Empty(t, removed)
+	assert.Contains(t, ModeInstructions("full"), "full_sync")
+}

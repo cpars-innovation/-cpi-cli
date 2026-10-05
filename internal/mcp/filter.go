@@ -121,15 +121,16 @@ func FilteredInstructions(instructions string, f ToolFilter, removed []string) s
 }
 
 // Modes are presets for what a server may do.
-var Modes = []string{"discover", "operate", "develop"}
+var Modes = []string{"discover", "operate", "develop", "full"}
 
 // ModeFilter returns the tool filter of a mode ("" = no preset):
 //   - discover: read-only (no tenant changes, no messages sent)
 //   - operate: read tools, local files and set_log_level
 //   - develop: all tools; pd_deploy refuses full_sync (see Config.DenyFullSync)
+//   - full: all tools without restrictions (as without a mode)
 func ModeFilter(mode string) (ToolFilter, error) {
 	switch mode {
-	case "", "develop":
+	case "", "develop", "full":
 		return ToolFilter{}, nil
 	case "discover":
 		return ToolFilter{ReadOnly: true}, nil
@@ -187,6 +188,8 @@ func ModeInstructions(mode string) string {
 		return "\n\nMode: operate. Monitoring and diagnosis: read tools and set_log_level; no content changes or deployments."
 	case "develop":
 		return "\n\nMode: develop. Build loop on a development tenant; pd_deploy full_sync is refused, undeploy needs confirm. Open a loop with loop_start before changing anything."
+	case "full":
+		return "\n\nMode: full. All tools without restrictions, including pd_deploy full_sync (which deletes remote parameters: run pd_diff first). undeploy and delete_data_store_entry still need confirm."
 	}
 	return ""
 }
