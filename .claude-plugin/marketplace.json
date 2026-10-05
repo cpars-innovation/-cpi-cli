@@ -1,0 +1,11 @@
+{
+  "name": "cpicli",
+  "owner": { "name": "cpars innovation" },
+  "plugins": [
+    {
+      "name": "cpi",
+      "source": "./plugin",
+      "description": "Plan, build, test and review SAP Cloud Integration flows with cpictl, following the conventions discovered from your own tenant."
+    }
+  ]
+}

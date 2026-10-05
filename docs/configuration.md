@@ -41,6 +41,22 @@ Either the three OAuth values or the Basic Auth pair are required, except for
 as `https://host` or `host:port`. Plain `http://` is only honoured for `localhost` /
 `127.0.0.1` (used by the offline tests); for any other host https is used.
 
+### Runtime endpoints (test messages)
+
+`send` and the MCP tool `send_test_message` call the flow's own endpoint, which normally needs
+a different service key than the API: *SAP Process Integration Runtime*, plan
+**integration-flow**, with the role `ESBMessaging.send`.
+
+| Flag | Environment variable | Description |
+|------|----------------------|-------------|
+| `--runtime-oauth-clientid` | `CPICTL_RUNTIME_OAUTH_CLIENTID` | OAuth client ID of the integration-flow key |
+| `--runtime-oauth-clientsecret` | `CPICTL_RUNTIME_OAUTH_CLIENTSECRET` | Its secret |
+| `--runtime-oauth-host` | `CPICTL_RUNTIME_OAUTH_HOST` | Token server host, default `--oauth-host` |
+| `--runtime-userid` / `--runtime-password` | `CPICTL_RUNTIME_USERID` / `_PASSWORD` | Basic Auth instead of OAuth |
+
+Without these settings the API credentials are used (works when they also carry
+`ESBMessaging.send`, e.g. with Basic Auth). Missing roles are exit code 3.
+
 ## Global flags
 
 | Flag | Description |

@@ -1,0 +1,65 @@
+---
+name: cpi-discover
+description: Discover how an SAP Cloud Integration tenant builds its integration flows (naming, adapters, error handling, logging, scripts, parameters) and write the repository's conventions file .cpi/conventions.md. Use when a repository has no .cpi/conventions.md yet, when the user asks to analyse, onboard or learn a tenant, or to refresh the conventions after the tenant changed.
+allowed-tools: Read Write Edit Glob Grep mcp__plugin_cpi_cpi__discover_tenant mcp__plugin_cpi_cpi__list_packages mcp__plugin_cpi_cpi__list_artifacts mcp__plugin_cpi_cpi__list_resources mcp__plugin_cpi_cpi__get_resource mcp__plugin_cpi_cpi__get_parameters mcp__plugin_cpi_cpi__list_credentials mcp__plugin_cpi_cpi__list_runtime_artifacts
+---
+
+# Discover a tenant's conventions
+
+Every tenant has its own house style. The other cpi skills (plan, build, test, review) follow
+`.cpi/conventions.md` in the repository. This skill writes the first version of that file from
+the flows that already exist. The user owns the file afterwards: they edit and extend it, and
+you never overwrite their changes.
+
+## 1. Check what is there
+
+- If `.cpi/conventions.md` exists, this is a **refresh**: keep every section the user wrote or
+  changed, only add new findings and mark contradictions (`> Discovery 2026-…: 14 of 20 new flows
+  use X instead`). Ask before changing an existing rule.
+- Ask the user which packages are representative if the tenant is large (more than ~50 flows) or
+  contains SAP standard content that should not be copied (packages from the Discover catalogue,
+  read-only packages). Standard content is a poor source for house conventions.
+
+## 2. Collect the facts
+
+Call `discover_tenant` (writes `.cpi/discovery.json`, returns the summary). Use `package_ids`
+for the representative packages. If the repository already contains the content (e.g. from
+`cpictl sync` or `snapshot`), `local_dir` analyses it offline.
+
+The summary contains counts, not rules. Then **look at examples** to understand the why, about
+5-8 flows chosen across packages and adapters:
+
+- `list_resources` + `get_resource` for scripts that appear in several flows
+  (`summary.sharedScripts`) and for the most common script names: they are usually the
+  logging and error handling framework.
+- `get_parameters` of a few flows: how are parameters named and grouped?
+- `list_credentials`: how are credentials named (compare with `summary.credentialRefs`)?
+- If the repository has downloaded flows, read one `.iflw` of a typical flow to see how the
+  exception subprocess and the logging steps are built.
+
+## 3. Write `.cpi/conventions.md`
+
+Start from [conventions-template.md](conventions-template.md). For every rule:
+
+- State it as an instruction ("Package IDs: `<Domain>_<System>`, e.g. `SD_S4`").
+- Give the evidence: how many flows follow it and one or two example IDs.
+- Mark the strength: **rule** (≥ 80 % of the flows), **common** (≥ 50 %), **observed**
+  (less, or contradicting variants). Never promote a minority pattern to a rule.
+- Write "unknown" instead of guessing. Leave an `Open questions` entry for the user instead.
+
+Keep it short and concrete (one to three screens). The plan, build and review skills read
+it in every task.
+
+Also create, if missing:
+
+- `.cpi/README.md`: one paragraph on what the folder is (see the template's footer).
+- `.cpi/tests/` (empty, used by cpi-test).
+
+Do not commit discovery.json if the user does not want tenant inventory in Git; ask once and add
+it to `.gitignore` when they say so.
+
+## 4. Hand over
+
+Show the user the rules marked **observed** and the open questions, and ask them to confirm or
+correct them. Apply their answers to the file. Tell them that they can add rules at any time
+(for example "always set SAP_ApplicationID") and that the other skills will follow them.

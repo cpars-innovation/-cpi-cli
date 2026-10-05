@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cpi": {
+      "command": "${CPICTL_BIN:-cpictl}",
+      "args": ["mcp", "--root", "${CLAUDE_PROJECT_DIR}"]
+    }
+  }
+}

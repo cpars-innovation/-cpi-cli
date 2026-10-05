@@ -1,0 +1,48 @@
+---
+name: cpi-build
+description: Build or change an SAP Cloud Integration flow and get it deployed - edit the flow's files locally (.iflw model, scripts, mappings, parameters), upload, validate, deploy and fix until the runtime starts it, following .cpi/conventions.md and the plan in .cpi/plans. Use when the user asks to implement, change, fix or deploy an integration flow.
+---
+
+# Build an integration flow
+
+Work on local files in the repository and use the cpi MCP tools to move them to the tenant.
+Read [iflow-structure.md](iflow-structure.md) before editing a model for the first time.
+
+## Before you start
+
+1. Read `.cpi/conventions.md` and the plan `.cpi/plans/<FlowId>.md` if it exists. A change
+   without a plan is fine for small fixes; for a new flow, run cpi-plan first.
+2. Make sure you work on a **development tenant** (ask if unclear). Never deploy to a
+   productive tenant from this skill.
+3. Get the files:
+   - existing flow: `download_artifact` into the repository's content folder (convention, or
+     `content/<PackageId>/<FlowId>`), unless the files are already there and up to date;
+   - new flow: copy the closest reference flow (named in the plan or found in discovery.json),
+     download it, then rename it (see iflow-structure.md). Do not write a model from scratch.
+
+## The loop
+
+1. Edit the local files. Keep changes minimal and consistent with the conventions.
+2. New package? `create_package` (never changes an existing one).
+3. `upload_artifact` (action UNCHANGED means the tenant already has exactly these files).
+4. `validate_artifact`. On FAILED read the details, fix, go back to 1.
+5. `deploy`. On FAILED the result's `error` is the runtime error (for example a missing
+   credential, an unknown key alias, a script compile error, a port or path conflict).
+   Fix the files and go back to 1. Missing security material is not yours to create:
+   tell the user which credential or certificate to deploy with `cpictl credentials` /
+   `cpictl keystore` and stop.
+6. Parameters only: `set_parameters` then `deploy` (no upload needed).
+7. When the flow is DEPLOYED, continue with the cpi-test skill.
+
+Stop and ask after three failed attempts at the same error, or when the fix needs a decision
+the plan does not cover.
+
+## Rules
+
+- Never invent component XML. Copy an element of the same type from a flow of this tenant
+  (discovery.json lists which flows use which component) and adapt its properties.
+- Externalise everything that differs between environments (hosts, paths, credential names,
+  directories) as `{{Parameter}}`, with keys named as in the conventions.
+- Do not put secrets, tokens or productive data into files, parameters or test messages.
+- Keep `Bundle-SymbolicName` in META-INF/MANIFEST.MF equal to the flow ID.
+- Report what you changed (files, parameters, deployed version) at the end.

@@ -29,6 +29,8 @@
 !licenses/**
 !test/**
 !scripts/**
+!plugin/**
+!/.claude-plugin/**
 
 
 !Makefile

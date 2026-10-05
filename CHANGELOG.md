@@ -22,8 +22,13 @@ First release.
 - Security material: `credentials` (list, set-user, set-oauth2, set-secure-param, declarative
   `apply`, delete) with secrets from env/file/stdin only; `keystore` (list with expiry check,
   export-cert, import-cert).
+- `send` (test messages to a flow's endpoint, waits for the processing log), `discover`
+  (inventory of existing flows for conventions), `packages create`.
 - CSRF tokens handled once per session with transparent refresh and retry.
 - MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
   upload, validation, deploy, undeploy, Partner Directory deploy and read-only security
   material.
+- Claude Code plugin `cpi` (marketplace in this repository): skills cpi-discover, cpi-plan,
+  cpi-build, cpi-test, cpi-review and the read-only cpi-reviewer agent; conventions live in
+  each content repository under `.cpi/`.
 - Settings via flags, `CPICTL_*` environment variables and `$HOME/cpictl.yaml`.

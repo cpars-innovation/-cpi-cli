@@ -47,6 +47,13 @@ See [examples/mcp.json](examples/mcp.json):
 Use one server entry per tenant (e.g. `cpi-dev`, `cpi-qa`). Point agents at a development
 tenant; there is no read-only mode yet.
 
+For `send_test_message` add the runtime credentials (`CPICTL_RUNTIME_OAUTH_CLIENTID`,
+`CPICTL_RUNTIME_OAUTH_CLIENTSECRET`), see
+[configuration.md](configuration.md#runtime-endpoints-test-messages).
+
+For Claude Code there is also a plugin with skills and a reviewer agent on top of this
+server: [plugin.md](plugin.md).
+
 ### Server flags
 
 | Flag | Default | Description |
@@ -60,6 +67,7 @@ tenant; there is no read-only mode yet.
 | Tool | Changes | Purpose |
 |------|---------|---------|
 | `list_packages` | | All integration packages |
+| `create_package` | designtime | Create a package if it does not exist (`CREATED` / `EXISTS`, never changes one) |
 | `list_artifacts` | | Designtime artifacts of a package (all four types) |
 | `list_resources` | | Scripts, mappings, schemas, ... of an integration flow |
 | `get_resource` | | Content of one resource (text inline, binary base64) |
@@ -70,6 +78,7 @@ tenant; there is no read-only mode yet.
 | `get_parameters` | | Externalised parameters of an integration flow |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
 | `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT` |
+| `send_test_message` | **triggers processing** | Send a message to the flow's endpoint; HTTP status, response, message GUID; `wait_seconds` returns the final message log |
 | `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
 | `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |
 | `list_service_endpoints` | | Callable URLs of deployed integration flows (where to send test messages) |
@@ -80,6 +89,7 @@ tenant; there is no read-only mode yet.
 | `get_message_store_entry` | | Payload persisted by a Persist step |
 | `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
+| `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`; `local_dir` for a local repository |
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
 | `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false` |
 
@@ -130,12 +140,13 @@ malformed request).
 ## Typical agent loop
 
 1. `download_artifact` once to get the iFlow into the local repository (inside `--root`),
-   or start from files that are already there.
+   or start from files that are already there. New package: `create_package`.
 2. Edit the files; `upload_artifact`; `validate_artifact` (and `check_guidelines`).
 3. `deploy`; on `failed`, read `error` (the tenant's runtime error), fix and go back to 2.
-4. `list_service_endpoints` for the URL; note the time and send a test message.
-5. `list_message_logs` with `artifact_id`, `since` = that time and `wait_seconds` (e.g. 60).
-   For a `FAILED` message the result contains `errorText`.
+4. `send_test_message` with `wait_seconds` (e.g. 60): HTTP status, response and the final
+   message log in one call. (For flows without an HTTP sender: trigger them otherwise and use
+   `list_message_logs` with `since` and `wait_seconds`.)
+5. For a `FAILED` message the log contains `errorText`.
 6. `get_message_steps` shows the failing step (`modelStepId`, as in the `.iflw` BPMN);
    `get_message_log` lists custom headers, attachments and persisted messages, which
    `get_message_attachment` / `get_message_store_entry` download. Fix and go back to 2.

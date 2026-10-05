@@ -76,9 +76,8 @@ cpictl deploy --artifact-ids OrderIntake
 # Did it start? If not, the tenant's error message is in the output
 cpictl status --artifact-ids OrderIntake
 
-# Send a test message to its URL, wait for the processing log, find the failing step
-cpictl endpoints --artifact-id OrderIntake
-cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
+# Send a test message, wait for the processing log, find the failing step
+cpictl send --artifact-id OrderIntake --body-file order.xml --content-type application/xml --wait 60s
 cpictl logs steps --message-guid <guid>
 
 # Change externalised parameters and activate them
@@ -96,10 +95,10 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 
 | Area | Commands |
 |------|----------|
-| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources` |
-| Monitoring | `logs`, `logs get`, `logs steps`, `logs attachment`, `logs payload` |
+| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover` |
+| Testing and monitoring | `send`, `logs`, `logs get`, `logs steps`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
-| Designtime | `download`, `update artifact`, `update package` |
+| Designtime | `download`, `packages create`, `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
@@ -142,7 +141,7 @@ Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPL
 | 2 | Usage or configuration error | fix flags or config |
 | 3 | Authentication failed (401/403, OAuth token) | check credentials and roles |
 | 4 | Tenant HTTP error or tenant unreachable | retry, check host |
-| 5 | Deployment or validation failed on the tenant | fix the artifact |
+| 5 | Deployment, validation or test message failed on the tenant | fix the artifact |
 | 6 | Timeout | check `status`, raise `--max-check-limit` |
 | 7 | Partial failure | inspect the per-item results |
 
@@ -158,14 +157,27 @@ claude mcp add cpi \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
-Tools cover the whole loop: `download_artifact`, `upload_artifact`, `validate_artifact`,
-`check_guidelines`, `deploy`, `get_runtime_status`, `list_service_endpoints`,
+Tools cover the whole loop: `create_package`, `download_artifact`, `upload_artifact`,
+`validate_artifact`, `check_guidelines`, `deploy`, `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
-`get_message_store_entry`, parameters, resources, `list_credentials`, `list_keystore`,
-`undeploy` and `pd_deploy`. Security material is read-only over MCP; secrets never pass
+`get_message_store_entry`, parameters, resources, `discover_tenant`, `list_credentials`,
+`list_keystore`, `undeploy` and `pd_deploy`. Security material is read-only over MCP; secrets never pass
 through the agent.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
 See [docs/mcp.md](docs/mcp.md).
+
+### Claude Code plugin
+
+The repository is also a Claude Code plugin marketplace. The plugin `cpi` adds the MCP server,
+skills to discover your tenant's conventions and to plan, build, test and review flows, and a
+read-only reviewer agent:
+
+```text
+/plugin marketplace add cpars-innovation/cpicli
+/plugin install cpi@cpicli
+```
+
+Then run the `cpi-discover` skill once per repository. See [docs/plugin.md](docs/plugin.md).
 
 ## Documentation
 
@@ -174,6 +186,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Configuration](docs/configuration.md) | Connection, config file, environment variables, OAuth client |
 | [Command reference](docs/commands.md) | All commands and flags |
 | [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
+| [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |

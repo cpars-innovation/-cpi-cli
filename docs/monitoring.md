@@ -18,6 +18,21 @@ cpictl status --runtime-status ERROR               # all deployed artifacts in E
 cpictl endpoints --artifact-id OrderIntake         # URLs to send test messages to
 ```
 
+## Test messages
+
+```bash
+# Send a file to the flow's endpoint and wait for the processing log (exit 5 if it did not complete)
+cpictl send --artifact-id OrderIntake --body-file order.xml --content-type application/xml --wait 60s
+echo '{"id":1}' | cpictl send --artifact-id OrderIntake --body-file - --header X-Test=1 --output json
+```
+
+Only URLs that the tenant lists for the flow (`endpoints`) are used; `--url` chooses one
+when there are several. The result contains the HTTP status, the response (64 KB inline),
+the message GUID (`SAP_MessageProcessingLogID`) and, with `--wait`, the message log. Exit
+codes: 5 for a non-2xx answer or a message that is not COMPLETED, 3 for 401/403, 6 when the
+log is not final in time. The message is processed like any other, including calls to
+receivers. Credentials: [configuration.md](configuration.md#runtime-endpoints-test-messages).
+
 ## Message processing logs
 
 ```bash
