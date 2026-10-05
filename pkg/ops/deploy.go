@@ -54,7 +54,11 @@ type Result struct {
 	TaskID    string `json:"taskId,omitempty"`
 	Status    Status `json:"status"`
 	Version   string `json:"version,omitempty"`
-	Error     string `json:"error,omitempty"`
+	// DesigntimeVersion and RuntimeVersion (before the deployment) are
+	// filled by Deploy.
+	DesigntimeVersion string `json:"designtimeVersion,omitempty"`
+	RuntimeVersion    string `json:"runtimeVersion,omitempty"`
+	Error             string `json:"error,omitempty"`
 
 	// Err is the underlying error for FAILED/TIMEOUT results (not serialised).
 	Err error `json:"-"`
@@ -68,6 +72,11 @@ type Options struct {
 	MaxChecks int
 	// CompareVersions skips deployment when the same version is already STARTED.
 	CompareVersions bool
+	// AllowDowngrade deploys a designtime version that is older than the
+	// running one. Without it such a deployment fails before it is
+	// triggered: an older designtime version usually means the tenant copy
+	// was never updated and would replace a newer runtime.
+	AllowDowngrade bool
 	// Parallelism is the number of artifacts processed concurrently
 	// (<= 0 means all at once).
 	Parallelism int
@@ -185,13 +194,19 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	if !exists {
 		return fail(r, fmt.Errorf("designtime artifact %v does not exist", a.ID))
 	}
-	r.Version = version
+	r.Version, r.DesigntimeVersion = version, version
 
 	// The runtime state before the trigger is the baseline used to tell a
 	// fresh deployment from the previous one that is still visible.
 	before, err := tenant.RuntimeArtifact(a.ID)
 	if err != nil {
 		return fail(r, err)
+	}
+	if before != nil {
+		r.RuntimeVersion = before.Version
+		if !opts.AllowDowngrade && before.Version != "" && CompareVersions(version, before.Version) < 0 {
+			return fail(r, fmt.Errorf("designtime version %s is older than running %s (allow with allow_downgrade / --allow-downgrade)", version, before.Version))
+		}
 	}
 	if opts.CompareVersions && before != nil && before.Status == "STARTED" && before.Version == version {
 		logger.Info().Msgf("Artifact %v with version %v already deployed. Skipping runtime deployment", a.ID, version)

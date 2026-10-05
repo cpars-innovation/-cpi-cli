@@ -10,7 +10,8 @@
         "type": "Integration",
         "taskId": "task-A",
         "status": "DEPLOYED",
-        "version": "1.0.2"
+        "version": "1.0.2",
+        "designtimeVersion": "1.0.2"
       },
       {
         "id": "B",
@@ -24,6 +25,7 @@
         "taskId": "task-C",
         "status": "TIMEOUT",
         "version": "2.0.0",
+        "designtimeVersion": "2.0.0",
         "error": "deployment status of C remained unfinished after 2 checks (task status \"DEPLOYING\", runtime status \"\")"
       }
     ]

@@ -1,5 +1,16 @@
 # Monitoring and checks
 
+## Before uploading: drift
+
+```bash
+cpictl drift --local-dir ./content --package-id Orders
+```
+
+Per artifact: `in_sync`, `tenant_newer` (edited on the tenant: download first, or the change is
+lost), `local_newer`, `diverged` (different content, same version), `not_on_tenant`, plus
+`runtimeOutdated` when the deployed version is not the designtime version. Content is compared like
+`update artifact` compares it (whitespace, `Origin` headers and `parameters.prop` ignored).
+
 ## Before deploying
 
 ```bash
@@ -62,6 +73,58 @@ cpictl logs payload --id <message-store-entry-id> [--out file]
 In text mode `logs attachment` / `logs payload` / `resources get` write the content to stdout
 (pipe or redirect it); with `--output json` it is part of the result (text, or base64 for binary,
 limited by `--max-bytes`, default 64 KB).
+
+### Searching by custom header
+
+The tenant cannot filter message processing logs by custom header properties, so cpictl scans:
+
+```bash
+cpictl logs --artifact-id OrderIntake --since 2h --header OrderId=4711
+cpictl logs --package-id Orders --since 1h --header OrderId=4711 --top 5
+```
+
+A scan always needs `--artifact-id` or `--package-id` and `--since` (the tenant is shared). It
+reads at most `--top` × 10 messages (max 500); `scanned` and `truncated` in the result say how
+far it got. `--package-id` alone lists the messages of all flows of the package.
+
+### Following a message across flows
+
+`cpictl send` (MCP `send_test_message`) sends a W3C `traceparent` header (unless `--no-trace` or
+your own `--header traceparent=...`) and returns its `traceId`. Flows with a tracer script write
+`trace-id`, `span-id` and `parent-span-id` as custom header properties; `logs tree` rebuilds the
+call tree from them and points at the first failure:
+
+```bash
+cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
+cpictl logs tree --trace-id <id> --package-id Orders --since 30m   # scan if not found directly
+```
+
+Messages are found by ApplicationMessageId = trace ID first (set `SAP_ApplicationID` to the trace
+ID in the tracer), otherwise by scanning the scope (`--max-scan`, default 200). Other property
+names: `--trace-property`, `--span-property`, `--parent-property`. Tenants whose sender adapters
+need business headers (e.g. `sap-client`) get them with `--header` on `send`.
+
+## Runtime data
+
+```bash
+cpictl datastore list --overdue-only                              # stores with entry counts
+cpictl datastore entries --data-store Orders --artifact-id OrderIntake [--message-guid <guid>]
+cpictl datastore get --data-store Orders --artifact-id OrderIntake --id <entry> --out entry.xml
+cpictl datastore delete --data-store Orders --artifact-id OrderIntake --id <entry> --confirm
+cpictl variables --artifact-id OrderIntake                        # flow and global variables
+cpictl variables get --name lastRun --artifact-id OrderIntake
+cpictl jms queues --prefix ORDERS                                 # fullest first
+cpictl jms broker                                                 # capacity and usage
+cpictl number-ranges
+cpictl log-files --type http --since 2h                           # adapter errors without a message log
+cpictl log-files get --name <name> --application <app> --tail-bytes 20000
+cpictl idempotent --id in/orders.csv --component SFTP             # skipped as duplicate?
+cpictl id-mappings --source-id <id>
+```
+
+Data store entries and variables are business data: lists show metadata only, `get` downloads.
+Global data stores and variables have an empty `--artifact-id`. Retrying, moving or deleting JMS
+messages is not supported.
 
 ## Resources of an iFlow
 

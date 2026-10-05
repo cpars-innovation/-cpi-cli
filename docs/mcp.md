@@ -71,6 +71,9 @@ direnv, a secret manager):
 }
 ```
 
+With [profiles](configuration.md#profiles-switching-tenants) the entries are even shorter:
+`"args": ["mcp", "--root", ".", "--profile", "dev"]`, no `env` needed.
+
 The example also has a read-only `cpi-qa` server; Claude Code asks each developer once to approve
 project MCP servers. `--root .` is the repository root (the server's working directory).
 If you use the [Claude Code plugin](plugin.md), it already starts a server named `cpi`
@@ -97,6 +100,19 @@ server: [plugin.md](plugin.md).
 | `--tools` | all | Offer only these tools: names or patterns, e.g. `list_*,get_*,validate_artifact` |
 | `--disable-tools` | none | Do not offer these tools (names or patterns); wins over `--tools` |
 
+### Modes
+
+`--mode` (or `CPICTL_MODE`) is a preset on top of the other limits; together the most
+restrictive wins:
+
+| Mode | Tools |
+|------|-------|
+| `discover` | read-only (same as `--read-only`) |
+| `operate` | read tools, local files and `set_log_level`: monitoring and diagnosis |
+| `develop` | all tools; `pd_deploy` refuses `full_sync`, `undeploy` needs `confirm` |
+
+The mode is added to the server instructions.
+
 ### Limiting tools
 
 The server enforces the limits itself, for every MCP client: disabled tools are not listed in
@@ -106,9 +122,9 @@ leaves a tool enabled by accident.
 
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
-| read | list_\*, get_\*, `validate_artifact`, `check_guidelines` | kept |
-| local files (inside `--root`) | `download_artifact`, `discover_tenant` | kept |
-| tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level` | removed |
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `loop_status`, runtime data tools | kept |
+| local files (inside `--root`) | `download_artifact`, `discover_tenant`, `loop_start`, `loop_end` | kept |
+| tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
 
 ```json
 "cpi-qa":   { "command": "cpictl", "args": ["mcp", "--root", ".", "--read-only"] },
@@ -138,24 +154,37 @@ read roles.
 | `check_guidelines` | | Run the activated design guidelines and wait; violations with violated components |
 | `get_parameters` | | Externalised parameters of an integration flow |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
-| `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT` |
+| `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT`, with `designtimeVersion` / `runtimeVersion`. Refuses a designtime version older than the running one unless `allow_downgrade` |
 | `send_test_message` | **triggers processing** | Send a message to the flow's endpoint (or via the test harness to a ProcessDirect address); HTTP status, response, message GUID; `wait_seconds` returns the final message log. See [testing.md](testing.md) |
 | `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
 | `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |
 | `list_service_endpoints` | | Callable URLs of deployed integration flows (where to send test messages) |
-| `list_message_logs` | | Message processing logs by artifact, status, time, IDs; error texts; `wait_seconds` for final status |
+| `list_message_logs` | | Message processing logs by artifact or package, status, time, IDs; error texts; `wait_seconds` for final status; `custom_header {name, value}` (client-side scan, see `scanned`/`truncated`) |
+| `get_trace_tree` | | Call tree of one trace across flows (span / parent span, or predecessor) and `firstFailure` |
 | `get_message_log` | | One message: error text, custom header properties, adapter attributes, attachments, persisted messages |
 | `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
 | `get_message_attachment` | | Content of a log attachment |
 | `get_message_store_entry` | | Payload persisted by a Persist step |
-| `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow (TRACE for 10 minutes) |
-| `get_message_trace` | | Traced steps of a message with trace IDs |
+| `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow; the server sets it back to INFO after `revert_after_minutes` (default 10 for TRACE and DEBUG) and on shutdown; result `revertsAt` |
+| `get_message_trace` | | Traced steps of a message with trace IDs; `status: "missing_role"` (ok) when the key may not read message content |
 | `get_trace_message` | | Payload, headers, exchange properties at one traced step (sensitive values masked) |
+| `list_data_stores`, `list_data_store_entries`, `get_data_store_entry` | | Data stores, their entries (metadata) and one entry's content |
+| `delete_data_store_entry` | tenant, **destructive** | Delete one entry; requires `confirm: true` |
+| `list_variables`, `get_variable` | | Global and flow variables, and a value |
+| `list_jms_queues`, `get_jms_broker` | | Queues with message counts; broker capacity and usage |
+| `list_number_ranges` | | Number range objects and current values |
+| `list_log_files`, `get_log_file` | | System / HTTP log files and the end of one (adapter errors without a message log) |
+| `list_idempotent_entries`, `list_id_mappings` | | Entries ignored as duplicates; ID mapper entries |
 | `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
+| `drift` | | Local artifacts vs tenant: in_sync / tenant_newer / local_newer / diverged / not_on_tenant, runtimeOutdated |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`; `local_dir` for a local repository |
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
-| `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false` |
+| `get_pd_parameters` | | Partner Directory parameters of one PID (binaries: content type, size, sha256; content with `include_content`) |
+| `pd_diff` | | Local Partner Directory files vs tenant: create / update / unchanged / remote_only per parameter |
+| `pd_dependencies` | | Which local flows reference which Partner Directory parameters; dynamic references; unknown PIDs |
+| `config_diff` | | Configure YAML vs tenant parameters: update / unchanged / unknown_key |
+| `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false`; `keys: ["PID:ID"]` changes only those parameters |
 
 Content tools (`get_resource`, `get_message_attachment`, `get_message_store_entry`) return
 `{size, text | base64, truncated}`; `max_bytes` (default 64 KB, max 1 MB) limits the size.
@@ -196,6 +225,7 @@ Every tool call returns the same structure, both as `structuredContent` and as J
 | `failed` | 5 | The tenant rejected the content: read `error`, fix the artifact |
 | `timeout` | 6 | Not finished in time: check `get_runtime_status` |
 | `partial` | 7 | Some items failed: look at the per-item results |
+| `stopped` | 8 | A loop limit was reached: tenant changes are refused; call `loop_end` and report |
 
 Tool failures are returned as tool results with `isError: true`, not as JSON-RPC errors,
 so the model sees them. JSON-RPC errors are only used for protocol problems (unknown tool,
@@ -219,6 +249,23 @@ malformed request).
 Message logs, attachments and persisted messages contain business data. Error texts are
 truncated (4 KB in lists, 16 KB in `get_message_log`, flagged with `errorTruncated`) to keep
 tool results small. Use a development tenant with test data for agents.
+
+## Build loops
+
+For autonomous build/test/fix loops the server enforces limits the model cannot override:
+
+1. `loop_start {goal, max_iterations=5, same_error_limit=2, wall_clock_minutes=60, max_deploys=15}`
+   returns a `loop_id` (one open loop per server).
+2. While it is open every tenant-changing call is counted. An **iteration** is a `deploy` (or a
+   `pd_deploy` that is not a dry run) after a failed test result (`send_test_message`,
+   `get_trace_tree` with `firstFailure`, `list_message_logs` with a FAILED message). Failures are
+   fingerprinted (artifact, step, error text without IDs, timestamps and long numbers).
+3. When a limit is reached (iterations, the same fingerprint `same_error_limit` times, wall clock,
+   deploys), every tenant-changing tool returns `ok: false`, `errorCategory: "stopped"`, exit code
+   8. Read tools keep working.
+4. `loop_status` shows the counters; `loop_end {loop_id, outcome}` always works and writes
+   `.cpi/loops/<loop_id>.md` (goal, outcome, counters, every call). Each call is also appended to
+   `.cpi/loops/<loop_id>.jsonl` as it happens.
 
 ## Safety
 

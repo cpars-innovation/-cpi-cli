@@ -28,8 +28,17 @@ because a parameter change does not change the artifact version.
 ```bash
 cpictl configure --config-path ./config/dev.yml
 cpictl configure --config-path ./config/          # all *.yml / *.yaml in the folder (not recursive)
-cpictl configure --config-path ./config/dev.yml --dry-run
+cpictl configure --config-path ./config/dev.yml --dry-run            # diff against the tenant
+cpictl configure --config-path ./config/dev.yml --dry-run --offline  # file only, no tenant calls
+cpictl configure --config-path ./config/dev.yml --force              # write and deploy everything
 ```
+
+`configure` compares every artifact's parameters with the tenant first and writes only the keys
+that differ; artifacts marked for deployment are redeployed only when at least one key changed.
+A second run on an unchanged tenant therefore writes and deploys nothing. A key that the artifact
+does not have (`unknown_key`, usually a typo) fails that artifact before anything is written.
+`--force` writes all parameters and deploys all marked artifacts, as earlier versions did. The
+MCP tool `config_diff` shows the same comparison.
 
 Example: [examples/configure.yml](examples/configure.yml).
 
@@ -69,15 +78,17 @@ How it runs:
 | `--config-path`, `-c` | File or folder (required) |
 | `--deployment-prefix`, `-p` | Overrides `deploymentPrefix`; the final IDs are `prefix + ID` for packages and artifacts |
 | `--package-filter`, `--artifact-filter` | Comma-separated IDs (without prefix) to include |
-| `--dry-run` | Show what would be changed |
+| `--dry-run` | Show what would be changed (compares with the tenant) |
+| `--offline` | With `--dry-run`: only the file, without tenant calls |
+| `--force` | Write every parameter and deploy every marked artifact, even without changes |
 | `--disable-batch` | Always write parameters one by one |
 
 All flags can be set in the global config file under `configure:` (`configPath`,
 `deploymentPrefix`, `packageFilter`, `artifactFilter`, `dryRun`, `deployRetries`,
 `deployDelaySeconds`, `parallelDeployments`, `batchSize`, `disableBatch`).
 
-With `--output json` the result contains the statistics and one deployment result per
-deployed artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
+With `--output json` the result contains the statistics, the `diff` (per key: `update` with local
+and tenant value, `unchanged`, `unknown_key`) and one deployment result per deployed artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
 
 > **Prefix rule differs from the orchestrator.** `configure` builds `prefix + ID` for packages
 > and artifacts (prefix `DEV_` → `DEV_MyPackage`, `DEV_MyIFlow`). The orchestrator builds

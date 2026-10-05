@@ -148,12 +148,35 @@ func (pd *PartnerDirectory) ReadStringParameters(pid string) ([]cpi.StringParame
 
 // ReadBinaryParameters reads binary parameters from files
 func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]cpi.BinaryParameter, error) {
+	files, err := pd.ReadBinaryFiles(pid)
+	if err != nil {
+		return nil, err
+	}
+	params := make([]cpi.BinaryParameter, 0, len(files))
+	for _, f := range files {
+		params = append(params, f.BinaryParameter)
+	}
+	return params, nil
+}
+
+// BinaryFile is a local binary parameter with the file it was read from.
+type BinaryFile struct {
+	cpi.BinaryParameter
+	// File is the path of the parameter's file.
+	File string
+	// FromMetadata is true when the content type comes from _metadata.json
+	// (otherwise it is the file extension).
+	FromMetadata bool
+}
+
+// ReadBinaryFiles reads the binary parameters of a PID with their files.
+func (pd *PartnerDirectory) ReadBinaryFiles(pid string) ([]BinaryFile, error) {
 	binaryDir := filepath.Join(pd.ResourcesPath, pid, binaryDirName)
 
 	// See ReadStringParameters: only a missing directory means "no parameters".
 	info, err := os.Stat(binaryDir)
 	if os.IsNotExist(err) {
-		return []cpi.BinaryParameter{}, nil
+		return []BinaryFile{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to access %s: %w", binaryDir, err)
@@ -181,7 +204,7 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]cpi.BinaryParame
 		return nil, fmt.Errorf("failed to read binary directory: %w", err)
 	}
 
-	var params []cpi.BinaryParameter
+	var params []BinaryFile
 	seenParams := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -213,6 +236,7 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]cpi.BinaryParame
 
 		// Get full content type from metadata (includes encoding if present)
 		contentType := metadata[entry.Name()]
+		fromMetadata := contentType != ""
 		if contentType == "" {
 			// Infer from extension if not in metadata
 			ext := strings.TrimPrefix(filepath.Ext(entry.Name()), ".")
@@ -224,12 +248,12 @@ func (pd *PartnerDirectory) ReadBinaryParameters(pid string) ([]cpi.BinaryParame
 
 		log.Debug().Msgf("Loaded binary parameter %s/%s (%s, %d bytes)", pid, paramID, contentType, len(data))
 
-		params = append(params, cpi.BinaryParameter{
+		params = append(params, BinaryFile{BinaryParameter: cpi.BinaryParameter{
 			Pid:         pid,
 			ID:          paramID,
 			Value:       encoded,
 			ContentType: contentType,
-		})
+		}, File: filePath, FromMetadata: fromMetadata})
 	}
 
 	return params, nil

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -32,6 +33,14 @@ var toolEffects = map[string]Effect{
 	"validate_artifact": EffectRead, "check_guidelines": EffectRead,
 	"list_resources": EffectRead, "get_resource": EffectRead,
 	"list_credentials": EffectRead, "list_keystore": EffectRead, "get_parameters": EffectRead,
+	"get_pd_parameters": EffectRead, "pd_diff": EffectRead, "get_trace_tree": EffectRead,
+	"pd_dependencies": EffectRead, "config_diff": EffectRead,
+	"list_data_stores": EffectRead, "list_data_store_entries": EffectRead, "get_data_store_entry": EffectRead,
+	"delete_data_store_entry": EffectTenant, "list_variables": EffectRead, "get_variable": EffectRead,
+	"list_jms_queues": EffectRead, "get_jms_broker": EffectRead, "list_number_ranges": EffectRead,
+	"list_log_files": EffectRead, "get_log_file": EffectRead, "list_idempotent_entries": EffectRead, "list_id_mappings": EffectRead,
+	"drift":       EffectRead,
+	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal,
 
@@ -109,4 +118,75 @@ func FilteredInstructions(instructions string, f ToolFilter, removed []string) s
 		note += " This server is read-only: it cannot change the tenant or send messages; ask the user to make changes."
 	}
 	return instructions + note
+}
+
+// Modes are presets for what a server may do.
+var Modes = []string{"discover", "operate", "develop"}
+
+// ModeFilter returns the tool filter of a mode ("" = no preset):
+//   - discover: read-only (no tenant changes, no messages sent)
+//   - operate: read tools, local files and set_log_level
+//   - develop: all tools; pd_deploy refuses full_sync (see Config.DenyFullSync)
+func ModeFilter(mode string) (ToolFilter, error) {
+	switch mode {
+	case "", "develop":
+		return ToolFilter{}, nil
+	case "discover":
+		return ToolFilter{ReadOnly: true}, nil
+	case "operate":
+		var allow []string
+		for name, e := range toolEffects {
+			if e != EffectTenant || name == "set_log_level" {
+				allow = append(allow, name)
+			}
+		}
+		sort.Strings(allow)
+		return ToolFilter{Allow: allow}, nil
+	}
+	return ToolFilter{}, output.Usagef("invalid mode %q (%s)", mode, strings.Join(Modes, ", "))
+}
+
+// ApplyFilters applies the user's filter, then the mode's: the most
+// restrictive wins. User patterns are validated against all tools, so naming
+// a tool the mode removes anyway is not an error.
+func ApplyFilters(tools []Tool, mode string, user ToolFilter) (kept []Tool, removed []string, err error) {
+	modeFilter, err := ModeFilter(mode)
+	if err != nil {
+		return nil, nil, err
+	}
+	kept, removed, err = Filter(tools, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	// mode allow lists may name tools the user already removed
+	if len(modeFilter.Allow) > 0 {
+		var allow []string
+		for _, t := range kept {
+			if slices.Contains(modeFilter.Allow, t.Name) {
+				allow = append(allow, t.Name)
+			}
+		}
+		if len(allow) == 0 {
+			return nil, nil, output.Usagef("the tool filter leaves no tools")
+		}
+		modeFilter.Allow = allow
+	}
+	kept, more, err := Filter(kept, modeFilter)
+	if err != nil {
+		return nil, nil, err
+	}
+	return kept, append(removed, more...), nil
+}
+
+// ModeInstructions describes the mode for the server instructions.
+func ModeInstructions(mode string) string {
+	switch mode {
+	case "discover":
+		return "\n\nMode: discover. Read-only: inspect content, logs and configuration; no changes, no test messages."
+	case "operate":
+		return "\n\nMode: operate. Monitoring and diagnosis: read tools and set_log_level; no content changes or deployments."
+	case "develop":
+		return "\n\nMode: develop. Build loop on a development tenant; pd_deploy full_sync is refused, undeploy needs confirm. Open a loop with loop_start before changing anything."
+	}
+	return ""
 }

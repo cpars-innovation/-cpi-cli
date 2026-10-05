@@ -17,15 +17,28 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`credentials set-oauth2`](#credentials-set-oauth2) | Create or update an OAuth2 client credential |
 | [`credentials set-secure-param`](#credentials-set-secure-param) | Create or update a secure parameter (Neo environment) |
 | [`credentials set-user`](#credentials-set-user) | Create or update a user credential |
+| [`datastore`](#datastore) | List data stores and their entries, read or delete an entry |
+| [`datastore delete`](#datastore-delete) | Delete a data store entry (requires --confirm) |
+| [`datastore entries`](#datastore-entries) | List entries of a data store (or of all stores) |
+| [`datastore get`](#datastore-get) | Download the content of a data store entry |
+| [`datastore list`](#datastore-list) | List data stores with their number of entries |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
 | [`discover`](#discover) | Inventory existing integration flows to derive conventions |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
+| [`drift`](#drift) | Compare local artifacts with their designtime and runtime state on the tenant |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
+| [`id-mappings`](#id-mappings) | Show ID mapper entries of a source or target ID |
+| [`idempotent`](#idempotent) | List idempotent repository entries (messages or files skipped as duplicates) |
+| [`jms`](#jms) | JMS queues and broker capacity |
+| [`jms broker`](#jms-broker) | Show JMS broker capacity and usage |
+| [`jms queues`](#jms-queues) | List JMS queues, fullest first |
 | [`keystore`](#keystore) | List keystore entries, check expiry, export and import certificates |
 | [`keystore export-cert`](#keystore-export-cert) | Export the certificate of a keystore entry as PEM |
 | [`keystore import-cert`](#keystore-import-cert) | Import a certificate (PEM or DER) into the tenant keystore |
 | [`keystore list`](#keystore-list) | List keystore entries with remaining validity |
+| [`log-files`](#log-files) | List system and HTTP log files of the runtime |
+| [`log-files get`](#log-files-get) | Print the end of a log file |
 | [`log-level`](#log-level) | Set the message processing log level of a deployed integration flow |
 | [`logs`](#logs) | Query message processing logs |
 | [`logs attachment`](#logs-attachment) | Download a log attachment (ID from 'logs get') |
@@ -34,15 +47,25 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs steps`](#logs-steps) | Show the processing steps of a message and the step that failed |
 | [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
+| [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
+| [`number-ranges`](#number-ranges) | List number ranges |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
 | [`packages create`](#packages-create) | Create an integration package if it does not exist |
 | [`params`](#params) | Read or change externalised parameters of an integration flow |
 | [`params get`](#params-get) | Show the parameters of an integration flow |
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
+| [`pd`](#pd) | Inspect Partner Directory parameters (get, diff, deps) |
+| [`pd deps`](#pd-deps) | Show which flows read which Partner Directory parameters (local files) |
+| [`pd diff`](#pd-diff) | Compare local Partner Directory files with the tenant |
+| [`pd get`](#pd-get) | Show the Partner Directory parameters of a partner ID on the tenant |
 | [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
 | [`pd-snapshot`](#pd-snapshot) | Download Partner Directory parameters into local files |
+| [`profile`](#profile) | Switch between tenants (profiles in $HOME/.cpictl) |
+| [`profile current`](#profile-current) | Show the profile that commands use now |
+| [`profile list`](#profile-list) | List profiles and mark the active one |
+| [`profile use`](#profile-use) | Make a profile the default (stored in $HOME/.cpictl/current); 'use -' clears it |
 | [`resources`](#resources) | List the resources (scripts, mappings, schemas, ...) of an integration flow |
 | [`resources get`](#resources-get) | Download one resource of an integration flow |
 | [`send`](#send) | Send a test message to a deployed integration flow |
@@ -57,17 +80,20 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`update artifact`](#update-artifact) | Create or update a designtime artifact from a local directory |
 | [`update package`](#update-package) | Create or update an integration package from a JSON file |
 | [`validate`](#validate) | Validate an integration flow on the tenant (like Check in the Web UI) |
+| [`variables`](#variables) | List global and integration flow variables |
+| [`variables get`](#variables-get) | Read the value of a variable |
 
 ## Global flags
 
 ```
-      --config string               config file (default is $HOME/cpictl.yaml)
+      --config string               config file (default: the profile, else $CPICTL_CONFIG, else $HOME/cpictl.yaml plus ./cpictl.yaml of the repository)
       --debug                       Show debug logs
       --oauth-clientid string       Client ID for using OAuth
       --oauth-clientsecret string   Client Secret for using OAuth
       --oauth-host string           OAuth token server host
       --oauth-path string           Path for OAuth token server (default "/oauth/token")
       --output string               Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines (default "text")
+      --profile string              Profile to use: $HOME/.cpictl/<name>.yaml (default: $CPICTL_PROFILE, else the one chosen with 'cpictl profile use')
       --tmn-host string             Tenant host of Cloud Integration (or API portal host for API Management)
       --tmn-password string         Password for Basic Auth
       --tmn-userid string           User ID for Basic Auth
@@ -142,9 +168,12 @@ Set artifact parameters from YAML files and optionally deploy
 Set externalised parameters of many artifacts from YAML files and optionally
 deploy them afterwards.
 
-Phase 1 writes the parameters (OData $batch by default, falling back to single
-requests), phase 2 deploys artifacts marked with deploy: true, package by
-package with up to --parallel-deployments concurrent deployments.
+Phase 1 compares each artifact's parameters with the tenant and writes only the
+ones that differ (OData $batch by default, falling back to single requests); an
+unknown key fails the artifact before anything is written. Phase 2 deploys the
+artifacts marked with deploy: true that had a change, package by package with up
+to --parallel-deployments concurrent deployments. --force writes and deploys
+everything as before.
 
 --config-path accepts a file or a folder (all *.yml/*.yaml files, not
 recursive). Generate files with the current tenant values with
@@ -166,6 +195,8 @@ All flags can be set in the config file under 'configure'.
   -p, --deployment-prefix string   Deployment prefix for artifact IDs (config: configure.deploymentPrefix)
       --disable-batch              Disable batch processing, use individual requests (config: configure.disableBatch)
       --dry-run                    Show what would be done without making changes (config: configure.dryRun)
+      --force                      Write all parameters and deploy all marked artifacts, even if the tenant already has the values
+      --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
 ```
@@ -179,8 +210,14 @@ All flags can be set in the config file under 'configure'.
   # Configure and deploy
   cpictl configure --config-path ./config/prod-config.yml
 
-  # Dry run to see what would be changed
+  # Dry run: compare with the tenant (what would be written and deployed)
   cpictl configure --config-path ./config.yml --dry-run
+
+  # Only show the file, without reading the tenant
+  cpictl configure --config-path ./config.yml --dry-run --offline
+
+  # Write everything and redeploy, even if the tenant has the values
+  cpictl configure --config-path ./config.yml --force
 
   # Apply deployment prefix
   cpictl configure --config-path ./config.yml --deployment-prefix DEV_
@@ -347,6 +384,81 @@ Create or update a user credential
   ERP_PASSWORD=... cpictl credentials set-user --name ERP_User --user svc_erp --password-env ERP_PASSWORD
 ```
 
+## datastore
+
+List data stores and their entries, read or delete an entry
+
+**Examples:**
+
+```
+  cpictl datastore list --overdue-only
+  cpictl datastore entries --data-store Orders --artifact-id OrderIntake
+  cpictl datastore get --data-store Orders --artifact-id OrderIntake --id e1 --out entry.xml
+  cpictl datastore delete --data-store Orders --artifact-id OrderIntake --id e1 --confirm
+```
+
+## datastore delete
+
+Delete a data store entry (requires --confirm)
+
+**Usage:** `cpictl datastore delete [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow of the data store (empty for global stores)
+      --confirm              Confirm the deletion
+      --data-store string    Data store name
+      --id string            Entry ID
+      --type string          Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore entries
+
+List entries of a data store (or of all stores)
+
+**Usage:** `cpictl datastore entries [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string    Integration flow of the data store (empty for global stores)
+      --data-store string     Data store name
+      --message-guid string   Only entries written by this message
+      --overdue-only          Only overdue entries
+      --top int               Maximum entries (default 100)
+      --type string           Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore get
+
+Download the content of a data store entry
+
+**Usage:** `cpictl datastore get [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow of the data store (empty for global stores)
+      --data-store string    Data store name
+      --id string            Entry ID
+      --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string           Write the content to this file instead of stdout / the JSON result
+      --type string          Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore list
+
+List data stores with their number of entries
+
+**Usage:** `cpictl datastore list [flags]`
+
+**Flags:**
+
+```
+      --overdue-only   Only stores with overdue entries
+```
+
 ## deploy
 
 Deploy designtime artifacts and wait for the result
@@ -365,6 +477,7 @@ Configuration:
 **Flags:**
 
 ```
+      --allow-downgrade        Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)
       --artifact-ids strings   Comma separated list of artifact IDs (config: deploy.artifactIds)
       --artifact-type string   Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType) (default "Integration")
       --compare-versions       Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions) (default true)
@@ -430,6 +543,41 @@ Download a designtime artifact and extract it into a directory
   cpictl download --artifact-id OrderMapping --artifact-type MessageMapping --dir ./OrderMapping --overwrite
 ```
 
+## drift
+
+Compare local artifacts with their designtime and runtime state on the tenant
+
+```
+For each artifact of a local content tree: the local Bundle-Version and content
+against the designtime version and content on the tenant (compared like upload
+does), and the deployed version.
+
+  in_sync        same content
+  tenant_newer   content differs and the tenant has the higher version
+                 (edited on the tenant: download before uploading)
+  local_newer    content differs and the local version is higher
+  diverged       content differs with the same version
+  not_on_tenant  the artifact does not exist on the tenant
+
+runtimeOutdated marks artifacts whose deployed version differs from the
+designtime version. The tenant is only read; every artifact is downloaded.
+```
+
+**Usage:** `cpictl drift [flags]`
+
+**Flags:**
+
+```
+      --local-dir string    Local content directory (default ".")
+      --package-id string   Only artifacts in this package folder
+```
+
+**Examples:**
+
+```
+  cpictl drift --local-dir ./content --package-id Orders
+```
+
 ## endpoints
 
 List the URLs of deployed integration flows
@@ -472,6 +620,61 @@ skipped) give exit code 5.
 
 ```
   cpictl guidelines --artifact-id OrderIntake --output json
+```
+
+## id-mappings
+
+Show ID mapper entries of a source or target ID
+
+**Usage:** `cpictl id-mappings [flags]`
+
+**Flags:**
+
+```
+      --source-id string   Source ID
+      --target-id string   Target ID
+```
+
+## idempotent
+
+List idempotent repository entries (messages or files skipped as duplicates)
+
+**Usage:** `cpictl idempotent [flags]`
+
+**Flags:**
+
+```
+      --component string   Only this component, e.g. SFTP or XI
+      --id string          Entry ID (SFTP: <directory>/<file name>, XI: message ID)
+      --source string      Only sources containing this text
+```
+
+**Examples:**
+
+```
+  cpictl idempotent --id in/orders_20261005.csv --component SFTP
+```
+
+## jms
+
+JMS queues and broker capacity
+
+## jms broker
+
+Show JMS broker capacity and usage
+
+**Usage:** `cpictl jms broker`
+
+## jms queues
+
+List JMS queues, fullest first
+
+**Usage:** `cpictl jms queues [flags]`
+
+**Flags:**
+
+```
+      --prefix string   Only queues whose name starts with this
 ```
 
 ## keystore
@@ -533,6 +736,41 @@ List keystore entries with remaining validity
   cpictl keystore list --expiring-within 30d --fail-on-expiry   # exit 5 in CI
 ```
 
+## log-files
+
+List system and HTTP log files of the runtime
+
+**Usage:** `cpictl log-files [flags]`
+
+**Flags:**
+
+```
+      --since string   Only files modified after this time (duration like 2h or RFC 3339)
+      --type string    Log file type, e.g. http or trace
+```
+
+**Examples:**
+
+```
+  cpictl log-files --type http --since 2h
+  cpictl log-files get --name http_access_2026-10-05.log --application it-cpi --tail-bytes 20000
+```
+
+## log-files get
+
+Print the end of a log file
+
+**Usage:** `cpictl log-files get [flags]`
+
+**Flags:**
+
+```
+      --application string   Application of the log file
+      --name string          Log file name
+      --out string           Write the content to this file instead of stdout / the JSON result
+      --tail-bytes int       Bytes from the end of the file (default 65536)
+```
+
 ## log-level
 
 Set the message processing log level of a deployed integration flow
@@ -588,6 +826,8 @@ Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED,
       --artifact-id string              Integration flow ID
       --correlation-id string           Correlation ID
       --errors                          Include the error text of failed messages
+      --header string                   Only messages with this custom header property, name=value (client-side scan; needs --artifact-id or --package-id, and --since)
+      --package-id string               Messages of all integration flows of this package (needs --since)
       --since string                    Messages that ended after this time (duration like 1h or RFC 3339)
       --skip int                        Skip the first n messages
       --status strings                  Comma separated statuses, e.g. FAILED,RETRY
@@ -602,7 +842,9 @@ Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED,
   cpictl logs --artifact-id OrderIntake --since 1h
   cpictl logs --artifact-id OrderIntake --status FAILED --errors --output json
   cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
+  cpictl logs --package-id Orders --since 1h --header OrderId=4711
   cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG
+  cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
 ```
 
 ## logs attachment
@@ -690,6 +932,33 @@ Show payload, headers and exchange properties of a traced step (ID from 'logs tr
       --out string      Write the content to this file instead of stdout / the JSON result
 ```
 
+## logs tree
+
+Show the call tree of a trace across flows and its first failure
+
+```
+Build the call tree of one trace (W3C trace ID, e.g. the traceId of 'cpictl send'):
+messages are found by ApplicationMessageId = trace ID, otherwise by scanning the
+scope (--artifact-ids or --package-id, and --since) for the trace-id custom header.
+Nodes are linked by span-id / parent-span-id (names configurable).
+```
+
+**Usage:** `cpictl logs tree [flags]`
+
+**Flags:**
+
+```
+      --artifact-ids strings     Scope of the fallback scan
+      --max-scan int             Maximum messages scanned (default 200)
+      --package-id string        Scope of the fallback scan: all flows of this package
+      --parent-property string   Custom header property with the parent span ID (default "parent-span-id")
+      --since string             Start of the scan window (duration like 1h or RFC 3339)
+      --span-property string     Custom header property with the span ID (default "span-id")
+      --trace-id string          Trace ID (32 hex characters)
+      --trace-property string    Custom header property with the trace ID (default "trace-id")
+      --until string             End of the scan window
+```
+
 ## mcp
 
 Run the MCP server (stdio) for AI agents
@@ -716,7 +985,9 @@ Limit the tools per server, e.g. for a QA or production tenant:
   --read-only                     no tool that changes the tenant or sends messages
   --tools list_*,get_*            only matching tools
   --disable-tools undeploy,pd_*   everything except these
-Also as CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+  --mode discover|operate|develop presets (combined with the above, the most
+                                  restrictive wins)
+Also as CPICTL_MODE, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
 listed and cannot be called; a pattern that matches no tool is an error.
 ```
 
@@ -727,6 +998,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
 ```
       --disable-tools strings               Do not offer these tools (names or patterns); wins over --tools
       --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
+      --mode string                         Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync)
       --poll-interval int                   Default seconds between deploy/undeploy status checks (default 10)
       --read-only                           Offer only tools that do not change the tenant or trigger processing
       --root string                         Directory that local paths of tool calls are confined to (default ".")
@@ -746,6 +1018,12 @@ listed and cannot be called; a pattern that matches no tool is an error.
     "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
             "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}
 ```
+
+## number-ranges
+
+List number ranges
+
+**Usage:** `cpictl number-ranges`
 
 ## orchestrator
 
@@ -895,6 +1173,86 @@ Set parameters of an integration flow (deploy afterwards to activate)
   cpictl params set --artifact-id MyIFlow --param Host=example.com --param Port=443
 ```
 
+## pd
+
+Inspect Partner Directory parameters (get, diff, deps)
+
+## pd deps
+
+Show which flows read which Partner Directory parameters (local files)
+
+```
+Scan local content for Partner Directory references: pd:<PID>:<ID>:<Binary|String>
+in .iflw models, dynamic pd:${...} references and getParameter(id, pid, ...) in
+Groovy scripts. With --resources-path, PIDs that are referenced but have no local
+directory are listed as unknown. Nothing is read from the tenant.
+```
+
+**Usage:** `cpictl pd deps [flags]`
+
+**Flags:**
+
+```
+      --id string               Only this parameter ID
+      --local-dir string        Local content directory (default ".")
+      --pid string              Only this partner ID
+      --resources-path string   Local Partner Directory tree (to report unknown PIDs)
+```
+
+**Examples:**
+
+```
+  cpictl pd deps --local-dir ./content --resources-path ./partner-directory --pid ONE_OMS
+```
+
+## pd diff
+
+Compare local Partner Directory files with the tenant
+
+```
+Compare the local tree (layout of pd-snapshot) with the tenant: per parameter
+create, update, unchanged or remote_only (only on the tenant: pd-deploy --full-sync
+would delete it). Exit code 7 when a PID could not be read locally.
+```
+
+**Usage:** `cpictl pd diff [flags]`
+
+**Flags:**
+
+```
+      --pids strings            Only these partner IDs
+      --resources-path string   Path to partner directory parameters (default "./partner-directory")
+```
+
+**Examples:**
+
+```
+  cpictl pd diff --resources-path ./partner-directory --pids ONE_OMS
+```
+
+## pd get
+
+Show the Partner Directory parameters of a partner ID on the tenant
+
+**Usage:** `cpictl pd get [flags]`
+
+**Flags:**
+
+```
+      --content         Include binary content
+      --key strings     Only these parameter IDs (repeatable)
+      --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string      Write the content to this file instead of stdout / the JSON result
+      --pid string      Partner ID
+```
+
+**Examples:**
+
+```
+  cpictl pd get --pid ONE_OMS
+  cpictl pd get --pid ONE_OMS --key now_email --content
+```
+
 ## pd-deploy
 
 Upload Partner Directory parameters from local files
@@ -926,6 +1284,7 @@ See docs/partner-directory.md for the file format and full sync safety rules.
 ```
       --dry-run                 Show what would be changed without making changes
       --full-sync               Delete remote parameters not present locally (local is source of truth)
+      --keys strings            Deploy only these parameters, PID:ID (create or update, never delete; not with --full-sync)
       --pids strings            Comma separated list of Partner IDs to deploy (e.g., 'PID1,PID2')
       --replace                 Replace existing values (false = add only missing values) (default true)
       --resources-path string   Path to partner directory parameters (default "./partner-directory")
@@ -945,6 +1304,9 @@ See docs/partner-directory.md for the file format and full sync safety rules.
 
   # Dry run to see what would be changed
   cpictl pd-deploy --dry-run
+
+  # Only one mapping (no other parameter is touched)
+  cpictl pd-deploy --keys ONE_OMS:now_email
 ```
 
 ## pd-snapshot
@@ -989,6 +1351,42 @@ See docs/partner-directory.md for the file format and full sync safety rules.
   # Snapshot only specific PIDs
   cpictl pd-snapshot --pids "SAP_SYSTEM_001,CUSTOMER_API"
 ```
+
+## profile
+
+Switch between tenants (profiles in $HOME/.cpictl)
+
+```
+A profile is a personal config file $HOME/.cpictl/<name>.yaml with the connection
+of one tenant (same keys as cpictl.yaml, credentials included; keep it chmod 600).
+
+  cpictl profile use qa          make qa the default for every following command
+  cpictl --profile dev deploy …  one command against another tenant
+  CPICTL_PROFILE=dev             per shell (overrides 'profile use')
+  cpictl mcp --profile dev       one MCP server per tenant
+
+Precedence: --config, --profile, CPICTL_PROFILE, CPICTL_CONFIG, 'profile use',
+$HOME/cpictl.yaml. A repository's cpictl.yaml is still overlaid; its hosts must
+match the profile's.
+```
+
+## profile current
+
+Show the profile that commands use now
+
+**Usage:** `cpictl profile current`
+
+## profile list
+
+List profiles and mark the active one
+
+**Usage:** `cpictl profile list`
+
+## profile use
+
+Make a profile the default (stored in $HOME/.cpictl/current); 'use -' clears it
+
+**Usage:** `cpictl profile use <name>`
 
 ## resources
 
@@ -1068,6 +1466,7 @@ reports that flow's message (found by correlation ID). See docs/testing.md.
       --harness string                      Test harness flow ID (with --process-direct) (default "CPICTL_Test_Harness")
       --header strings                      Additional header name=value (repeatable)
       --method string                       HTTP method (default "POST")
+      --no-trace                            Do not send a W3C traceparent header (by default one is generated unless --header traceparent=... is given; its traceId is in the result)
       --process-direct string               Send through the test harness flow to this ProcessDirect address (flows without an HTTP sender)
       --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
       --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints
@@ -1322,4 +1721,38 @@ Validate an integration flow on the tenant (like Check in the Web UI)
 
 ```
   cpictl validate --artifact-id OrderIntake
+```
+
+## variables
+
+List global and integration flow variables
+
+**Usage:** `cpictl variables [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Only this flow's variables (plus global ones)
+```
+
+**Examples:**
+
+```
+  cpictl variables --artifact-id OrderIntake
+  cpictl variables get --name lastRun --artifact-id OrderIntake
+```
+
+## variables get
+
+Read the value of a variable
+
+**Usage:** `cpictl variables get [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow (empty: global variable)
+      --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --name string          Variable name
+      --out string           Write the content to this file instead of stdout / the JSON result
 ```

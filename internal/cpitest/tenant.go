@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -103,6 +104,12 @@ type ReceivedMessage struct {
 	Body         string
 }
 
+// PDBinary is a binary Partner Directory parameter.
+type PDBinary struct {
+	ContentType string
+	Content     []byte
+}
+
 // Package is an integration package of the mock tenant.
 type Package struct {
 	ID, Name, Version string
@@ -118,12 +125,14 @@ type Resource struct {
 type MessageLog struct {
 	Guid, Artifact, Status string
 	CorrelationID          string
-	Start, End             time.Time
-	ErrorText              string
-	Headers                map[string]string
-	Attachments            map[string]string // name -> content (ids att-<guid>-<name>)
-	StoreEntries           map[string]string // id -> payload
-	Steps                  []Step
+	// ApplicationID is ApplicationMessageId; Package defaults to "P".
+	ApplicationID, Predecessor, Package string
+	Start, End                          time.Time
+	ErrorText                           string
+	Headers                             map[string]string
+	Attachments                         map[string]string // name -> content (ids att-<guid>-<name>)
+	StoreEntries                        map[string]string // id -> payload
+	Steps                               []Step
 }
 
 // Step is a processing step of a message (one run per message).
@@ -160,9 +169,19 @@ type Tenant struct {
 	// MessageLogSteps: each MessageProcessingLogs query returns the next step
 	// (the last step repeats). Single-message endpoints look up all steps.
 	MessageLogSteps [][]MessageLog
+	// FilterMessageLogs makes MPL queries honour the equality filters
+	// (IntegrationFlowName, ApplicationMessageId, CorrelationId) and
+	// $top/$skip, like the tenant; otherwise every query returns the next
+	// MessageLogSteps entry unfiltered.
+	FilterMessageLogs bool
 	// LastMessageLogQuery is the raw query string of the last MPL query.
 	LastMessageLogQuery string
 	mplQueries          int
+
+	// PDStrings and PDBinaries are the Partner Directory parameters, keyed
+	// "<pid>/<id>".
+	PDStrings  map[string]string
+	PDBinaries map[string]PDBinary
 
 	// LogLevels records the log level set per artifact via the operations
 	// command (request body as received).
@@ -177,6 +196,17 @@ type Tenant struct {
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
 	Packages  []Package
+	// Raw serves fixed OData answers by exact (decoded) path: a slice is
+	// returned as {"d":{"results":...}}, anything else as {"d":...}; []byte
+	// is returned as is ($value). DELETE on a Raw path answers 202 and is
+	// recorded in Deleted. RawQueries records the query string per path.
+	Raw        map[string]any
+	Deleted    []string
+	RawQueries map[string]string
+
+	// ForbidTraces answers 403 for TraceMessages (key without the role to
+	// read message content).
+	ForbidTraces bool
 	// StatusOverride, if non-zero, is returned for every API call (e.g. 401).
 	StatusOverride int
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
@@ -256,6 +286,9 @@ var (
 	reMPL             = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
 	reAttValue        = regexp.MustCompile(`^/api/v1/MessageProcessingLogAttachments\('([^']+)'\)/\$value$`)
 	reStoreValue      = regexp.MustCompile(`^/api/v1/MessageStoreEntries\('([^']+)'\)/\$value$`)
+	rePDCollection    = regexp.MustCompile(`^/api/v1/(String|Binary)Parameters$`)
+	rePDEntity        = regexp.MustCompile(`^/api/v1/(String|Binary)Parameters\(Pid='([^']*)',Id='([^']*)'\)$`)
+	rePDFilter        = regexp.MustCompile(`^Pid eq '([^']*)'$`)
 	reStepTraces      = regexp.MustCompile(`^/api/v1/MessageProcessingLogRunSteps\(RunId='([^']+)',ChildCount=([0-9]+)\)/TraceMessages$`)
 	reTrace           = regexp.MustCompile(`^/api/v1/TraceMessages\(([0-9]+)\)/(\$value|Properties|ExchangeProperties)$`)
 	reRunSteps        = regexp.MustCompile(`^/api/v1/MessageProcessingLogRuns\('([^']+)'\)/RunSteps$`)
@@ -333,6 +366,114 @@ func (m *Tenant) handleCredential(w http.ResponseWriter, r *http.Request, mm []s
 	}
 }
 
+func (m *Tenant) handlePD(w http.ResponseWriter, r *http.Request) {
+	if m.PDStrings == nil {
+		m.PDStrings = map[string]string{}
+	}
+	if m.PDBinaries == nil {
+		m.PDBinaries = map[string]PDBinary{}
+	}
+	row := func(kind, key string) map[string]string {
+		pid, id, _ := strings.Cut(key, "/")
+		if kind == "String" {
+			return map[string]string{"Pid": pid, "Id": id, "Value": m.PDStrings[key]}
+		}
+		b := m.PDBinaries[key]
+		return map[string]string{"Pid": pid, "Id": id, "ContentType": b.ContentType, "Value": base64.StdEncoding.EncodeToString(b.Content)}
+	}
+	exists := func(kind, key string) bool {
+		if kind == "String" {
+			_, ok := m.PDStrings[key]
+			return ok
+		}
+		_, ok := m.PDBinaries[key]
+		return ok
+	}
+	store := func(kind, key string, body map[string]string) bool {
+		if kind == "String" {
+			m.PDStrings[key] = body["Value"]
+			return true
+		}
+		content, err := base64.StdEncoding.DecodeString(body["Value"])
+		if err != nil {
+			return false
+		}
+		m.PDBinaries[key] = PDBinary{ContentType: body["ContentType"], Content: content}
+		return true
+	}
+	if mm := rePDCollection.FindStringSubmatch(r.URL.Path); mm != nil {
+		kind := mm[1]
+		switch r.Method {
+		case http.MethodGet:
+			pidFilter := ""
+			if f := r.URL.Query().Get("$filter"); f != "" {
+				fm := rePDFilter.FindStringSubmatch(f)
+				if fm == nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				pidFilter = fm[1]
+			}
+			keys := sortedKeys(m.PDStrings)
+			if kind == "Binary" {
+				keys = sortedKeys(m.PDBinaries)
+			}
+			rows := []map[string]string{}
+			for _, k := range keys {
+				if pidFilter == "" || strings.HasPrefix(k, pidFilter+"/") {
+					rows = append(rows, row(kind, k))
+				}
+			}
+			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+		case http.MethodPost:
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["Pid"] == "" || body["Id"] == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			key := body["Pid"] + "/" + body["Id"]
+			if exists(kind, key) {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			if !store(kind, key, body) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	mm := rePDEntity.FindStringSubmatch(r.URL.Path)
+	kind, key := mm[1], mm[2]+"/"+mm[3]
+	if !exists(kind, key) {
+		notFound(w)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"d": row(kind, key)})
+	case http.MethodPut:
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !store(kind, key, body) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if kind == "String" {
+			delete(m.PDStrings, key)
+		} else {
+			delete(m.PDBinaries, key)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	in := m.Inbound[r.URL.Path]
 	if in == nil {
@@ -370,11 +511,45 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(in.Response))
 }
 
+var reMPLEq = regexp.MustCompile(`(IntegrationFlowName|ApplicationMessageId|CorrelationId) eq '([^']*)'`)
+
+// filterMessageLogs applies the equality filters and $skip/$top; it returns
+// the page and the number of matches.
+func filterMessageLogs(logs []MessageLog, q url.Values) ([]MessageLog, int) {
+	var out []MessageLog
+	for _, l := range logs {
+		ok := true
+		for _, mm := range reMPLEq.FindAllStringSubmatch(q.Get("$filter"), -1) {
+			v := map[string]string{"IntegrationFlowName": l.Artifact, "ApplicationMessageId": l.ApplicationID, "CorrelationId": l.CorrelationID}[mm[1]]
+			ok = ok && v == mm[2]
+		}
+		if ok {
+			out = append(out, l)
+		}
+	}
+	total := len(out)
+	skip, _ := strconv.Atoi(q.Get("$skip"))
+	top, _ := strconv.Atoi(q.Get("$top"))
+	if skip > len(out) {
+		skip = len(out)
+	}
+	out = out[skip:]
+	if top > 0 && top < len(out) {
+		out = out[:top]
+	}
+	return out, total
+}
+
 func mplJSON(l MessageLog) map[string]any {
+	pkg := l.Package
+	if pkg == "" {
+		pkg = "P"
+	}
 	return map[string]any{
 		"MessageGuid": l.Guid, "CorrelationId": l.CorrelationID, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
 		"LogStart": odataDate(l.Start), "LogEnd": odataDate(l.End), "IntegrationFlowName": l.Artifact,
-		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": "P"},
+		"ApplicationMessageId": l.ApplicationID, "PredecessorMessageGuid": l.Predecessor,
+		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": pkg, "PackageName": pkg + " name"},
 	}
 }
 
@@ -474,7 +649,34 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if v, ok := m.Raw[path]; ok {
+		if m.RawQueries == nil {
+			m.RawQueries = map[string]string{}
+		}
+		m.RawQueries[path] = r.URL.RawQuery
+		switch {
+		case r.Method == http.MethodDelete:
+			m.Deleted = append(m.Deleted, path)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method != http.MethodGet:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		default:
+			switch val := v.(type) {
+			case []byte:
+				_, _ = w.Write(val)
+			case []map[string]any:
+				writeJSON(w, map[string]any{"d": map[string]any{"results": val}})
+			default:
+				writeJSON(w, map[string]any{"d": val})
+			}
+		}
+		return
+	}
+
 	switch {
+	case rePDCollection.MatchString(path) || rePDEntity.MatchString(path):
+		m.handlePD(w, r)
+
 	case reCredential.MatchString(path):
 		m.handleCredential(w, r, reCredential.FindStringSubmatch(path))
 
@@ -525,11 +727,15 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			logs = pick(m.MessageLogSteps, m.mplQueries)
 		}
 		m.mplQueries++
+		total := len(logs)
+		if m.FilterMessageLogs {
+			logs, total = filterMessageLogs(logs, r.URL.Query())
+		}
 		results := []map[string]any{}
 		for _, l := range logs {
 			results = append(results, mplJSON(l))
 		}
-		writeJSON(w, map[string]any{"d": map[string]any{"results": results, "__count": fmt.Sprint(len(results))}})
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results, "__count": fmt.Sprint(total)}})
 
 	case r.Method == http.MethodGet && reMPL.MatchString(path):
 		mm := reMPL.FindStringSubmatch(path)
@@ -615,6 +821,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 				"Status": st.Status, "Error": st.Error, "StepStart": odataDate(l.Start), "StepStop": odataDate(l.End)})
 		}
 		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case m.ForbidTraces && (reStepTraces.MatchString(path) || reTrace.MatchString(path)):
+		w.WriteHeader(http.StatusForbidden)
 
 	case r.Method == http.MethodGet && reStepTraces.MatchString(path):
 		mm := reStepTraces.FindStringSubmatch(path)

@@ -14,6 +14,8 @@ import (
 func runCLI(t *testing.T, mock *cpitest.Tenant, args ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CPICTL_PROFILE", "")
+	t.Setenv("CPICTL_CONFIG", "")
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 

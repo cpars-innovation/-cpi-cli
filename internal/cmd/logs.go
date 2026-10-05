@@ -29,7 +29,9 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 		Example: `  cpictl logs --artifact-id OrderIntake --since 1h
   cpictl logs --artifact-id OrderIntake --status FAILED --errors --output json
   cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
-  cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG`,
+  cpictl logs --package-id Orders --since 1h --header OrderId=4711
+  cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG
+  cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := messageLogQuery(cmd)
 			if err != nil {
@@ -37,7 +39,22 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 			}
 			exe := tenantExecuter(cmd)
 			var res *ops.MessageLogList
-			if wait, _ := cmd.Flags().GetDuration("wait"); wait > 0 {
+			header, pkg := config.GetString(cmd, "header"), config.GetString(cmd, "package-id")
+			if header != "" || pkg != "" {
+				scope := ops.ScanScope{PackageID: pkg, Since: q.Since, Until: q.Until, Statuses: q.Statuses}
+				if q.ArtifactID != "" {
+					scope.ArtifactIDs = []string{q.ArtifactID}
+				}
+				if header == "" {
+					res, err = ops.QueryPackageMessageLogs(exe, scope, q.Top)
+				} else {
+					name, value, ok := strings.Cut(header, "=")
+					if !ok {
+						return output.Usagef("invalid --header %q, expected name=value", header)
+					}
+					res, err = ops.QueryMessageLogsByHeader(cmd.Context(), exe, scope, ops.CustomHeaderFilter{Name: name, Value: value}, q.Top, q.IncludeErrors)
+				}
+			} else if wait, _ := cmd.Flags().GetDuration("wait"); wait > 0 {
 				res, err = ops.WaitForMessageLogs(cmd.Context(), exe, q, wait, 5*time.Second)
 			} else {
 				res, err = ops.QueryMessageLogs(exe, q)
@@ -52,6 +69,9 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 					log.Info().Str("messageGuid", l.MessageGuid).Msgf("%s  %-10s %s  %s%s", end, l.Status, l.ArtifactID, l.MessageGuid, errSuffix(firstLine(l.ErrorText)))
 				}
 				log.Info().Msgf("%d of %d message(s)", len(res.Logs), res.Total)
+				if res.Scanned > 0 {
+					log.Info().Msgf("%d message(s) scanned, truncated: %v", res.Scanned, res.Truncated)
+				}
 			}
 			return err
 		},
@@ -67,6 +87,8 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 	f.Int("skip", 0, "Skip the first n messages")
 	f.Bool("errors", false, "Include the error text of failed messages")
 	f.Duration("wait", 0, "Wait up to this long for final messages (e.g. 60s)")
+	f.String("package-id", "", "Messages of all integration flows of this package (needs --since)")
+	f.String("header", "", "Only messages with this custom header property, name=value (client-side scan; needs --artifact-id or --package-id, and --since)")
 
 	get := &cobra.Command{
 		Use:          "get",
@@ -195,7 +217,62 @@ Set the level with 'cpictl log-level --level TRACE' (active for 10 minutes).`,
 	traceMessage.Flags().String("id", "", "Trace ID")
 	addContentFlags(traceMessage)
 
-	c.AddCommand(get, steps, attachment, payload, trace, traceMessage)
+	tree := &cobra.Command{
+		Use:   "tree",
+		Short: "Show the call tree of a trace across flows and its first failure",
+		Long: `Build the call tree of one trace (W3C trace ID, e.g. the traceId of 'cpictl send'):
+messages are found by ApplicationMessageId = trace ID, otherwise by scanning the
+scope (--artifact-ids or --package-id, and --since) for the trace-id custom header.
+Nodes are linked by span-id / parent-span-id (names configurable).`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			now := time.Now()
+			since, err := ops.ParseTimeArg(config.GetString(cmd, "since"), now)
+			if err != nil {
+				return output.Usagef("invalid --since: %v", err)
+			}
+			until, err := ops.ParseTimeArg(config.GetString(cmd, "until"), now)
+			if err != nil {
+				return output.Usagef("invalid --until: %v", err)
+			}
+			res, err := ops.TraceTreeFor(cmd.Context(), tenantExecuter(cmd), ops.TraceTreeQuery{
+				TraceID: config.GetString(cmd, "trace-id"), MaxScan: config.GetInt(cmd, "max-scan"),
+				Scope:      ops.ScanScope{ArtifactIDs: nonEmpty(config.GetStringSlice(cmd, "artifact-ids")), PackageID: config.GetString(cmd, "package-id"), Since: since, Until: until},
+				Properties: ops.TraceProperties{Trace: config.GetString(cmd, "trace-property"), Span: config.GetString(cmd, "span-property"), Parent: config.GetString(cmd, "parent-property")},
+			})
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			var print func(n *ops.TraceNode, depth int)
+			print = func(n *ops.TraceNode, depth int) {
+				log.Info().Msgf("%s%-10s %s  %s%s", strings.Repeat("  ", depth), n.Status, n.ArtifactID, n.MessageGuid, errSuffix(firstLine(n.ErrorText)))
+				for _, c := range n.Children {
+					print(c, depth+1)
+				}
+			}
+			for _, r := range res.Roots {
+				print(r, 0)
+			}
+			if res.FirstFailure != nil {
+				log.Warn().Msgf("First failure: %s %s%s", res.FirstFailure.ArtifactID, res.FirstFailure.MessageGuid, errSuffix(firstLine(res.FirstFailure.ErrorText)))
+			}
+			return nil
+		},
+	}
+	tf := tree.Flags()
+	tf.String("trace-id", "", "Trace ID (32 hex characters)")
+	tf.StringSlice("artifact-ids", nil, "Scope of the fallback scan")
+	tf.String("package-id", "", "Scope of the fallback scan: all flows of this package")
+	tf.String("since", "", "Start of the scan window (duration like 1h or RFC 3339)")
+	tf.String("until", "", "End of the scan window")
+	tf.Int("max-scan", 200, "Maximum messages scanned")
+	tf.String("trace-property", ops.DefaultTraceProperties.Trace, "Custom header property with the trace ID")
+	tf.String("span-property", ops.DefaultTraceProperties.Span, "Custom header property with the span ID")
+	tf.String("parent-property", ops.DefaultTraceProperties.Parent, "Custom header property with the parent span ID")
+	_ = tree.MarkFlagRequired("trace-id")
+
+	c.AddCommand(get, steps, attachment, payload, trace, traceMessage, tree)
 	return c
 }
 

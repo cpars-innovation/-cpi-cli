@@ -38,23 +38,26 @@ type MessageLogQuery struct {
 
 // MessageLog is the agent-facing view of a message processing log.
 type MessageLog struct {
-	MessageGuid          string     `json:"messageGuid"`
-	Status               string     `json:"status"`
-	CustomStatus         string     `json:"customStatus,omitempty"`
-	ArtifactID           string     `json:"artifactId,omitempty"`
-	ArtifactName         string     `json:"artifactName,omitempty"`
-	PackageID            string     `json:"packageId,omitempty"`
-	CorrelationID        string     `json:"correlationId,omitempty"`
-	ApplicationMessageID string     `json:"applicationMessageId,omitempty"`
-	Sender               string     `json:"sender,omitempty"`
-	Receiver             string     `json:"receiver,omitempty"`
-	LogStart             *time.Time `json:"logStart,omitempty"`
-	LogEnd               *time.Time `json:"logEnd,omitempty"`
-	DurationMs           int64      `json:"durationMs,omitempty"`
-	LogLevel             string     `json:"logLevel,omitempty"`
-	WebLink              string     `json:"webLink,omitempty"`
-	ErrorText            string     `json:"errorText,omitempty"`
-	ErrorTruncated       bool       `json:"errorTruncated,omitempty"`
+	MessageGuid            string     `json:"messageGuid"`
+	Status                 string     `json:"status"`
+	CustomStatus           string     `json:"customStatus,omitempty"`
+	ArtifactID             string     `json:"artifactId,omitempty"`
+	ArtifactName           string     `json:"artifactName,omitempty"`
+	PackageID              string     `json:"packageId,omitempty"`
+	PackageName            string     `json:"packageName,omitempty"`
+	CorrelationID          string     `json:"correlationId,omitempty"`
+	ApplicationMessageID   string     `json:"applicationMessageId,omitempty"`
+	ApplicationMessageType string     `json:"applicationMessageType,omitempty"`
+	PredecessorMessageGuid string     `json:"predecessorMessageGuid,omitempty"`
+	Sender                 string     `json:"sender,omitempty"`
+	Receiver               string     `json:"receiver,omitempty"`
+	LogStart               *time.Time `json:"logStart,omitempty"`
+	LogEnd                 *time.Time `json:"logEnd,omitempty"`
+	DurationMs             int64      `json:"durationMs,omitempty"`
+	LogLevel               string     `json:"logLevel,omitempty"`
+	WebLink                string     `json:"webLink,omitempty"`
+	ErrorText              string     `json:"errorText,omitempty"`
+	ErrorTruncated         bool       `json:"errorTruncated,omitempty"`
 }
 
 // MessageLogList is the result of QueryMessageLogs.
@@ -62,6 +65,10 @@ type MessageLogList struct {
 	Total  int          `json:"total"`
 	Logs   []MessageLog `json:"logs"`
 	Filter string       `json:"filter,omitempty"`
+	// Scanned and Truncated are set by client-side scans (custom header
+	// filter): how many messages were read, and whether the cap was hit.
+	Scanned   int  `json:"scanned,omitempty"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 func toMessageLog(l cpi.MessageLog) MessageLog {
@@ -69,6 +76,7 @@ func toMessageLog(l cpi.MessageLog) MessageLog {
 		MessageGuid: l.MessageGuid, Status: l.Status, CustomStatus: l.CustomStatus,
 		ArtifactID: l.ArtifactId, ArtifactName: l.ArtifactName, PackageID: l.PackageId,
 		CorrelationID: l.CorrelationId, ApplicationMessageID: l.ApplicationMessageId,
+		ApplicationMessageType: l.ApplicationMessageType, PredecessorMessageGuid: l.PredecessorMessageGuid, PackageName: l.PackageName,
 		Sender: l.Sender, Receiver: l.Receiver, LogLevel: l.LogLevel, WebLink: l.AlternateWebLink,
 	}
 	if m.CustomStatus == m.Status {

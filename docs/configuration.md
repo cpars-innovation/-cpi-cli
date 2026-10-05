@@ -12,13 +12,89 @@ For every flag, the first of these that is set wins:
    flag's help text as `(config: ...)`)
 5. The flag's default
 
-The config file is `$HOME/cpictl.yaml`, or the file given with `--config`.
+Config files, first match wins:
+
+1. `--config <file>`: this file only.
+2. A **profile** ([Profiles](#profiles-switching-tenants)): `--profile <name>`, `CPICTL_PROFILE`,
+   or the one chosen with `cpictl profile use`.
+3. `CPICTL_CONFIG=<file>`: this file only.
+4. Otherwise `$HOME/cpictl.yaml` (your personal settings and credentials).
+
+A profile and `$HOME/cpictl.yaml` are overlaid by the
+  **project file**: `cpictl.yaml` in the current directory or a parent directory, up to the
+  repository root (the directory with `.git`). See [Project file](#project-file).
 A missing default file is fine; a file given with `--config` that cannot be parsed is a
 usage error (exit code 2).
 
-> **Secrets:** the config file is read as plain YAML. `${VAR}` is **not** expanded, so do not
-> write `oauth-clientsecret: ${SECRET}`; set `CPICTL_OAUTH_CLIENTSECRET` in the environment
-> instead and leave the key out of the file.
+> **Secrets:** you may keep `oauth-clientsecret`, `tmn-password` and the runtime secrets in a
+> personal config file (like `~/.netrc` or `~/.aws/credentials`): make it readable only by you
+> (`chmod 600`; cpictl warns otherwise) and never commit it. In CI and shared setups use
+> environment variables instead. The file is read as plain YAML: `${VAR}` is **not** expanded.
+
+### Project file
+
+A `cpictl.yaml` in a content repository sets that repository's tenant and command defaults
+for everyone who works in it (CLI and `cpictl mcp`, which runs in the repository):
+
+```yaml
+# <repo>/cpictl.yaml - committed, no secrets
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: sb-xxxxxxxx!b1234|it!b5678
+deploy:
+  maxCheckLimit: 40
+orchestrator:
+  packagesDir: ./packages
+```
+
+Rules, because the file comes with the repository:
+
+- It may not contain secrets (`tmn-password`, `oauth-clientsecret`, `runtime-oauth-clientsecret`,
+  `runtime-password`): exit code 2. Provide them with environment variables
+  (`CPICTL_OAUTH_CLIENTSECRET`, for example from a git-ignored `.envrc` with direnv) or a
+  personal file (`CPICTL_CONFIG`).
+- Credentials from `$HOME/cpictl.yaml` are only sent to the hosts in that file. If the project
+  file sets a different `tmn-host`, `oauth-host` or `runtime-oauth-host` while the credentials
+  come from the home file, cpictl stops with exit code 2 instead of sending them elsewhere.
+  Credentials from the environment or `--config` are used as given.
+
+`--debug` logs which config files were read.
+
+### Profiles (switching tenants)
+
+One file per tenant in `~/.cpictl/`, with the connection and credentials:
+
+```bash
+mkdir -p ~/.cpictl && chmod 700 ~/.cpictl
+cat > ~/.cpictl/dev.yaml <<'YAML'
+tmn-host: mytenant-dev.it-cpi018.cfapps.eu10-003.hana.ondemand.com
+oauth-host: mytenant-dev.authentication.eu10.hana.ondemand.com
+oauth-clientid: sb-...
+oauth-clientsecret: ...
+runtime-oauth-clientid: sb-...        # for cpictl send
+runtime-oauth-clientsecret: ...
+YAML
+chmod 600 ~/.cpictl/*.yaml            # same for qa.yaml, prod.yaml, ...
+```
+
+Switch:
+
+```bash
+cpictl profile list                   # * marks the active profile
+cpictl profile use qa                 # default for every following command (all shells)
+cpictl --profile dev deploy --artifact-ids OrderIntake   # one command elsewhere
+export CPICTL_PROFILE=dev             # this shell only, overrides 'profile use'
+cpictl profile current
+cpictl profile use -                  # back to $HOME/cpictl.yaml
+```
+
+Every command against a tenant logs `Profile <name> (<host>)` first, so you always see where
+it goes. A repository's `cpictl.yaml` is still overlaid; if its hosts differ from the
+profile's, cpictl stops instead of sending the profile's credentials there.
+
+For MCP, start one server per profile, e.g. `"args": ["mcp", "--root", ".", "--profile", "dev"]`
+and `["mcp", "--root", ".", "--profile", "qa", "--read-only"]`. The server keeps its profile
+for its whole lifetime; `cpictl profile use` does not change a running server.
 
 Flags that are marked as required (for example `sync --package-id`) must come from the
 command line, the environment or a top-level key; a command section key is read too late

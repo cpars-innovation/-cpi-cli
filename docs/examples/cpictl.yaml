@@ -1,19 +1,23 @@
 # cpictl global config file
-# Use as $HOME/cpictl.yaml or pass with --config cpictl.yaml.
+# Use as $HOME/cpictl.yaml, point CPICTL_CONFIG at it, or pass it with --config.
 #
 # Precedence: flag > CPICTL_* environment variable > top-level key > command section > default.
-# ${VAR} is NOT expanded in this file: keep secrets in environment variables
-# (CPICTL_OAUTH_CLIENTSECRET, CPICTL_TMN_PASSWORD) and leave them out of here.
+# Secrets may be stored here in a personal file: chmod 600 it (cpictl warns otherwise) and
+# never commit it. ${VAR} is NOT expanded in this file.
 
 # --- Tenant connection --------------------------------------------------------
 tmn-host: mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com
 oauth-host: mytenant.authentication.eu10.hana.ondemand.com
-# oauth-clientid: set CPICTL_OAUTH_CLIENTID
-# oauth-clientsecret: set CPICTL_OAUTH_CLIENTSECRET
+# oauth-clientid: sb-xxxxxxxx!b1234|it!b5678
+# oauth-clientsecret: ...            # only in a chmod 600 personal file
+
+# Runtime endpoints (cpictl send / send_test_message), service key of plan integration-flow:
+# runtime-oauth-clientid: ...
+# runtime-oauth-clientsecret: ...
 
 # Basic Auth instead of OAuth:
-# tmn-userid: set CPICTL_TMN_USERID
-# tmn-password: set CPICTL_TMN_PASSWORD
+# tmn-userid: ...
+# tmn-password: ...                  # only in a chmod 600 personal file
 
 # output: json          # default output format for all commands
 # debug: false

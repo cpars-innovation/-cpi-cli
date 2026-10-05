@@ -68,9 +68,16 @@ export CPICTL_OAUTH_CLIENTID='sb-xxxxxxxx!b1234|it!b5678'
 export CPICTL_OAUTH_CLIENTSECRET='...'
 ```
 
+Working with several tenants? Put each one into a profile (`~/.cpictl/dev.yaml`, `qa.yaml`, ...)
+and switch with `cpictl profile use qa` or `--profile dev`
+([profiles](docs/configuration.md#profiles-switching-tenants)).
+
 Every setting is available as a flag (`--tmn-host`), as an environment variable
-(`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml`, which can also hold
-defaults per command. Details: [docs/configuration.md](docs/configuration.md).
+(`CPICTL_TMN_HOST`) and in the config file `$HOME/cpictl.yaml` (or the file in
+`CPICTL_CONFIG`, e.g. one per tenant), which can also hold defaults per command. A
+`cpictl.yaml` in a repository (without secrets) sets that repository's tenant and defaults
+([project file](docs/configuration.md#project-file)). Instead of
+exporting variables you can put the connection into that file; keep it `chmod 600`. Details: [docs/configuration.md](docs/configuration.md).
 
 ## Everyday workflow
 
@@ -107,7 +114,8 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 
 | Area | Commands |
 |------|----------|
-| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover` |
+| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover`, `drift` |
+| Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
 | Designtime | `download`, `packages create`, `update artifact`, `update package` |
@@ -156,6 +164,7 @@ Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPL
 | 5 | Deployment, validation or test message failed on the tenant | fix the artifact |
 | 6 | Timeout | check `status`, raise `--max-check-limit` |
 | 7 | Partial failure | inspect the per-item results |
+| 8 | Loop stopped (MCP only): a build loop limit was reached | stop, report the loop summary |
 
 ## AI agents (MCP)
 

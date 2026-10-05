@@ -10,6 +10,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestDocsExamples(t *testing.T) {
 	})
 
 	t.Run("configure.yml", func(t *testing.T) {
-		files, err := loadConfigureConfigs(filepath.Join(examplesDir, "configure.yml"))
+		files, err := ops.LoadConfigureFiles(filepath.Join(examplesDir, "configure.yml"))
 		require.NoError(t, err)
 		pkg := files[0].Config.Packages[0]
 		require.Len(t, pkg.Artifacts, 2)

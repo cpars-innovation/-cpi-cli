@@ -216,6 +216,8 @@ func Category(code int) string {
 		return "timeout"
 	case exitcode.Partial:
 		return "partial"
+	case exitcode.Stopped:
+		return "stopped"
 	}
 	return "error"
 }

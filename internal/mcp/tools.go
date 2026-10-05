@@ -20,26 +20,38 @@ import (
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 
-Build loop: download_artifact (existing flow, once) or write files locally -> create_package (new
+Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
+(existing flow, once) or write files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
--> on failure get_message_steps (failing step) and get_message_log / get_message_attachment /
+-> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
+get_message_steps (failing step) and get_message_log / get_message_attachment /
 get_message_store_entry for payloads; for step-by-step payloads set_log_level TRACE, send again,
 get_message_trace and get_trace_message -> fix the local files and repeat.
 Flows without an HTTP sender: ProcessDirect via send_test_message process_direct_address (test
 harness flow); timer, SFTP and other polling flows: see the triggers in discover_tenant and use
 list_message_logs with since and wait_seconds after triggering them.
-Configuration: get_parameters / set_parameters, then deploy to activate.
+Configuration: get_parameters / set_parameters, then deploy to activate; config_diff compares a
+configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
 Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
 Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
-list_service_endpoints.
+list_service_endpoints; runtime data: list_data_stores, list_data_store_entries,
+get_data_store_entry, delete_data_store_entry (confirm), list_variables, get_variable,
+list_jms_queues, get_jms_broker, list_number_ranges, list_log_files / get_log_file (adapter errors
+without a message log), list_idempotent_entries (skipped duplicates), list_id_mappings.
 Conventions: discover_tenant writes an inventory of existing flows (adapters, steps, error
 handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/conventions.md).
 
+Autonomous loops: loop_start before changing anything, loop_status, loop_end when done or stopped.
+
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory: usage (fix the
 arguments), auth (stop, ask the user), tenant_http (retry later), failed (the tenant rejected the
-content or the message failed: read error, fix), timeout (check status), partial (see items).
-undeploy requires confirm=true. pd_deploy is a dry run unless dry_run=false. send_test_message
+content or the message failed: read error, fix), timeout (check status), partial (see items),
+stopped (a loop limit was reached: stop changing things, call loop_end and report).
+undeploy requires confirm=true. Partner Directory: pd_dependencies (which flows read a parameter), get_pd_parameters (tenant
+values), pd_diff (local vs tenant), then
+pd_deploy keys=["PID:ID"] to change one parameter without redeploying flows. pd_deploy is a
+dry run unless dry_run=false. send_test_message
 triggers real processing, including receiver calls. Security material is read-only here
 (list_credentials, list_keystore): secrets never pass through this server.`
 
@@ -59,6 +71,11 @@ type Config struct {
 	NewEndpointExecuter ops.EndpointExecuterFunc
 	// TenantHost is recorded as the source of discover_tenant.
 	TenantHost string
+	// DenyFullSync makes pd_deploy refuse full_sync (develop mode).
+	DenyFullSync bool
+	// LogLevels reverts set_log_level changes; created by Tools when nil.
+	// Call RevertAll when the server stops.
+	LogLevels *LogLevelReverter
 }
 
 // Tools returns the CPI tool set.
@@ -75,6 +92,22 @@ func Tools(cfg Config) []Tool {
 	readOnly := map[string]any{"readOnlyHint": true, "openWorldHint": true}
 	tenant := ops.NewTenant(cfg.Exe)
 	endpoints := cachedEndpointExecuters(cfg.NewEndpointExecuter)
+	if cfg.LogLevels == nil {
+		cfg.LogLevels = NewLogLevelReverter(cfg.Exe)
+	}
+	reverter := cfg.LogLevels
+	tools := append(toolList(cfg, readOnly, tenant, endpoints, reverter), storeTools(cfg, readOnly)...)
+	for i := range tools {
+		inner := tools[i].Handler
+		tools[i].Handler = func(ctx context.Context, raw json.RawMessage) (any, error) {
+			reverter.RunDue()
+			return inner(ctx, raw)
+		}
+	}
+	return tools
+}
+
+func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints ops.EndpointExecuterFunc, reverter *LogLevelReverter) []Tool {
 
 	return []Tool{
 		{
@@ -147,7 +180,8 @@ func Tools(cfg Config) []Tool {
 			Name: "list_message_logs", Title: "Query message processing logs",
 			Description: "Message processing logs (newest first) filtered by artifact, status, time and IDs, with the error text of failed messages. " +
 				"Use it to see how an iFlow behaved at runtime: call with artifact_id, since=<time before the messages> and wait_seconds to wait until the messages reached a final status. " +
-				"After send_test_message prefer its wait_seconds, which already returns the log of that message.",
+				"After send_test_message prefer its wait_seconds, which already returns the log of that message. " +
+				"custom_header {name, value} finds messages by a custom header property; the tenant cannot filter on it, so it scans (needs artifact_id or package_id, and since; at most top*10, max 500 messages; see scanned/truncated).",
 			InputSchema: object(props{
 				"artifact_id":            str("Integration flow ID"),
 				"statuses":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": cpi.MessageLogStatuses}, "description": "Only these statuses"},
@@ -159,20 +193,25 @@ func Tools(cfg Config) []Tool {
 				"skip":                   integer("Skip the first n messages"),
 				"include_errors":         boolean("Include the error text of failed messages (default true)"),
 				"wait_seconds":           map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long until at least one message matches and all matches are final"},
+				"package_id":             str("Messages of all integration flows of this package (needs since)"),
+				"custom_header": map[string]any{"type": "object", "description": "Only messages with this custom header property value (client-side scan)", "additionalProperties": false,
+					"properties": map[string]any{"name": str("Property name"), "value": str("Property value")}, "required": []string{"name", "value"}},
 			}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
-					ArtifactID           string   `json:"artifact_id"`
-					Statuses             []string `json:"statuses"`
-					Since                string   `json:"since"`
-					Until                string   `json:"until"`
-					CorrelationID        string   `json:"correlation_id"`
-					ApplicationMessageID string   `json:"application_message_id"`
-					Top                  int      `json:"top"`
-					Skip                 int      `json:"skip"`
-					IncludeErrors        *bool    `json:"include_errors"`
-					WaitSeconds          int      `json:"wait_seconds"`
+					ArtifactID           string                  `json:"artifact_id"`
+					Statuses             []string                `json:"statuses"`
+					Since                string                  `json:"since"`
+					Until                string                  `json:"until"`
+					CorrelationID        string                  `json:"correlation_id"`
+					ApplicationMessageID string                  `json:"application_message_id"`
+					Top                  int                     `json:"top"`
+					Skip                 int                     `json:"skip"`
+					IncludeErrors        *bool                   `json:"include_errors"`
+					WaitSeconds          int                     `json:"wait_seconds"`
+					PackageID            string                  `json:"package_id"`
+					CustomHeader         *ops.CustomHeaderFilter `json:"custom_header"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -189,6 +228,19 @@ func Tools(cfg Config) []Tool {
 				q := ops.MessageLogQuery{ArtifactID: a.ArtifactID, Statuses: a.Statuses, Since: since, Until: until,
 					CorrelationID: a.CorrelationID, ApplicationMessageID: a.ApplicationMessageID, Top: a.Top, Skip: a.Skip,
 					IncludeErrors: a.IncludeErrors == nil || *a.IncludeErrors}
+				if a.CustomHeader != nil || a.PackageID != "" {
+					if a.WaitSeconds > 0 || a.CorrelationID != "" || a.ApplicationMessageID != "" || a.Skip > 0 {
+						return nil, output.Usagef("custom_header and package_id cannot be combined with wait_seconds, correlation_id, application_message_id or skip")
+					}
+					scope := ops.ScanScope{PackageID: a.PackageID, Since: since, Until: until, Statuses: a.Statuses}
+					if a.ArtifactID != "" {
+						scope.ArtifactIDs = []string{a.ArtifactID}
+					}
+					if a.CustomHeader == nil {
+						return ops.QueryPackageMessageLogs(cfg.Exe, scope, a.Top)
+					}
+					return ops.QueryMessageLogsByHeader(ctx, cfg.Exe, scope, *a.CustomHeader, a.Top, q.IncludeErrors)
+				}
 				if a.WaitSeconds > 0 {
 					if a.WaitSeconds > 600 {
 						return nil, output.Usagef("wait_seconds must be at most 600")
@@ -276,6 +328,8 @@ func Tools(cfg Config) []Tool {
 				"level":               enum("Log level", ops.LogLevels...),
 				"node_type":           str(`Runtime node type, default "IFLMAP"`),
 				"runtime_location_id": str(`Runtime location, default "cloudintegration" (edge integration cells use their own)`),
+				"revert_after_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 1440,
+					"description": "Set the flow back to INFO after this many minutes (on the next tool call, or when the server stops); default 10 for TRACE and DEBUG, 0 = never"},
 			}, "artifact_id", "level"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -284,11 +338,31 @@ func Tools(cfg Config) []Tool {
 					Level             string `json:"level"`
 					NodeType          string `json:"node_type"`
 					RuntimeLocationID string `json:"runtime_location_id"`
+					RevertAfter       *int   `json:"revert_after_minutes"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
 				}
-				return ops.SetLogLevel(cfg.Exe, ops.LogLevelRequest{ArtifactID: a.ArtifactID, Level: a.Level, NodeType: a.NodeType, RuntimeLocationID: a.RuntimeLocationID})
+				req := ops.LogLevelRequest{ArtifactID: a.ArtifactID, Level: a.Level, NodeType: a.NodeType, RuntimeLocationID: a.RuntimeLocationID}
+				res, err := ops.SetLogLevel(cfg.Exe, req)
+				if err != nil {
+					return res, err
+				}
+				minutes := 0
+				if res.Level == "TRACE" || res.Level == "DEBUG" {
+					minutes = 10
+				}
+				if a.RevertAfter != nil {
+					minutes = *a.RevertAfter
+				}
+				if minutes > 0 && res.Level != "INFO" {
+					at := reverter.now().UTC().Add(time.Duration(minutes) * time.Minute).Truncate(time.Second)
+					res.RevertsAt = &at
+					reverter.schedule(req, at)
+				} else {
+					reverter.schedule(req, time.Time{})
+				}
+				return res, nil
 			},
 		},
 		{
@@ -328,6 +402,56 @@ func Tools(cfg Config) []Tool {
 					return nil, err
 				}
 				return ops.GetTraceMessage(cfg.Exe, a.TraceID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "get_trace_tree", Title: "Get the call tree of a trace",
+			Description: "From one trace ID (traceId of send_test_message, or trace-id custom header) to the call tree across flows (ProcessDirect, JMS, HTTP) and firstFailure, the earliest failed message. " +
+				"Finds the messages by ApplicationMessageId first; otherwise scans the given scope (artifact_ids or package_id, and since) for the trace-id custom header, at most max_scan messages. " +
+				"Next: get_message_steps for firstFailure.messageGuid.",
+			InputSchema: object(props{
+				"trace_id":     str("32 hex characters"),
+				"artifact_ids": strArray("Scope of the fallback scan"),
+				"package_id":   str("Scope of the fallback scan: all flows of this package"),
+				"since":        str("Start of the scan window: RFC 3339 or duration back from now (30m, 2h)"),
+				"until":        str("End of the scan window"),
+				"max_scan":     map[string]any{"type": "integer", "minimum": 1, "maximum": 1000, "description": "Maximum messages scanned, default 200"},
+				"properties": map[string]any{"type": "object", "additionalProperties": false, "description": "Custom header names of the tracer (default trace-id, span-id, parent-span-id)",
+					"properties": map[string]any{"trace": str("Trace ID property"), "span": str("Span ID property"), "parent": str("Parent span ID property")}},
+			}, "trace_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					TraceID     string   `json:"trace_id"`
+					ArtifactIDs []string `json:"artifact_ids"`
+					PackageID   string   `json:"package_id"`
+					Since       string   `json:"since"`
+					Until       string   `json:"until"`
+					MaxScan     int      `json:"max_scan"`
+					Properties  *struct {
+						Trace  string `json:"trace"`
+						Span   string `json:"span"`
+						Parent string `json:"parent"`
+					} `json:"properties"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				now := time.Now()
+				since, err := ops.ParseTimeArg(a.Since, now)
+				if err != nil {
+					return nil, output.Usagef("invalid since: %v", err)
+				}
+				until, err := ops.ParseTimeArg(a.Until, now)
+				if err != nil {
+					return nil, output.Usagef("invalid until: %v", err)
+				}
+				q := ops.TraceTreeQuery{TraceID: a.TraceID, MaxScan: a.MaxScan,
+					Scope: ops.ScanScope{ArtifactIDs: a.ArtifactIDs, PackageID: a.PackageID, Since: since, Until: until}}
+				if a.Properties != nil {
+					q.Properties = ops.TraceProperties{Trace: a.Properties.Trace, Span: a.Properties.Span, Parent: a.Properties.Parent}
+				}
+				return ops.TraceTreeFor(ctx, cfg.Exe, q)
 			},
 		},
 		{
@@ -617,11 +741,12 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "deploy", Title: "Deploy artifacts",
-			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. Next: send_test_message to test the flow.",
+			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless allow_downgrade. Next: send_test_message to test the flow.",
 			InputSchema: object(props{
 				"artifact_ids":          strArray("Artifact IDs"),
 				"artifact_type":         enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),
 				"compare_versions":      boolean("Skip artifacts whose version is already running (default false: always deploy)"),
+				"allow_downgrade":       boolean("Deploy even if the designtime version is older than the running one (default false: such a deploy FAILS before it is triggered, because the tenant copy was probably not updated)"),
 				"poll_interval_seconds": integer("Seconds between status checks"),
 				"max_checks":            integer("Maximum number of status checks per artifact"),
 			}, "artifact_ids"),
@@ -631,6 +756,7 @@ func Tools(cfg Config) []Tool {
 					ArtifactIDs     []string `json:"artifact_ids"`
 					ArtifactType    string   `json:"artifact_type"`
 					CompareVersions bool     `json:"compare_versions"`
+					AllowDowngrade  bool     `json:"allow_downgrade"`
 					PollInterval    *int     `json:"poll_interval_seconds"`
 					MaxChecks       *int     `json:"max_checks"`
 				}
@@ -653,6 +779,7 @@ func Tools(cfg Config) []Tool {
 				}
 				opts := pollOptions(cfg, a.PollInterval, a.MaxChecks)
 				opts.CompareVersions = a.CompareVersions
+				opts.AllowDowngrade = a.AllowDowngrade
 				results := ops.Deploy(ctx, tenant, artifacts, opts)
 				return map[string]any{"results": results}, ops.Err(results)
 			},
@@ -672,6 +799,7 @@ func Tools(cfg Config) []Tool {
 				"headers":      map[string]any{"type": "object", "description": "Additional HTTP headers (not Authorization, Cookie or X-CSRF-Token)", "additionalProperties": map[string]any{"type": "string"}},
 				"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long for the message processing log to reach a final status"},
 				"max_bytes":    maxBytesSchema(),
+				"trace":        boolean("Send a W3C traceparent header and return its traceId for get_trace_tree (default true; a traceparent in headers is kept)"),
 				"process_direct_address": str("For flows with a ProcessDirect sender: send through the test harness flow to this address (e.g. /billing/in); " +
 					"artifact_id is then the flow behind the address and the returned log is that flow's message"),
 				"harness": str(`Test harness flow ID, default "` + ops.DefaultHarnessID + `"`),
@@ -688,6 +816,7 @@ func Tools(cfg Config) []Tool {
 					WaitSeconds int               `json:"wait_seconds"`
 					MaxBytes    int               `json:"max_bytes"`
 					Address     string            `json:"process_direct_address"`
+					Trace       *bool             `json:"trace"`
 					Harness     string            `json:"harness"`
 				}
 				if err := decode(raw, &a); err != nil {
@@ -705,7 +834,7 @@ func Tools(cfg Config) []Tool {
 				return ops.SendTestMessage(ctx, cfg.Exe, endpoints, ops.TestMessage{
 					ArtifactID: a.ArtifactID, URL: a.URL, Method: a.Method, Body: []byte(a.Body), ContentType: a.ContentType,
 					Headers: a.Headers, MaxBytes: a.MaxBytes, Wait: time.Duration(a.WaitSeconds) * time.Second, PollInterval: cfg.LogPollInterval,
-					ProcessDirectAddress: a.Address, Harness: a.Harness,
+					ProcessDirectAddress: a.Address, Harness: a.Harness, NoTrace: a.Trace != nil && !*a.Trace,
 				})
 			},
 		},
@@ -746,13 +875,16 @@ func Tools(cfg Config) []Tool {
 		},
 		{
 			Name: "pd_deploy", Title: "Deploy Partner Directory parameters",
-			Description: "Upload Partner Directory parameters from a local directory ({PID}/String.properties, {PID}/Binary/). Runs as a dry run unless dry_run=false. full_sync deletes remote parameters of the managed PIDs that do not exist locally.",
+			Description: "Upload Partner Directory parameters from a local directory ({PID}/String.properties, {PID}/Binary/). Runs as a dry run unless dry_run=false. " +
+				"keys=[\"PID:ID\"] deploys only those parameters (create or update, nothing else is touched): use it to fix one mapping. " +
+				"full_sync deletes remote parameters of the managed PIDs that do not exist locally; check with pd_diff first.",
 			InputSchema: object(props{
 				"resources_path": str("Local partner directory root, relative to the server root"),
 				"pids":           strArray("Restrict to these partner IDs"),
 				"replace":        boolean("Update existing parameters whose value differs (default true)"),
 				"full_sync":      boolean("Delete remote parameters not present locally (default false)"),
 				"dry_run":        boolean("Only report what would change (default true)"),
+				"keys":           strArray("Only these parameters, \"PID:ID\" (not with full_sync or pids)"),
 			}, "resources_path"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -762,6 +894,7 @@ func Tools(cfg Config) []Tool {
 					Replace       *bool    `json:"replace"`
 					FullSync      bool     `json:"full_sync"`
 					DryRun        *bool    `json:"dry_run"`
+					Keys          []string `json:"keys"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -770,7 +903,10 @@ func Tools(cfg Config) []Tool {
 				if err != nil {
 					return nil, err
 				}
-				opts := ops.PDDeployOptions{Replace: true, FullSync: a.FullSync, DryRun: true, PIDs: a.PIDs}
+				if a.FullSync && cfg.DenyFullSync {
+					return nil, output.Usagef("full_sync is not allowed in this mode: deploy single parameters with keys, or ask the user to run 'cpictl pd-deploy --full-sync'")
+				}
+				opts := ops.PDDeployOptions{Replace: true, FullSync: a.FullSync, DryRun: true, PIDs: a.PIDs, Keys: a.Keys}
 				if a.Replace != nil {
 					opts.Replace = *a.Replace
 				}
@@ -778,6 +914,149 @@ func Tools(cfg Config) []Tool {
 					opts.DryRun = *a.DryRun
 				}
 				return ops.PDDeploy(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), opts)
+			},
+		},
+		{
+			Name: "get_pd_parameters", Title: "Read Partner Directory parameters",
+			Description: "String and binary Partner Directory parameters of one partner ID on the tenant (all, or only keys). " +
+				"Binaries show content type, size and sha256; their content only with include_content. Use it before pd_deploy to see the tenant's value.",
+			InputSchema: object(props{
+				"pid":             str("Partner ID"),
+				"keys":            strArray("Only these parameter IDs"),
+				"include_content": boolean("Return binary content (text inline, else base64; default false)"),
+				"max_bytes":       maxBytesSchema(),
+			}, "pid"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Pid            string   `json:"pid"`
+					Keys           []string `json:"keys"`
+					IncludeContent bool     `json:"include_content"`
+					MaxBytes       int      `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetPDParameters(cpi.NewPartnerDirectory(cfg.Exe), a.Pid, a.Keys, a.IncludeContent, a.MaxBytes)
+			},
+		},
+		{
+			Name: "pd_diff", Title: "Compare local Partner Directory files with the tenant",
+			Description: "Per parameter: create, update (value, content or content type), unchanged, or remote_only (exists only on the tenant: pd_deploy full_sync would delete it). " +
+				"Binaries are compared by content hash and content type. A PID whose local files cannot be read is reported as an error, never as empty.",
+			InputSchema: object(props{
+				"resources_path": str("Local partner directory root, relative to the server root"),
+				"pids":           strArray("Only these partner IDs"),
+			}, "resources_path"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ResourcesPath string   `json:"resources_path"`
+					PIDs          []string `json:"pids"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.ResourcesPath)
+				if err != nil {
+					return nil, err
+				}
+				return ops.PDDiff(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), a.PIDs)
+			},
+		},
+		{
+			Name: "pd_dependencies", Title: "Find which flows use Partner Directory parameters",
+			Description: "Scan local content (inside the server root) for Partner Directory references: pd:<PID>:<ID>:<Binary|String> in .iflw models (with the step id), dynamic pd:${...} references, " +
+				"and getParameter(id, pid, ...) in Groovy scripts. With resources_path, unknownPids lists referenced PIDs that have no local directory (often a typo in the model). " +
+				"Use it before pd_deploy: every listed flow is affected by the change. Reads local files only.",
+			InputSchema: object(props{
+				"local_dir":      str("Local content directory, relative to the server root"),
+				"resources_path": str("Local Partner Directory tree, to report unknown PIDs"),
+				"pid":            str("Only references to this partner ID"),
+				"id":             str("Only references to this parameter ID"),
+			}, "local_dir"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					LocalDir      string `json:"local_dir"`
+					ResourcesPath string `json:"resources_path"`
+					Pid           string `json:"pid"`
+					ID            string `json:"id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.LocalDir)
+				if err != nil {
+					return nil, err
+				}
+				f := ops.PDDependenciesFilter{Pid: a.Pid, ID: a.ID}
+				if a.ResourcesPath != "" {
+					if f.ResourcesPath, err = resolvePath(cfg.Root, a.ResourcesPath); err != nil {
+						return nil, err
+					}
+				}
+				return ops.FindPDDependencies(ctx, dir, f)
+			},
+		},
+		{
+			Name: "config_diff", Title: "Compare a configure file with the tenant",
+			Description: "Compare the parameters of a configure YAML file (or folder) with the tenant: per key update (with local and tenant value), unchanged, or unknown_key. " +
+				"Shows what 'cpictl configure' would write and which artifacts it would redeploy (only those with a change).",
+			InputSchema: object(props{
+				"config_path":       str("Configure YAML file or folder, relative to the server root"),
+				"package_filter":    strArray("Only these packages (IDs as in the file)"),
+				"artifact_filter":   strArray("Only these artifacts (IDs as in the file)"),
+				"deployment_prefix": str("Prefix for package and artifact IDs (overrides the file's deploymentPrefix)"),
+			}, "config_path"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ConfigPath       string   `json:"config_path"`
+					PackageFilter    []string `json:"package_filter"`
+					ArtifactFilter   []string `json:"artifact_filter"`
+					DeploymentPrefix string   `json:"deployment_prefix"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				path, err := resolvePath(cfg.Root, a.ConfigPath)
+				if err != nil {
+					return nil, err
+				}
+				files, err := ops.LoadConfigureFiles(path)
+				if err != nil {
+					return nil, output.Usage(err)
+				}
+				return ops.ConfigDiff(cfg.Exe, ops.MergeConfigureFiles(files, a.DeploymentPrefix), ops.ConfigFilter{Packages: a.PackageFilter, Artifacts: a.ArtifactFilter})
+			},
+		},
+		{
+			Name: "drift", Title: "Compare local artifacts with the tenant",
+			Description: "For each artifact of a local content tree (optionally one package folder): local Bundle-Version and content vs the designtime version and content on the tenant, and the runtime version. " +
+				"State in_sync, tenant_newer (someone edited on the tenant: download before you upload, or their change is lost), local_newer, diverged, not_on_tenant; runtimeOutdated when the deployed version differs. " +
+				"Run it before upload_artifact. Read-only; downloads each artifact.",
+			InputSchema: object(props{
+				"local_dir":  str("Local content directory, relative to the server root"),
+				"package_id": str("Only artifacts in this package folder"),
+			}, "local_dir"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					LocalDir  string `json:"local_dir"`
+					PackageID string `json:"package_id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.LocalDir)
+				if err != nil {
+					return nil, err
+				}
+				return ops.Drift(ctx, cfg.Exe, dir, a.PackageID)
 			},
 		},
 		{

@@ -14,13 +14,20 @@ Read [iflow-structure.md](iflow-structure.md) before editing a model for the fir
    without a plan is fine for small fixes; for a new flow, run cpi-plan first.
 2. Make sure you work on a **development tenant** (ask if unclear). Never deploy to a
    productive tenant from this skill.
-3. Get the files:
+3. Run `drift` on the content folder: `tenant_newer` or `diverged` means someone changed the
+   flow on the tenant; download it and merge before you upload, or their change is lost.
+4. Get the files:
    - existing flow: `download_artifact` into the repository's content folder (convention, or
      `content/<PackageId>/<FlowId>`), unless the files are already there and up to date;
    - new flow: copy the closest reference flow (named in the plan or found in discovery.json),
      download it, then rename it (see iflow-structure.md). Do not write a model from scratch.
 
 ## The loop
+
+Open it with `loop_start` (goal from the plan) before the first change on the tenant. The
+server then enforces the limits (iterations, repeated errors, time, deploys): when a tool answers
+`errorCategory: "stopped"`, stop changing things, call `loop_end` with the outcome and give the
+user the summary (`.cpi/loops/<loop_id>.md`). Call `loop_end` as well when the flow works.
 
 1. Edit the local files. Keep changes minimal and consistent with the conventions.
 2. New package? `create_package` (never changes an existing one).

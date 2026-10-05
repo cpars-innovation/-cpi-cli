@@ -11,4 +11,5 @@ const (
 	DeployFailed = 5 // deployment/validation failed on the tenant
 	Timeout      = 6 // operation did not finish within the polling budget
 	Partial      = 7 // some items succeeded, some failed
+	Stopped      = 8 // an MCP build loop limit was reached; tenant changes are refused
 )

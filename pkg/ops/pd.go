@@ -18,6 +18,8 @@ type PDDeployResult struct {
 	String  *cpi.BatchResult `json:"string"`
 	Binary  *cpi.BatchResult `json:"binary"`
 	Deleted *cpi.BatchResult `json:"deleted,omitempty"`
+	// Keys is the per-key outcome of a single-key deployment (opts.Keys).
+	Keys []PDKeyResult `json:"keys,omitempty"`
 }
 
 // PDDeployOptions control PDDeploy.
@@ -30,6 +32,9 @@ type PDDeployOptions struct {
 	DryRun   bool
 	// PIDs restricts the operation to these partner IDs (empty: all local PIDs).
 	PIDs []string
+	// Keys ("<pid>:<id>") deploys only these parameters, always as a merge
+	// (create or update, never delete); cannot be combined with FullSync.
+	Keys []string
 }
 
 // PDDeploy uploads local Partner Directory parameters to the tenant. Any
@@ -37,6 +42,19 @@ type PDDeployOptions struct {
 // result.
 func PDDeploy(pdAPI *cpi.PartnerDirectory, pdRepo *repo.PartnerDirectory, opts PDDeployOptions) (*PDDeployResult, error) {
 	replace, fullSync, dryRun, pidsFilter := opts.Replace, opts.FullSync, opts.DryRun, str.TrimSlice(opts.PIDs)
+	if keys := str.TrimSlice(opts.Keys); len(keys) > 0 {
+		if fullSync {
+			return nil, output.Usagef("keys cannot be combined with full sync (a single-key deployment never deletes)")
+		}
+		if len(pidsFilter) > 0 {
+			return nil, output.Usagef("use either keys or pids")
+		}
+		results, err := pdDeployKeys(pdAPI, pdRepo, keys, dryRun)
+		if results == nil {
+			return nil, err
+		}
+		return &PDDeployResult{DryRun: dryRun, Keys: results}, err
+	}
 	log.Info().Msg("Starting Partner Directory Deploy...")
 
 	// Get locally managed PIDs

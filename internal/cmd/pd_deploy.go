@@ -43,7 +43,10 @@ See docs/partner-directory.md for the file format and full sync safety rules.`,
   cpictl pd-deploy --pids "SAP_SYSTEM_001,CUSTOMER_API"
 
   # Dry run to see what would be changed
-  cpictl pd-deploy --dry-run`,
+  cpictl pd-deploy --dry-run
+
+  # Only one mapping (no other parameter is touched)
+  cpictl pd-deploy --keys ONE_OMS:now_email`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if err = runPDDeploy(cmd); err != nil {
 				cmd.SilenceUsage = true
@@ -64,6 +67,8 @@ See docs/partner-directory.md for the file format and full sync safety rules.`,
 		"Show what would be changed without making changes")
 	pdDeployCmd.Flags().StringSlice("pids", nil,
 		"Comma separated list of Partner IDs to deploy (e.g., 'PID1,PID2')")
+	pdDeployCmd.Flags().StringSlice("keys", nil,
+		"Deploy only these parameters, PID:ID (create or update, never delete; not with --full-sync)")
 
 	return pdDeployCmd
 }
@@ -79,6 +84,7 @@ func runPDDeploy(cmd *cobra.Command) error {
 	fullSync := config.GetBoolWithFallback(cmd, "full-sync", "pd-deploy.full-sync")
 	dryRun := config.GetBoolWithFallback(cmd, "dry-run", "pd-deploy.dry-run")
 	pids := config.GetStringSliceWithFallback(cmd, "pids", "pd-deploy.pids")
+	keys := config.GetStringSlice(cmd, "keys")
 
 	log.Info().Msgf("Resources Path: %s", resourcesPath)
 	log.Info().Msgf("Replace Mode: %v", replace)
@@ -101,7 +107,7 @@ func runPDDeploy(cmd *cobra.Command) error {
 	pids = str.TrimSlice(pids)
 
 	// Execute deploy
-	summary, err := ops.PDDeploy(pdAPI, pdRepo, ops.PDDeployOptions{Replace: replace, FullSync: fullSync, DryRun: dryRun, PIDs: pids})
+	summary, err := ops.PDDeploy(pdAPI, pdRepo, ops.PDDeployOptions{Replace: replace, FullSync: fullSync, DryRun: dryRun, PIDs: pids, Keys: keys})
 	if summary != nil {
 		output.SetResult(cmd.Context(), summary)
 	}
