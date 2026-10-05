@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "command": "${CPICTL_BIN:-cpictl}",
+      "args": ["mcp", "--root", "."],
+      "env": {
+        "CPICTL_TMN_HOST": "${CPI_DEV_TMN_HOST}",
+        "CPICTL_OAUTH_HOST": "${CPI_DEV_OAUTH_HOST}",
+        "CPICTL_OAUTH_CLIENTID": "${CPI_DEV_OAUTH_CLIENTID}",
+        "CPICTL_OAUTH_CLIENTSECRET": "${CPI_DEV_OAUTH_CLIENTSECRET}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTID": "${CPI_DEV_RUNTIME_OAUTH_CLIENTID}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "${CPI_DEV_RUNTIME_OAUTH_CLIENTSECRET}"
+      }
+    },
+    "cpi-qa": {
+      "command": "${CPICTL_BIN:-cpictl}",
+      "args": ["mcp", "--root", ".", "--max-checks", "60"],
+      "env": {
+        "CPICTL_TMN_HOST": "${CPI_QA_TMN_HOST}",
+        "CPICTL_OAUTH_HOST": "${CPI_QA_OAUTH_HOST}",
+        "CPICTL_OAUTH_CLIENTID": "${CPI_QA_OAUTH_CLIENTID}",
+        "CPICTL_OAUTH_CLIENTSECRET": "${CPI_QA_OAUTH_CLIENTSECRET}"
+      }
+    }
+  }
+}

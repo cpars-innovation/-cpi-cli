@@ -86,7 +86,7 @@ against it.
   of the content repository. Plugin skills are namespaced (`/cpi:cpi-build`), so your skills
   never clash with them; describe in yours when to use them instead.
 - **Several tenants**: one MCP server per tenant. Add a second server for QA in the
-  repository's `.mcp.json` with different environment variables; keep agents on the
+  repository's `.mcp.json` with different environment variables (example: [examples/claude-code.mcp.json](examples/claude-code.mcp.json)); keep agents on the
   development tenant.
 
 ## Other MCP clients

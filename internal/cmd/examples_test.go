@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
@@ -61,21 +62,39 @@ func TestDocsExamples(t *testing.T) {
 		assert.False(t, pkg.Artifacts[1].Batch.Enabled)
 	})
 
-	t.Run("mcp.json", func(t *testing.T) {
-		data, err := os.ReadFile(filepath.Join(examplesDir, "mcp.json"))
-		require.NoError(t, err)
-		var cfg struct {
-			MCPServers map[string]struct {
-				Command string            `json:"command"`
-				Args    []string          `json:"args"`
-				Env     map[string]string `json:"env"`
-			} `json:"mcpServers"`
-		}
-		require.NoError(t, json.Unmarshal(data, &cfg))
-		server := cfg.MCPServers["cpi-dev"]
-		assert.Equal(t, "mcp", server.Args[0])
-		assert.Contains(t, server.Env, "CPICTL_TMN_HOST")
-	})
+	for _, name := range []string{"mcp.json", "claude-code.mcp.json"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(examplesDir, name))
+			require.NoError(t, err)
+			var cfg struct {
+				MCPServers map[string]struct {
+					Command string            `json:"command"`
+					Args    []string          `json:"args"`
+					Env     map[string]string `json:"env"`
+				} `json:"mcpServers"`
+			}
+			require.NoError(t, json.Unmarshal(data, &cfg))
+			require.Contains(t, cfg.MCPServers, "cpi-dev")
+			mcpFlags := NewMCPCommand("test").Flags()
+			for id, server := range cfg.MCPServers {
+				require.NotEmpty(t, server.Args, id)
+				assert.Equal(t, "mcp", server.Args[0], id)
+				for _, arg := range server.Args[1:] {
+					if flag, ok := strings.CutPrefix(arg, "--"); ok {
+						assert.NotNil(t, mcpFlags.Lookup(flag), "%s: unknown flag %s", id, arg)
+					}
+				}
+				assert.Contains(t, server.Env, "CPICTL_TMN_HOST", id)
+				for k, v := range server.Env {
+					assert.True(t, strings.HasPrefix(k, "CPICTL_"), "%s: %s", id, k)
+					if name == "claude-code.mcp.json" {
+						// a committed project file must not contain values, only references
+						assert.Regexp(t, `^\$\{[A-Z0-9_]+\}$`, v, "%s: %s", id, k)
+					}
+				}
+			}
+		})
+	}
 
 	t.Run("partner-directory", func(t *testing.T) {
 		pd := repo.NewPartnerDirectory(filepath.Join(examplesDir, "partner-directory"))

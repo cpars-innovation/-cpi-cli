@@ -7,7 +7,9 @@
         "CPICTL_TMN_HOST": "mytenant.it-cpi018.cfapps.eu10-003.hana.ondemand.com",
         "CPICTL_OAUTH_HOST": "mytenant.authentication.eu10.hana.ondemand.com",
         "CPICTL_OAUTH_CLIENTID": "<client id>",
-        "CPICTL_OAUTH_CLIENTSECRET": "<client secret>"
+        "CPICTL_OAUTH_CLIENTSECRET": "<client secret>",
+        "CPICTL_RUNTIME_OAUTH_CLIENTID": "<client id of the integration-flow service key>",
+        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "<its client secret>"
       }
     }
   }

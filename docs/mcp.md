@@ -44,6 +44,38 @@ See [examples/mcp.json](examples/mcp.json):
 }
 ```
 
+### Project file for Claude Code (`.mcp.json`)
+
+To share the server setup with the team, commit a `.mcp.json` to the root of the integration
+content repository, see [examples/claude-code.mcp.json](examples/claude-code.mcp.json). It
+holds no secrets: Claude Code expands `${VAR}` (and `${VAR:-default}`) from each developer's
+environment, so everyone exports their own `CPI_DEV_*` / `CPI_QA_*` variables (shell profile,
+direnv, a secret manager):
+
+```json
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "command": "${CPICTL_BIN:-cpictl}",
+      "args": ["mcp", "--root", "."],
+      "env": {
+        "CPICTL_TMN_HOST": "${CPI_DEV_TMN_HOST}",
+        "CPICTL_OAUTH_HOST": "${CPI_DEV_OAUTH_HOST}",
+        "CPICTL_OAUTH_CLIENTID": "${CPI_DEV_OAUTH_CLIENTID}",
+        "CPICTL_OAUTH_CLIENTSECRET": "${CPI_DEV_OAUTH_CLIENTSECRET}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTID": "${CPI_DEV_RUNTIME_OAUTH_CLIENTID}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "${CPI_DEV_RUNTIME_OAUTH_CLIENTSECRET}"
+      }
+    }
+  }
+}
+```
+
+The example also has a `cpi-qa` server; Claude Code asks each developer once to approve
+project MCP servers. `--root .` is the repository root (the server's working directory).
+If you use the [Claude Code plugin](plugin.md), it already starts a server named `cpi`
+from the plain `CPICTL_*` variables; use a project file for additional tenants.
+
 Use one server entry per tenant (e.g. `cpi-dev`, `cpi-qa`). Point agents at a development
 tenant; there is no read-only mode yet.
 
