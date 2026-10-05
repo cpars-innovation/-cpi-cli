@@ -14,6 +14,9 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact (including designtime and runtime version).
+- `drift` (CLI and MCP): local artifacts vs designtime and runtime (in_sync, tenant_newer,
+  local_newer, diverged, not_on_tenant). Content comparison no longer needs an external `diff`
+  program (it failed on Windows).
 - Runtime data: data stores (list, entries, get, delete with confirm), variables, JMS queues and
   broker, number ranges, log files (tail), idempotent repository, ID mapper (CLI and MCP).
 - `set_log_level` reverts to INFO after `revert_after_minutes` and on server shutdown; trace tools

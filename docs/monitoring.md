@@ -1,5 +1,16 @@
 # Monitoring and checks
 
+## Before uploading: drift
+
+```bash
+cpictl drift --local-dir ./content --package-id Orders
+```
+
+Per artifact: `in_sync`, `tenant_newer` (edited on the tenant: download first, or the change is
+lost), `local_newer`, `diverged` (different content, same version), `not_on_tenant`, plus
+`runtimeOutdated` when the deployed version is not the designtime version. Content is compared like
+`update artifact` compares it (whitespace, `Origin` headers and `parameters.prop` ignored).
+
 ## Before deploying
 
 ```bash

@@ -25,6 +25,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
 | [`discover`](#discover) | Inventory existing integration flows to derive conventions |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
+| [`drift`](#drift) | Compare local artifacts with their designtime and runtime state on the tenant |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
 | [`id-mappings`](#id-mappings) | Show ID mapper entries of a source or target ID |
@@ -540,6 +541,41 @@ Download a designtime artifact and extract it into a directory
 ```
   cpictl download --artifact-id OrderIntake --dir ./OrderIntake
   cpictl download --artifact-id OrderMapping --artifact-type MessageMapping --dir ./OrderMapping --overwrite
+```
+
+## drift
+
+Compare local artifacts with their designtime and runtime state on the tenant
+
+```
+For each artifact of a local content tree: the local Bundle-Version and content
+against the designtime version and content on the tenant (compared like upload
+does), and the deployed version.
+
+  in_sync        same content
+  tenant_newer   content differs and the tenant has the higher version
+                 (edited on the tenant: download before uploading)
+  local_newer    content differs and the local version is higher
+  diverged       content differs with the same version
+  not_on_tenant  the artifact does not exist on the tenant
+
+runtimeOutdated marks artifacts whose deployed version differs from the
+designtime version. The tenant is only read; every artifact is downloaded.
+```
+
+**Usage:** `cpictl drift [flags]`
+
+**Flags:**
+
+```
+      --local-dir string    Local content directory (default ".")
+      --package-id string   Only artifacts in this package folder
+```
+
+**Examples:**
+
+```
+  cpictl drift --local-dir ./content --package-id Orders
 ```
 
 ## endpoints

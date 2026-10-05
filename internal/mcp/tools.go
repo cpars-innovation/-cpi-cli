@@ -20,7 +20,8 @@ import (
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 
-Build loop: download_artifact (existing flow, once) or write files locally -> create_package (new
+Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
+(existing flow, once) or write files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
 get_message_steps (failing step) and get_message_log / get_message_attachment /
@@ -1031,6 +1032,31 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, output.Usage(err)
 				}
 				return ops.ConfigDiff(cfg.Exe, ops.MergeConfigureFiles(files, a.DeploymentPrefix), ops.ConfigFilter{Packages: a.PackageFilter, Artifacts: a.ArtifactFilter})
+			},
+		},
+		{
+			Name: "drift", Title: "Compare local artifacts with the tenant",
+			Description: "For each artifact of a local content tree (optionally one package folder): local Bundle-Version and content vs the designtime version and content on the tenant, and the runtime version. " +
+				"State in_sync, tenant_newer (someone edited on the tenant: download before you upload, or their change is lost), local_newer, diverged, not_on_tenant; runtimeOutdated when the deployed version differs. " +
+				"Run it before upload_artifact. Read-only; downloads each artifact.",
+			InputSchema: object(props{
+				"local_dir":  str("Local content directory, relative to the server root"),
+				"package_id": str("Only artifacts in this package folder"),
+			}, "local_dir"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					LocalDir  string `json:"local_dir"`
+					PackageID string `json:"package_id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.LocalDir)
+				if err != nil {
+					return nil, err
+				}
+				return ops.Drift(ctx, cfg.Exe, dir, a.PackageID)
 			},
 		},
 		{
