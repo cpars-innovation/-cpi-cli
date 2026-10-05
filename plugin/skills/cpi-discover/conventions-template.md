@@ -67,4 +67,4 @@
 ---
 <!-- .cpi/README.md: This folder holds the integration conventions (conventions.md), the
      discovery facts they were derived from (discovery.json, regenerate with `cpictl discover`)
-     and the test cases of the flows (tests/). The Claude Code plugin "cpi" reads it. -->
+     and the test cases of the flows (tests/). The cpi skills read it. -->

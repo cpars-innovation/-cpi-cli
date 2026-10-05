@@ -19,6 +19,13 @@ import (
 
 const examplesDir = "../../docs/examples"
 
+// mcpServerExample is an MCP server entry of an agent configuration example.
+type mcpServerExample struct {
+	Command string            `json:"command" mapstructure:"command"`
+	Args    []string          `json:"args" mapstructure:"args"`
+	Env     map[string]string `json:"env" mapstructure:"env"`
+}
+
 // TestDocsExamples loads every file in docs/examples with the same code the
 // commands use, so the examples cannot silently go stale.
 func TestDocsExamples(t *testing.T) {
@@ -64,18 +71,22 @@ func TestDocsExamples(t *testing.T) {
 		assert.False(t, pkg.Artifacts[1].Batch.Enabled)
 	})
 
-	for _, name := range []string{"mcp.json", "claude-code.mcp.json", "profiles.mcp.json"} {
+	for _, name := range []string{"mcp.json", "claude-code.mcp.json", "profiles.mcp.json",
+		"agents/cursor-mcp.json", "agents/gemini-settings.json", "agents/codex-config.toml"} {
 		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join(examplesDir, name))
-			require.NoError(t, err)
 			var cfg struct {
-				MCPServers map[string]struct {
-					Command string            `json:"command"`
-					Args    []string          `json:"args"`
-					Env     map[string]string `json:"env"`
-				} `json:"mcpServers"`
+				MCPServers map[string]mcpServerExample `json:"mcpServers"`
 			}
-			require.NoError(t, json.Unmarshal(data, &cfg))
+			if strings.HasSuffix(name, ".toml") {
+				v := viper.New()
+				v.SetConfigFile(filepath.Join(examplesDir, name))
+				require.NoError(t, v.ReadInConfig())
+				require.NoError(t, v.UnmarshalKey("mcp_servers", &cfg.MCPServers))
+			} else {
+				data, err := os.ReadFile(filepath.Join(examplesDir, name))
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, &cfg))
+			}
 			require.Contains(t, cfg.MCPServers, "cpi-dev")
 			root := NewCLI("test")
 			mcpCmd, _, err := root.Find([]string{"mcp"})

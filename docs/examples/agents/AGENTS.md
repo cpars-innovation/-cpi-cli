@@ -1,0 +1,12 @@
+# Integration content
+
+This repository holds SAP Cloud Integration content for the tenant(s) reached through the
+`cpi-dev` (development, all tools) and `cpi-qa` (read-only) MCP servers.
+
+- Tenant rules: read `.cpi/conventions.md` before planning, building, testing or reviewing a
+  flow. If it does not exist, run the `cpi-discover` skill first.
+- Plans are in `.cpi/plans/`, test cases in `.cpi/tests/`, build-loop logs in `.cpi/loops/`.
+- Use the skills `cpi-plan`, `cpi-build`, `cpi-test` and `cpi-review` for that work.
+- Only change the development tenant. Never deploy, undeploy or send test messages to QA or
+  production; ask the user instead.
+- No secrets, tokens or productive data in files, parameters or test messages.

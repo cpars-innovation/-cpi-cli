@@ -318,6 +318,19 @@ read-only reviewer agent:
 
 Then run the `cpi-discover` skill once per repository. See [docs/plugin.md](docs/plugin.md).
 
+### Codex, Cursor, Gemini CLI and other agents
+
+The MCP server works in any MCP client, and the skills are plain `SKILL.md` folders. Configure the
+server with a profile (Codex: `.codex/config.toml`, Cursor: `.cursor/mcp.json`, Gemini CLI:
+`.gemini/settings.json`) and copy the skills into the content repository:
+
+```bash
+codex mcp add cpi-dev -- cpictl mcp --root . --profile dev --mode develop
+scripts/install-skills.sh --agent codex /path/to/content-repo   # or cursor, gemini; --user for ~
+```
+
+Setup per agent, examples and what differs from the Claude Code plugin: [docs/agents.md](docs/agents.md).
+
 ## Documentation
 
 | | |
@@ -326,6 +339,7 @@ Then run the `cpi-discover` skill once per repository. See [docs/plugin.md](docs
 | [Command reference](docs/commands.md) | All commands and flags |
 | [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
+| [Other agents](docs/agents.md) | Codex, Cursor, Gemini CLI: MCP setup, skills, AGENTS.md |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |

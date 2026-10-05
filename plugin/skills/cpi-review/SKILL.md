@@ -17,5 +17,7 @@ context and read-only tools. Give it:
 When it returns, present its findings to the user grouped by severity. Do not fix anything
 in the same step: ask the user which findings to address, then use cpi-build.
 
-If the user wants the review without the agent, follow the checklist in
-[review-checklist.md](review-checklist.md) yourself.
+If the user wants the review without the agent, or there is no cpi-reviewer agent (agents
+other than Claude Code install only the skills), do the review yourself: follow the checklist in
+[review-checklist.md](review-checklist.md), use only read tools (no uploads, deployments or file
+changes), judge the result rather than the intention, and report findings by severity.

@@ -3,6 +3,13 @@
 All notable changes to cpictl. Coming from FlashPipe? See
 [docs/migrating-from-flashpipe.md](docs/migrating-from-flashpipe.md).
 
+## Unreleased
+
+- Codex, Cursor and Gemini CLI: MCP configuration examples (`docs/examples/agents`),
+  `scripts/install-skills.sh` to copy the skills into `.agents/skills`, `.cursor/skills` or
+  `.gemini/skills`, an `AGENTS.md` template, and [docs/agents.md](docs/agents.md).
+  `cpi-review` reviews by itself when there is no `cpi-reviewer` agent.
+
 ## 0.1.0 (unreleased)
 
 First release.
