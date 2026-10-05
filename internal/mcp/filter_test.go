@@ -1,0 +1,84 @@
+package mcp
+
+import (
+	"testing"
+
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/exitcode"
+	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func toolNames(tools []Tool) []string {
+	var names []string
+	for _, t := range tools {
+		names = append(names, t.Name)
+	}
+	return names
+}
+
+// A new tool must be classified, otherwise read-only servers could offer it.
+func TestEveryToolHasAnEffect(t *testing.T) {
+	for _, tool := range Tools(Config{}) {
+		effect, ok := toolEffects[tool.Name]
+		require.True(t, ok, "add %s to toolEffects", tool.Name)
+		ro, _ := tool.Annotations["readOnlyHint"].(bool)
+		if ro {
+			assert.Equal(t, EffectRead, effect, "%s is annotated read-only", tool.Name)
+		}
+		if effect == EffectTenant {
+			assert.False(t, ro, tool.Name)
+		}
+	}
+	assert.Len(t, toolEffects, len(Tools(Config{})), "toolEffects lists a tool that does not exist")
+}
+
+func TestFilter(t *testing.T) {
+	all := Tools(Config{})
+
+	kept, removed, err := Filter(all, ToolFilter{ReadOnly: true})
+	require.NoError(t, err)
+	for _, name := range toolNames(kept) {
+		assert.NotEqual(t, EffectTenant, EffectOf(name), name)
+	}
+	assert.Contains(t, removed, "deploy")
+	assert.Contains(t, removed, "send_test_message")
+	assert.Contains(t, toolNames(kept), "download_artifact", "local writes stay available")
+
+	kept, _, err = Filter(all, ToolFilter{Allow: []string{"list_*", "deploy"}, Deny: []string{"list_keystore"}})
+	require.NoError(t, err)
+	assert.Contains(t, toolNames(kept), "list_packages")
+	assert.Contains(t, toolNames(kept), "deploy")
+	assert.NotContains(t, toolNames(kept), "list_keystore")
+	assert.NotContains(t, toolNames(kept), "undeploy")
+
+	kept, _, err = Filter(all, ToolFilter{ReadOnly: true, Allow: []string{"deploy", "list_packages"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"list_packages"}, toolNames(kept), "read-only wins over allow")
+
+	for _, f := range []ToolFilter{{Allow: []string{"deplyo"}}, {Deny: []string{"["}}, {Allow: []string{"deploy"}, Deny: []string{"deploy"}}} {
+		_, _, err = Filter(all, f)
+		assert.Equal(t, exitcode.Usage, output.ExitCode(err), "%+v", f)
+	}
+}
+
+func TestFilteredServerHidesAndRejectsTools(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	filter := ToolFilter{ReadOnly: true}
+	tools, removed, err := Filter(Tools(Config{Exe: mock.Executer(), Root: t.TempDir()}), filter)
+	require.NoError(t, err)
+	instructions := FilteredInstructions(Instructions, filter, removed)
+	assert.Contains(t, instructions, "read-only")
+	assert.Contains(t, instructions, "undeploy")
+
+	srv := NewServer("cpicli", "test", instructions, tools)
+	resp := serve(t, srv,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+		call(2, "undeploy", map[string]any{"artifact_ids": []string{"A"}, "confirm": true}),
+	)
+	assert.NotContains(t, string(resp["1"].Result), `"undeploy"`)
+	require.NotNil(t, resp["2"].Error)
+	assert.Equal(t, codeInvalidParams, resp["2"].Error.Code)
+	assert.Empty(t, mock.Requests())
+}

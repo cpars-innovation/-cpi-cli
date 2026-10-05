@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/config"
@@ -33,7 +34,14 @@ pd_deploy (dry run unless dry_run=false). See docs/mcp.md.
 send_test_message uses the --runtime-* credentials (default: the API
 credentials), see 'cpictl send --help'.
 
-Local paths given to tools are resolved against --root and may not leave it.`,
+Local paths given to tools are resolved against --root and may not leave it.
+
+Limit the tools per server, e.g. for a QA or production tenant:
+  --read-only                     no tool that changes the tenant or sends messages
+  --tools list_*,get_*            only matching tools
+  --disable-tools undeploy,pd_*   everything except these
+Also as CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+listed and cannot be called; a pattern that matches no tool is an error.`,
 		Example: `  # Claude Code / any MCP client configuration
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
     "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
@@ -44,7 +52,7 @@ Local paths given to tools are resolved against --root and may not leave it.`,
 			// stdout is the protocol channel: logs always as JSON lines on stderr
 			logger.Init(cmd.ErrOrStderr(), true, viper.GetBool("debug"))
 
-			tools := mcp.Tools(mcp.Config{
+			all := mcp.Tools(mcp.Config{
 				Exe:          tenantExecuter(cmd),
 				Root:         config.GetString(cmd, "root"),
 				PollInterval: time.Duration(config.GetInt(cmd, "poll-interval")) * time.Second,
@@ -53,7 +61,16 @@ Local paths given to tools are resolved against --root and may not leave it.`,
 
 				NewEndpointExecuter: endpointExecuter(cmd),
 			})
-			server := mcp.NewServer("cpicli", version, mcp.Instructions, tools)
+			readOnly, _ := cmd.Flags().GetBool("read-only")
+			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
+			tools, removed, err := mcp.Filter(all, filter)
+			if err != nil {
+				return err
+			}
+			if len(removed) > 0 {
+				log.Info().Msgf("Tools disabled by configuration: %s", strings.Join(removed, ", "))
+			}
+			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed), tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
 			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
@@ -61,6 +78,9 @@ Local paths given to tools are resolved against --root and may not leave it.`,
 	c.Flags().String("root", ".", "Directory that local paths of tool calls are confined to")
 	c.Flags().Int("poll-interval", 10, "Default seconds between deploy/undeploy status checks")
 	c.Flags().Int("max-checks", 30, "Default maximum number of deploy/undeploy status checks")
+	c.Flags().Bool("read-only", false, "Offer only tools that do not change the tenant or trigger processing")
+	c.Flags().StringSlice("tools", nil, "Offer only these tools (names or patterns such as list_*)")
+	c.Flags().StringSlice("disable-tools", nil, "Do not offer these tools (names or patterns); wins over --tools")
 	addRuntimeAuthFlags(c)
 	return c
 }

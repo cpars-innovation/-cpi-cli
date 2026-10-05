@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,4 +66,23 @@ func TestPackagesCreateAndSend(t *testing.T) {
 	assert.Equal(t, "1", mock.Received[0].Header.Get("X-A"))
 	// without runtime credentials the API credentials are used
 	assert.Contains(t, mock.Received[0].Header.Get("Authorization"), "Basic ")
+}
+
+// Tool filter settings are validated before the server starts, from flags
+// and from the environment.
+func TestMCPToolFilterSettings(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	r := runMain(t, append([]string{"mcp", "--tools", "deplyo"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code)
+	assert.Contains(t, r.stderr, "matches no tool")
+
+	// runMain clears CPICTL_* variables, so call Run directly
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CPICTL_DISABLE_TOOLS", "undeploy,nope_*")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), append([]string{"mcp"}, basicAuth(mock)...), &stdout, &stderr, "test", "test")
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "nope_*")
 }

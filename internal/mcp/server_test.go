@@ -31,7 +31,11 @@ func session(t *testing.T, mock *cpitest.Tenant, root string, msgs ...string) ma
 
 func sessionWith(t *testing.T, cfg Config, msgs ...string) map[string]rpcResp {
 	t.Helper()
-	srv := NewServer("cpicli", "test", Instructions, Tools(cfg))
+	return serve(t, NewServer("cpicli", "test", Instructions, Tools(cfg)), msgs...)
+}
+
+func serve(t *testing.T, srv *Server, msgs ...string) map[string]rpcResp {
+	t.Helper()
 	var out bytes.Buffer
 	require.NoError(t, srv.Serve(context.Background(), strings.NewReader(strings.Join(msgs, "\n")+"\n"), &out))
 

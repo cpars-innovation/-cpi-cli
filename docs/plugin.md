@@ -97,6 +97,9 @@ instructions (the build loop and which tool to use when) and can be pointed at
 
 ## Safety
 
+To limit the plugin's server, set `CPICTL_READ_ONLY=true`, `CPICTL_TOOLS` or
+`CPICTL_DISABLE_TOOLS` in the environment ([mcp.md](mcp.md#limiting-tools)).
+
 The plugin adds no permissions: every tool call goes through Claude Code's permission
 prompts and the server's own rules (undeploy needs `confirm`, Partner Directory deploys are
 dry runs by default, security material is read-only, paths stay inside the repository).
