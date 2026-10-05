@@ -73,6 +73,10 @@ is already in the repository), reads a few typical flows and writes:
 ├── conventions.md      # the rules, with evidence and strength (rule / common / observed)
 ├── discovery.json      # the facts, regenerate with `cpictl discover`
 ├── graph.json          # the same as a graph: who calls whom, what flows share (graph_* tools)
+├── templates/
+│   ├── brief.md        # what a requester fills in for a new flow (adapt it to your team)
+│   └── scripts/        # the house logging / error handling scripts, copied by new flows
+├── briefs/             # filled-in briefs, with sample files in briefs/<name>/
 ├── plans/              # designs written by cpi-plan
 └── tests/<FlowId>/     # test cases and payloads used by cpi-test
 ```
@@ -81,6 +85,27 @@ Review `conventions.md`, answer the open questions and commit it. From then on, 
 whenever you notice something ("all receiver URLs are externalised as `<System>_Host`",
 "never call the SAP S/4 receiver from tests"). The skills follow the file; the reviewer checks
 against it.
+
+## Templates and briefs
+
+New flows are built from **reference flows of your tenant**, not from generic files: a generic
+`.iflw` carries component versions and a style that do not match your tenant. `cpi-discover`
+proposes one reference flow per pattern (sync HTTPS to OData, SFTP polling, ProcessDirect
+sub-flow, ...) in the *Templates* section of `conventions.md`; the team marks them `agreed` and
+keeps those flows deployable and up to date. Many teams keep dedicated `Template_*` flows in a
+package of their own for this. The house logging and error handling scripts go to
+`.cpi/templates/scripts/`.
+
+A request for a new flow starts with a **brief**: `cpi-plan` copies `.cpi/templates/brief.md`
+to `.cpi/briefs/<name>.md`, the requester fills in purpose, sender, receivers, messages (sample
+files next to it), mapping, error behaviour, environments and acceptance criteria. IDs, names
+and descriptions may stay empty: the planner proposes them from the naming conventions and the
+requester confirms. `cpi-plan` then asks only for what is missing and writes the plan.
+
+```text
+> Create a brief for the new invoice interface to Coupa.
+> Plan the flow from .cpi/briefs/coupa-invoices.md.
+```
 
 ## Adapting the roles
 

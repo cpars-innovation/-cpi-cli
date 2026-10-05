@@ -10,8 +10,15 @@ user has agreed to. Do not touch the tenant in this phase except for read-only l
 
 ## 1. Read the context
 
+- The brief, if there is one: `.cpi/briefs/<name>.md` or a file the user names. For a new flow
+  without a brief, offer one: copy `.cpi/templates/brief.md` to `.cpi/briefs/<short-title>.md`
+  and let the user fill it in. If the team has no `.cpi/templates/brief.md` yet, create it first
+  from [brief-template.md](brief-template.md) (the team adapts its copy). Small changes and quick
+  questions need no brief.
 - `.cpi/conventions.md` (if missing, suggest running the cpi-discover skill first; without it,
   say which choices are your assumptions).
+- The reference flow for the pattern: the **Templates** section of conventions.md. Use an
+  `agreed` one; a `proposed` one only after telling the user.
 - Similar existing flows: `.cpi/discovery.json` lists adapters and steps per flow. Find flows
   with the same sender/receiver adapters and reuse their structure. Name them in the plan.
   `graph_search` finds flows, addresses and systems quickly (e.g. the receiver host, a
@@ -24,7 +31,9 @@ user has agreed to. Do not touch the tenant in this phase except for read-only l
 
 ## 2. Clarify
 
-Ask only what you cannot find out yourself, grouped in one message. Typical gaps:
+Ask only what you cannot find out yourself, grouped in one message; with a brief, only for
+its empty fields marked (*) and for contradictions. IDs, names and descriptions you propose
+from the naming conventions; the user confirms them. Typical gaps:
 
 - Trigger: who sends (system, protocol, sync/async), or a timer / polling?
 - Receiver(s): systems, protocols, authentication (which credential or certificate exists?).

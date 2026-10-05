@@ -22,8 +22,11 @@ Read [iflow-structure.md](iflow-structure.md) before editing a model for the fir
 4. Get the files:
    - existing flow: `download_artifact` into the repository's content folder (convention, or
      `content/<PackageId>/<FlowId>`), unless the files are already there and up to date;
-   - new flow: copy the closest reference flow (named in the plan or found in discovery.json),
-     download it, then rename it (see iflow-structure.md). Do not write a model from scratch.
+   - new flow: copy the reference flow named in the plan (else the one for the pattern in the
+     Templates section of conventions.md, else the closest flow in discovery.json), download
+     it, then rename it (see iflow-structure.md). Do not write a model from scratch.
+   - scripts: start from `.cpi/templates/scripts/` and the reference flow's scripts; write a
+     new script only for logic that none of them covers.
 
 ## The loop
 

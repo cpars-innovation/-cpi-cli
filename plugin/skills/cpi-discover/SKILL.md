@@ -54,16 +54,25 @@ Start from [conventions-template.md](conventions-template.md). For every rule:
 Keep it short and concrete (one to three screens). The plan, build and review skills read
 it in every task.
 
+Fill the **Templates** section with proposals (status `proposed`): per common pattern (sender
+and receiver adapter combination in `summary.triggers` / the graph), the flow that best follows
+the conventions you found: exception subprocess as usual, parameters externalised, shared
+scripts used, `runtimeStatus` STARTED, no errors in discovery. Prefer flows the team names as
+good examples. Never propose SAP standard content.
+
 Also create, if missing:
 
 - `.cpi/README.md`: one paragraph on what the folder is (see the template's footer).
 - `.cpi/tests/` (empty, used by cpi-test).
+- `.cpi/templates/scripts/`: after the user agreed, the shared logging and error handling
+  scripts (`summary.sharedScripts`, read with `get_resource`), one file each, with a comment
+  line naming the flows they were taken from. New flows copy them instead of writing new ones.
 
 Do not commit discovery.json if the user does not want tenant inventory in Git; ask once and add
 it to `.gitignore` when they say so.
 
 ## 4. Hand over
 
-Show the user the rules marked **observed** and the open questions, and ask them to confirm or
+Show the user the proposed templates, the rules marked **observed** and the open questions, and ask them to confirm or
 correct them. Apply their answers to the file. Tell them that they can add rules at any time
 (for example "always set SAP_ApplicationID") and that the other skills will follow them.

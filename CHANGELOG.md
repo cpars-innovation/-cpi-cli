@@ -5,6 +5,10 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Plugin: brief template for new flows (`.cpi/templates/brief.md`, filled in as
+  `.cpi/briefs/<name>.md`; cpi-plan asks only for what is missing), a *Templates* section in
+  the conventions (one reference flow per pattern, proposed by cpi-discover, agreed by the
+  team) and house scripts in `.cpi/templates/scripts/`; cpi-build copies from them.
 - Content graph: `discover` (MCP `discover_tenant`) also writes `.cpi/graph.json`: flows,
   packages, endpoints, receiver systems, credentials, scripts, headers, properties and Partner
   Directory parameters as nodes; `sends_to` links flows through matching ProcessDirect and JMS

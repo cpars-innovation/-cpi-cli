@@ -41,6 +41,21 @@
 - Shared scripts (identical in several flows) and what they do:
 - Script collections:
 
+## Templates
+
+New flows start as a copy of a reference flow of this tenant, never from scratch. One reference
+per pattern; the team keeps them correct (deployable, current component versions, conventions
+applied). Status: proposed (by discovery) or agreed (by the team).
+
+| Pattern | Reference flow (package) | Why this one | Status |
+|---------|--------------------------|--------------|--------|
+| e.g. sync HTTPS -> OData | | | |
+| e.g. async SFTP -> IDoc | | | |
+| e.g. ProcessDirect sub-flow | | | |
+
+- Template scripts (the house logging and error handling scripts): `.cpi/templates/scripts/`
+- Brief template for new requests: `.cpi/templates/brief.md` (the team may adapt it)
+
 ## Configuration and security
 
 - What is externalised:
@@ -66,5 +81,6 @@
 
 ---
 <!-- .cpi/README.md: This folder holds the integration conventions (conventions.md), the
-     discovery facts they were derived from (discovery.json, regenerate with `cpictl discover`)
-     and the test cases of the flows (tests/). The cpi skills read it. -->
+     discovery facts they were derived from (discovery.json and graph.json, regenerate with
+     `cpictl discover`), templates for new flows and requests (templates/), briefs of requested
+     flows (briefs/), their designs (plans/) and test cases (tests/). The cpi skills read it. -->
