@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -124,12 +125,14 @@ type Resource struct {
 type MessageLog struct {
 	Guid, Artifact, Status string
 	CorrelationID          string
-	Start, End             time.Time
-	ErrorText              string
-	Headers                map[string]string
-	Attachments            map[string]string // name -> content (ids att-<guid>-<name>)
-	StoreEntries           map[string]string // id -> payload
-	Steps                  []Step
+	// ApplicationID is ApplicationMessageId; Package defaults to "P".
+	ApplicationID, Predecessor, Package string
+	Start, End                          time.Time
+	ErrorText                           string
+	Headers                             map[string]string
+	Attachments                         map[string]string // name -> content (ids att-<guid>-<name>)
+	StoreEntries                        map[string]string // id -> payload
+	Steps                               []Step
 }
 
 // Step is a processing step of a message (one run per message).
@@ -166,6 +169,11 @@ type Tenant struct {
 	// MessageLogSteps: each MessageProcessingLogs query returns the next step
 	// (the last step repeats). Single-message endpoints look up all steps.
 	MessageLogSteps [][]MessageLog
+	// FilterMessageLogs makes MPL queries honour the equality filters
+	// (IntegrationFlowName, ApplicationMessageId, CorrelationId) and
+	// $top/$skip, like the tenant; otherwise every query returns the next
+	// MessageLogSteps entry unfiltered.
+	FilterMessageLogs bool
 	// LastMessageLogQuery is the raw query string of the last MPL query.
 	LastMessageLogQuery string
 	mplQueries          int
@@ -492,11 +500,45 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(in.Response))
 }
 
+var reMPLEq = regexp.MustCompile(`(IntegrationFlowName|ApplicationMessageId|CorrelationId) eq '([^']*)'`)
+
+// filterMessageLogs applies the equality filters and $skip/$top; it returns
+// the page and the number of matches.
+func filterMessageLogs(logs []MessageLog, q url.Values) ([]MessageLog, int) {
+	var out []MessageLog
+	for _, l := range logs {
+		ok := true
+		for _, mm := range reMPLEq.FindAllStringSubmatch(q.Get("$filter"), -1) {
+			v := map[string]string{"IntegrationFlowName": l.Artifact, "ApplicationMessageId": l.ApplicationID, "CorrelationId": l.CorrelationID}[mm[1]]
+			ok = ok && v == mm[2]
+		}
+		if ok {
+			out = append(out, l)
+		}
+	}
+	total := len(out)
+	skip, _ := strconv.Atoi(q.Get("$skip"))
+	top, _ := strconv.Atoi(q.Get("$top"))
+	if skip > len(out) {
+		skip = len(out)
+	}
+	out = out[skip:]
+	if top > 0 && top < len(out) {
+		out = out[:top]
+	}
+	return out, total
+}
+
 func mplJSON(l MessageLog) map[string]any {
+	pkg := l.Package
+	if pkg == "" {
+		pkg = "P"
+	}
 	return map[string]any{
 		"MessageGuid": l.Guid, "CorrelationId": l.CorrelationID, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
 		"LogStart": odataDate(l.Start), "LogEnd": odataDate(l.End), "IntegrationFlowName": l.Artifact,
-		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": "P"},
+		"ApplicationMessageId": l.ApplicationID, "PredecessorMessageGuid": l.Predecessor,
+		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": pkg, "PackageName": pkg + " name"},
 	}
 }
 
@@ -650,11 +692,15 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			logs = pick(m.MessageLogSteps, m.mplQueries)
 		}
 		m.mplQueries++
+		total := len(logs)
+		if m.FilterMessageLogs {
+			logs, total = filterMessageLogs(logs, r.URL.Query())
+		}
 		results := []map[string]any{}
 		for _, l := range logs {
 			results = append(results, mplJSON(l))
 		}
-		writeJSON(w, map[string]any{"d": map[string]any{"results": results, "__count": fmt.Sprint(len(results))}})
+		writeJSON(w, map[string]any{"d": map[string]any{"results": results, "__count": fmt.Sprint(total)}})
 
 	case r.Method == http.MethodGet && reMPL.MatchString(path):
 		mm := reMPL.FindStringSubmatch(path)

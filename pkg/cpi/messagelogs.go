@@ -33,38 +33,47 @@ type MessageLog struct {
 	MessageGuid          string
 	CorrelationId        string
 	ApplicationMessageId string
-	Status               string
-	CustomStatus         string
-	LogLevel             string
-	LogStart             time.Time
-	LogEnd               time.Time
-	Sender               string
-	Receiver             string
-	ArtifactId           string
-	ArtifactName         string
-	ArtifactType         string
-	PackageId            string
-	AlternateWebLink     string
+	// ApplicationMessageType is SAP_ApplicationMessageType of the message.
+	ApplicationMessageType string
+	// PredecessorMessageGuid is the message that started this one (e.g. via
+	// ProcessDirect or JMS), if the tenant records it.
+	PredecessorMessageGuid string
+	Status                 string
+	CustomStatus           string
+	LogLevel               string
+	LogStart               time.Time
+	LogEnd                 time.Time
+	Sender                 string
+	Receiver               string
+	ArtifactId             string
+	ArtifactName           string
+	ArtifactType           string
+	PackageId              string
+	PackageName            string
+	AlternateWebLink       string
 }
 
 type mplData struct {
-	MessageGuid          string `json:"MessageGuid"`
-	CorrelationId        string `json:"CorrelationId"`
-	ApplicationMessageId string `json:"ApplicationMessageId"`
-	Status               string `json:"Status"`
-	CustomStatus         string `json:"CustomStatus"`
-	LogLevel             string `json:"LogLevel"`
-	LogStart             string `json:"LogStart"`
-	LogEnd               string `json:"LogEnd"`
-	Sender               string `json:"Sender"`
-	Receiver             string `json:"Receiver"`
-	IntegrationFlowName  string `json:"IntegrationFlowName"`
-	AlternateWebLink     string `json:"AlternateWebLink"`
-	IntegrationArtifact  *struct {
-		Id        string `json:"Id"`
-		Name      string `json:"Name"`
-		Type      string `json:"Type"`
-		PackageId string `json:"PackageId"`
+	MessageGuid            string `json:"MessageGuid"`
+	CorrelationId          string `json:"CorrelationId"`
+	ApplicationMessageId   string `json:"ApplicationMessageId"`
+	ApplicationMessageType string `json:"ApplicationMessageType"`
+	PredecessorMessageGuid string `json:"PredecessorMessageGuid"`
+	Status                 string `json:"Status"`
+	CustomStatus           string `json:"CustomStatus"`
+	LogLevel               string `json:"LogLevel"`
+	LogStart               string `json:"LogStart"`
+	LogEnd                 string `json:"LogEnd"`
+	Sender                 string `json:"Sender"`
+	Receiver               string `json:"Receiver"`
+	IntegrationFlowName    string `json:"IntegrationFlowName"`
+	AlternateWebLink       string `json:"AlternateWebLink"`
+	IntegrationArtifact    *struct {
+		Id          string `json:"Id"`
+		Name        string `json:"Name"`
+		Type        string `json:"Type"`
+		PackageId   string `json:"PackageId"`
+		PackageName string `json:"PackageName"`
 	} `json:"IntegrationArtifact"`
 }
 
@@ -73,12 +82,14 @@ func (d *mplData) toLog() MessageLog {
 		MessageGuid: d.MessageGuid, CorrelationId: d.CorrelationId, ApplicationMessageId: d.ApplicationMessageId,
 		Status: d.Status, CustomStatus: d.CustomStatus, LogLevel: d.LogLevel, Sender: d.Sender, Receiver: d.Receiver,
 		ArtifactId: d.IntegrationFlowName, AlternateWebLink: d.AlternateWebLink,
+		ApplicationMessageType: d.ApplicationMessageType, PredecessorMessageGuid: d.PredecessorMessageGuid,
 	}
 	if d.IntegrationArtifact != nil {
 		if d.IntegrationArtifact.Id != "" {
 			l.ArtifactId = d.IntegrationArtifact.Id
 		}
 		l.ArtifactName, l.ArtifactType, l.PackageId = d.IntegrationArtifact.Name, d.IntegrationArtifact.Type, d.IntegrationArtifact.PackageId
+		l.PackageName = d.IntegrationArtifact.PackageName
 	}
 	l.LogStart, _ = ParseODataTime(d.LogStart)
 	l.LogEnd, _ = ParseODataTime(d.LogEnd)

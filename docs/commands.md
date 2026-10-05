@@ -34,6 +34,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs steps`](#logs-steps) | Show the processing steps of a message and the step that failed |
 | [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
+| [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
@@ -597,6 +598,8 @@ Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED,
       --artifact-id string              Integration flow ID
       --correlation-id string           Correlation ID
       --errors                          Include the error text of failed messages
+      --header string                   Only messages with this custom header property, name=value (client-side scan; needs --artifact-id or --package-id, and --since)
+      --package-id string               Messages of all integration flows of this package (needs --since)
       --since string                    Messages that ended after this time (duration like 1h or RFC 3339)
       --skip int                        Skip the first n messages
       --status strings                  Comma separated statuses, e.g. FAILED,RETRY
@@ -611,7 +614,9 @@ Statuses: COMPLETED, PROCESSING, RETRY, ESCALATED, FAILED, CANCELLED, DISCARDED,
   cpictl logs --artifact-id OrderIntake --since 1h
   cpictl logs --artifact-id OrderIntake --status FAILED --errors --output json
   cpictl logs --artifact-id OrderIntake --since 2m --wait 60s --errors
+  cpictl logs --package-id Orders --since 1h --header OrderId=4711
   cpictl logs get --message-guid AFq478Bblxi4wCjBcDb_G0vAGGZG
+  cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
 ```
 
 ## logs attachment
@@ -697,6 +702,33 @@ Show payload, headers and exchange properties of a traced step (ID from 'logs tr
       --id string       Trace ID
       --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
       --out string      Write the content to this file instead of stdout / the JSON result
+```
+
+## logs tree
+
+Show the call tree of a trace across flows and its first failure
+
+```
+Build the call tree of one trace (W3C trace ID, e.g. the traceId of 'cpictl send'):
+messages are found by ApplicationMessageId = trace ID, otherwise by scanning the
+scope (--artifact-ids or --package-id, and --since) for the trace-id custom header.
+Nodes are linked by span-id / parent-span-id (names configurable).
+```
+
+**Usage:** `cpictl logs tree [flags]`
+
+**Flags:**
+
+```
+      --artifact-ids strings     Scope of the fallback scan
+      --max-scan int             Maximum messages scanned (default 200)
+      --package-id string        Scope of the fallback scan: all flows of this package
+      --parent-property string   Custom header property with the parent span ID (default "parent-span-id")
+      --since string             Start of the scan window (duration like 1h or RFC 3339)
+      --span-property string     Custom header property with the span ID (default "span-id")
+      --trace-id string          Trace ID (32 hex characters)
+      --trace-property string    Custom header property with the trace ID (default "trace-id")
+      --until string             End of the scan window
 ```
 
 ## mcp
@@ -1169,6 +1201,7 @@ reports that flow's message (found by correlation ID). See docs/testing.md.
       --harness string                      Test harness flow ID (with --process-direct) (default "CPICTL_Test_Harness")
       --header strings                      Additional header name=value (repeatable)
       --method string                       HTTP method (default "POST")
+      --no-trace                            Do not send a W3C traceparent header (by default one is generated unless --header traceparent=... is given; its traceId is in the result)
       --process-direct string               Send through the test harness flow to this ProcessDirect address (flows without an HTTP sender)
       --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
       --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints

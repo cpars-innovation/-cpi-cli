@@ -39,6 +39,10 @@ type TestMessage struct {
 	// flows without an HTTP sender. ArtifactID is the flow behind the address.
 	ProcessDirectAddress string
 	Harness              string
+	// NoTrace sends no W3C traceparent header. By default one is generated
+	// (unless Headers already has one) and its trace ID returned, so the
+	// message can be followed with TraceTreeFor.
+	NoTrace bool
 }
 
 // DefaultHarnessID is the test harness flow: an HTTPS sender that forwards
@@ -56,6 +60,8 @@ type SentMessage struct {
 	Harness              string    `json:"harness,omitempty"`
 	HarnessMessageGuid   string    `json:"harnessMessageGuid,omitempty"`
 	ProcessDirectAddress string    `json:"processDirectAddress,omitempty"`
+	// TraceID is the trace ID of the traceparent header sent (if any).
+	TraceID string `json:"traceId,omitempty"`
 	URL                  string    `json:"url"`
 	SentAt               time.Time `json:"sentAt"`
 	HTTPStatus           int       `json:"httpStatus"`
@@ -127,6 +133,20 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 	if m.ContentType != "" {
 		headers["Content-Type"] = m.ContentType
 	}
+	traceID := ""
+	for k, v := range headers {
+		if strings.EqualFold(k, "traceparent") {
+			traceID = TraceIDOf(v)
+			if traceID == "" {
+				return nil, output.Usagef("invalid traceparent header %q (expected 00-<32 hex>-<16 hex>-<2 hex>)", v)
+			}
+		}
+	}
+	if traceID == "" && !m.NoTrace {
+		var tp string
+		tp, traceID = NewTraceparent()
+		headers["traceparent"] = tp
+	}
 	endpointArtifact := m.ArtifactID
 	if m.ProcessDirectAddress != "" {
 		if !strings.HasPrefix(m.ProcessDirectAddress, "/") {
@@ -150,7 +170,7 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 		return nil, output.Usage(err)
 	}
 
-	sent := &SentMessage{ArtifactID: m.ArtifactID, URL: url, SentAt: time.Now().UTC().Truncate(time.Millisecond)}
+	sent := &SentMessage{ArtifactID: m.ArtifactID, URL: url, SentAt: time.Now().UTC().Truncate(time.Millisecond), TraceID: traceID}
 	if m.ProcessDirectAddress != "" {
 		sent.Harness, sent.ProcessDirectAddress = m.Harness, m.ProcessDirectAddress
 	}

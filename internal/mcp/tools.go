@@ -22,7 +22,8 @@ const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 
 Build loop: download_artifact (existing flow, once) or write files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
--> on failure get_message_steps (failing step) and get_message_log / get_message_attachment /
+-> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
+get_message_steps (failing step) and get_message_log / get_message_attachment /
 get_message_store_entry for payloads; for step-by-step payloads set_log_level TRACE, send again,
 get_message_trace and get_trace_message -> fix the local files and repeat.
 Flows without an HTTP sender: ProcessDirect via send_test_message process_direct_address (test
@@ -149,7 +150,8 @@ func Tools(cfg Config) []Tool {
 			Name: "list_message_logs", Title: "Query message processing logs",
 			Description: "Message processing logs (newest first) filtered by artifact, status, time and IDs, with the error text of failed messages. " +
 				"Use it to see how an iFlow behaved at runtime: call with artifact_id, since=<time before the messages> and wait_seconds to wait until the messages reached a final status. " +
-				"After send_test_message prefer its wait_seconds, which already returns the log of that message.",
+				"After send_test_message prefer its wait_seconds, which already returns the log of that message. " +
+				"custom_header {name, value} finds messages by a custom header property; the tenant cannot filter on it, so it scans (needs artifact_id or package_id, and since; at most top*10, max 500 messages; see scanned/truncated).",
 			InputSchema: object(props{
 				"artifact_id":            str("Integration flow ID"),
 				"statuses":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": cpi.MessageLogStatuses}, "description": "Only these statuses"},
@@ -161,20 +163,25 @@ func Tools(cfg Config) []Tool {
 				"skip":                   integer("Skip the first n messages"),
 				"include_errors":         boolean("Include the error text of failed messages (default true)"),
 				"wait_seconds":           map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long until at least one message matches and all matches are final"},
+				"package_id":             str("Messages of all integration flows of this package (needs since)"),
+				"custom_header": map[string]any{"type": "object", "description": "Only messages with this custom header property value (client-side scan)", "additionalProperties": false,
+					"properties": map[string]any{"name": str("Property name"), "value": str("Property value")}, "required": []string{"name", "value"}},
 			}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
-					ArtifactID           string   `json:"artifact_id"`
-					Statuses             []string `json:"statuses"`
-					Since                string   `json:"since"`
-					Until                string   `json:"until"`
-					CorrelationID        string   `json:"correlation_id"`
-					ApplicationMessageID string   `json:"application_message_id"`
-					Top                  int      `json:"top"`
-					Skip                 int      `json:"skip"`
-					IncludeErrors        *bool    `json:"include_errors"`
-					WaitSeconds          int      `json:"wait_seconds"`
+					ArtifactID           string                  `json:"artifact_id"`
+					Statuses             []string                `json:"statuses"`
+					Since                string                  `json:"since"`
+					Until                string                  `json:"until"`
+					CorrelationID        string                  `json:"correlation_id"`
+					ApplicationMessageID string                  `json:"application_message_id"`
+					Top                  int                     `json:"top"`
+					Skip                 int                     `json:"skip"`
+					IncludeErrors        *bool                   `json:"include_errors"`
+					WaitSeconds          int                     `json:"wait_seconds"`
+					PackageID            string                  `json:"package_id"`
+					CustomHeader         *ops.CustomHeaderFilter `json:"custom_header"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -191,6 +198,19 @@ func Tools(cfg Config) []Tool {
 				q := ops.MessageLogQuery{ArtifactID: a.ArtifactID, Statuses: a.Statuses, Since: since, Until: until,
 					CorrelationID: a.CorrelationID, ApplicationMessageID: a.ApplicationMessageID, Top: a.Top, Skip: a.Skip,
 					IncludeErrors: a.IncludeErrors == nil || *a.IncludeErrors}
+				if a.CustomHeader != nil || a.PackageID != "" {
+					if a.WaitSeconds > 0 || a.CorrelationID != "" || a.ApplicationMessageID != "" || a.Skip > 0 {
+						return nil, output.Usagef("custom_header and package_id cannot be combined with wait_seconds, correlation_id, application_message_id or skip")
+					}
+					scope := ops.ScanScope{PackageID: a.PackageID, Since: since, Until: until, Statuses: a.Statuses}
+					if a.ArtifactID != "" {
+						scope.ArtifactIDs = []string{a.ArtifactID}
+					}
+					if a.CustomHeader == nil {
+						return ops.QueryPackageMessageLogs(cfg.Exe, scope, a.Top)
+					}
+					return ops.QueryMessageLogsByHeader(ctx, cfg.Exe, scope, *a.CustomHeader, a.Top, q.IncludeErrors)
+				}
 				if a.WaitSeconds > 0 {
 					if a.WaitSeconds > 600 {
 						return nil, output.Usagef("wait_seconds must be at most 600")
@@ -330,6 +350,56 @@ func Tools(cfg Config) []Tool {
 					return nil, err
 				}
 				return ops.GetTraceMessage(cfg.Exe, a.TraceID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "get_trace_tree", Title: "Get the call tree of a trace",
+			Description: "From one trace ID (traceId of send_test_message, or trace-id custom header) to the call tree across flows (ProcessDirect, JMS, HTTP) and firstFailure, the earliest failed message. " +
+				"Finds the messages by ApplicationMessageId first; otherwise scans the given scope (artifact_ids or package_id, and since) for the trace-id custom header, at most max_scan messages. " +
+				"Next: get_message_steps for firstFailure.messageGuid.",
+			InputSchema: object(props{
+				"trace_id":     str("32 hex characters"),
+				"artifact_ids": strArray("Scope of the fallback scan"),
+				"package_id":   str("Scope of the fallback scan: all flows of this package"),
+				"since":        str("Start of the scan window: RFC 3339 or duration back from now (30m, 2h)"),
+				"until":        str("End of the scan window"),
+				"max_scan":     map[string]any{"type": "integer", "minimum": 1, "maximum": 1000, "description": "Maximum messages scanned, default 200"},
+				"properties": map[string]any{"type": "object", "additionalProperties": false, "description": "Custom header names of the tracer (default trace-id, span-id, parent-span-id)",
+					"properties": map[string]any{"trace": str("Trace ID property"), "span": str("Span ID property"), "parent": str("Parent span ID property")}},
+			}, "trace_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					TraceID     string   `json:"trace_id"`
+					ArtifactIDs []string `json:"artifact_ids"`
+					PackageID   string   `json:"package_id"`
+					Since       string   `json:"since"`
+					Until       string   `json:"until"`
+					MaxScan     int      `json:"max_scan"`
+					Properties  *struct {
+						Trace  string `json:"trace"`
+						Span   string `json:"span"`
+						Parent string `json:"parent"`
+					} `json:"properties"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				now := time.Now()
+				since, err := ops.ParseTimeArg(a.Since, now)
+				if err != nil {
+					return nil, output.Usagef("invalid since: %v", err)
+				}
+				until, err := ops.ParseTimeArg(a.Until, now)
+				if err != nil {
+					return nil, output.Usagef("invalid until: %v", err)
+				}
+				q := ops.TraceTreeQuery{TraceID: a.TraceID, MaxScan: a.MaxScan,
+					Scope: ops.ScanScope{ArtifactIDs: a.ArtifactIDs, PackageID: a.PackageID, Since: since, Until: until}}
+				if a.Properties != nil {
+					q.Properties = ops.TraceProperties{Trace: a.Properties.Trace, Span: a.Properties.Span, Parent: a.Properties.Parent}
+				}
+				return ops.TraceTreeFor(ctx, cfg.Exe, q)
 			},
 		},
 		{
@@ -677,6 +747,7 @@ func Tools(cfg Config) []Tool {
 				"headers":      map[string]any{"type": "object", "description": "Additional HTTP headers (not Authorization, Cookie or X-CSRF-Token)", "additionalProperties": map[string]any{"type": "string"}},
 				"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long for the message processing log to reach a final status"},
 				"max_bytes":    maxBytesSchema(),
+				"trace":        boolean("Send a W3C traceparent header and return its traceId for get_trace_tree (default true; a traceparent in headers is kept)"),
 				"process_direct_address": str("For flows with a ProcessDirect sender: send through the test harness flow to this address (e.g. /billing/in); " +
 					"artifact_id is then the flow behind the address and the returned log is that flow's message"),
 				"harness": str(`Test harness flow ID, default "` + ops.DefaultHarnessID + `"`),
@@ -693,6 +764,7 @@ func Tools(cfg Config) []Tool {
 					WaitSeconds int               `json:"wait_seconds"`
 					MaxBytes    int               `json:"max_bytes"`
 					Address     string            `json:"process_direct_address"`
+					Trace       *bool             `json:"trace"`
 					Harness     string            `json:"harness"`
 				}
 				if err := decode(raw, &a); err != nil {
@@ -710,7 +782,7 @@ func Tools(cfg Config) []Tool {
 				return ops.SendTestMessage(ctx, cfg.Exe, endpoints, ops.TestMessage{
 					ArtifactID: a.ArtifactID, URL: a.URL, Method: a.Method, Body: []byte(a.Body), ContentType: a.ContentType,
 					Headers: a.Headers, MaxBytes: a.MaxBytes, Wait: time.Duration(a.WaitSeconds) * time.Second, PollInterval: cfg.LogPollInterval,
-					ProcessDirectAddress: a.Address, Harness: a.Harness,
+					ProcessDirectAddress: a.Address, Harness: a.Harness, NoTrace: a.Trace != nil && !*a.Trace,
 				})
 			},
 		},

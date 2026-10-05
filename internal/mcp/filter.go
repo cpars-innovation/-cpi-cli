@@ -32,7 +32,7 @@ var toolEffects = map[string]Effect{
 	"validate_artifact": EffectRead, "check_guidelines": EffectRead,
 	"list_resources": EffectRead, "get_resource": EffectRead,
 	"list_credentials": EffectRead, "list_keystore": EffectRead, "get_parameters": EffectRead,
-	"get_pd_parameters": EffectRead, "pd_diff": EffectRead,
+	"get_pd_parameters": EffectRead, "pd_diff": EffectRead, "get_trace_tree": EffectRead,
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal,
 

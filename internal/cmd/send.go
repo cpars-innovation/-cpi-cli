@@ -100,6 +100,7 @@ reports that flow's message (found by correlation ID). See docs/testing.md.`,
 				Method: config.GetString(cmd, "method"), Body: body, ContentType: config.GetString(cmd, "content-type"),
 				Headers: headers, Wait: wait, PollInterval: 5 * time.Second,
 				ProcessDirectAddress: config.GetString(cmd, "process-direct"), Harness: config.GetString(cmd, "harness"),
+				NoTrace: config.GetBool(cmd, "no-trace"),
 			})
 			if sent != nil {
 				output.SetResult(cmd.Context(), sent)
@@ -121,6 +122,7 @@ reports that flow's message (found by correlation ID). See docs/testing.md.`,
 	c.Flags().Duration("wait", 0, "Wait up to this long for the message processing log (e.g. 60s)")
 	c.Flags().String("process-direct", "", "Send through the test harness flow to this ProcessDirect address (flows without an HTTP sender)")
 	c.Flags().String("harness", ops.DefaultHarnessID, "Test harness flow ID (with --process-direct)")
+	c.Flags().Bool("no-trace", false, "Do not send a W3C traceparent header (by default one is generated unless --header traceparent=... is given; its traceId is in the result)")
 	addRuntimeAuthFlags(c)
 	_ = c.MarkFlagRequired("artifact-id")
 	return c

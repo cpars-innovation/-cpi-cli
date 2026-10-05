@@ -14,6 +14,11 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact (including designtime and runtime version).
+- Tracing across flows: `send` / `send_test_message` send a W3C `traceparent` and return the
+  `traceId`; `logs tree` / `get_trace_tree` build the call tree and the first failure;
+  `logs --header name=value` / `custom_header` and `--package-id` search by custom header
+  (scoped, capped client-side scans). Message logs include `applicationMessageType`,
+  `packageName` and `predecessorMessageGuid`.
 - Partner Directory: `pd get` / `get_pd_parameters`, `pd diff` / `pd_diff`, and
   `pd-deploy --keys PID:ID` / `pd_deploy keys` for single-parameter changes.
 - Downgrade guard: a designtime version older than the running one is not deployed unless

@@ -63,6 +63,36 @@ In text mode `logs attachment` / `logs payload` / `resources get` write the cont
 (pipe or redirect it); with `--output json` it is part of the result (text, or base64 for binary,
 limited by `--max-bytes`, default 64 KB).
 
+### Searching by custom header
+
+The tenant cannot filter message processing logs by custom header properties, so cpictl scans:
+
+```bash
+cpictl logs --artifact-id OrderIntake --since 2h --header OrderId=4711
+cpictl logs --package-id Orders --since 1h --header OrderId=4711 --top 5
+```
+
+A scan always needs `--artifact-id` or `--package-id` and `--since` (the tenant is shared). It
+reads at most `--top` × 10 messages (max 500); `scanned` and `truncated` in the result say how
+far it got. `--package-id` alone lists the messages of all flows of the package.
+
+### Following a message across flows
+
+`cpictl send` (MCP `send_test_message`) sends a W3C `traceparent` header (unless `--no-trace` or
+your own `--header traceparent=...`) and returns its `traceId`. Flows with a tracer script write
+`trace-id`, `span-id` and `parent-span-id` as custom header properties; `logs tree` rebuilds the
+call tree from them and points at the first failure:
+
+```bash
+cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
+cpictl logs tree --trace-id <id> --package-id Orders --since 30m   # scan if not found directly
+```
+
+Messages are found by ApplicationMessageId = trace ID first (set `SAP_ApplicationID` to the trace
+ID in the tracer), otherwise by scanning the scope (`--max-scan`, default 200). Other property
+names: `--trace-property`, `--span-property`, `--parent-property`. Tenants whose sender adapters
+need business headers (e.g. `sap-client`) get them with `--header` on `send`.
+
 ## Resources of an iFlow
 
 ```bash

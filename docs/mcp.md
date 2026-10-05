@@ -146,7 +146,8 @@ read roles.
 | `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
 | `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |
 | `list_service_endpoints` | | Callable URLs of deployed integration flows (where to send test messages) |
-| `list_message_logs` | | Message processing logs by artifact, status, time, IDs; error texts; `wait_seconds` for final status |
+| `list_message_logs` | | Message processing logs by artifact or package, status, time, IDs; error texts; `wait_seconds` for final status; `custom_header {name, value}` (client-side scan, see `scanned`/`truncated`) |
+| `get_trace_tree` | | Call tree of one trace across flows (span / parent span, or predecessor) and `firstFailure` |
 | `get_message_log` | | One message: error text, custom header properties, adapter attributes, attachments, persisted messages |
 | `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
 | `get_message_attachment` | | Content of a log attachment |
