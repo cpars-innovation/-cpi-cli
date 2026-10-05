@@ -254,27 +254,28 @@ func hintSuffix(hint string) string {
 	return ". Note: " + hint
 }
 
+// readConfigFile reads the --config file or, without one, $HOME/cpictl.yaml if it
+// exists. The default file is set by its full name: a search by base name would also
+// pick up an extension-less $HOME/cpictl (for example the binary itself).
+func readConfigFile(cfgFile string) error {
+	if cfgFile == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		cfgFile = filepath.Join(home, "cpictl.yaml")
+		if _, err := os.Stat(cfgFile); err != nil {
+			return nil
+		}
+	}
+	viper.SetConfigFile(cfgFile)
+	return viper.ReadInConfig()
+}
+
 func initializeConfig(cmd *cobra.Command) error {
 	cfgFile := config.GetString(cmd, "config")
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		// Search config in home directory with name "cpictl.yaml".
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName("cpictl")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
-		// It's okay if there isn't a config file
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return output.Usage(err)
-		}
+	if err := readConfigFile(cfgFile); err != nil {
+		return output.Usage(err)
 	}
 
 	viper.SetEnvPrefix(envPrefix)
