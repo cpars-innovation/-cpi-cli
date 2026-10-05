@@ -157,6 +157,34 @@ claude mcp add cpi \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
+Or share the setup with your team: commit a `.mcp.json` to the root of the integration content
+repository. It contains no secrets; Claude Code fills in `${VAR}` from each developer's
+environment:
+
+```json
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "command": "${CPICTL_BIN:-cpictl}",
+      "args": ["mcp", "--root", "."],
+      "env": {
+        "CPICTL_TMN_HOST": "${CPI_DEV_TMN_HOST}",
+        "CPICTL_OAUTH_HOST": "${CPI_DEV_OAUTH_HOST}",
+        "CPICTL_OAUTH_CLIENTID": "${CPI_DEV_OAUTH_CLIENTID}",
+        "CPICTL_OAUTH_CLIENTSECRET": "${CPI_DEV_OAUTH_CLIENTSECRET}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTID": "${CPI_DEV_RUNTIME_OAUTH_CLIENTID}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "${CPI_DEV_RUNTIME_OAUTH_CLIENTSECRET}"
+      }
+    }
+  }
+}
+```
+
+Full example with a QA tenant: [docs/examples/claude-code.mcp.json](docs/examples/claude-code.mcp.json);
+for other clients (Claude Desktop, Cursor, ...): [docs/examples/mcp.json](docs/examples/mcp.json).
+The runtime credentials are only needed for `send_test_message`
+([configuration.md](docs/configuration.md#runtime-endpoints-test-messages)).
+
 Tools cover the whole loop: `create_package`, `download_artifact`, `upload_artifact`,
 `validate_artifact`, `check_guidelines`, `deploy`, `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
