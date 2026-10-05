@@ -33,7 +33,19 @@ cpictl status --artifact-ids OrderIntake --output json
 
 ## Install
 
-Requires Go 1.26 or later.
+Download a binary for your platform from the
+[releases](https://github.com/cpars-innovation/cpicli/releases), or install with Go 1.26 or later:
+
+```bash
+go install github.com/cpars-innovation/cpicli/cmd/cpictl@latest   # or @v0.1.0
+cpictl --version
+```
+
+The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`), which must be on your `PATH`.
+While the repository is private, tell Go to fetch it directly with your Git credentials:
+`go env -w GOPRIVATE=github.com/cpars-innovation/*`.
+
+From source:
 
 ```bash
 git clone https://github.com/cpars-innovation/cpicli.git
