@@ -203,7 +203,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 
 | Area | Commands |
 |------|----------|
-| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover`, `drift` |
+| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover`, `graph`, `drift` |
 | Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
@@ -299,7 +299,8 @@ The runtime credentials are only needed for `send_test_message`
 Tools cover the whole loop: `create_package`, `download_artifact`, `upload_artifact`,
 `validate_artifact`, `check_guidelines`, `deploy`, `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
-`get_message_store_entry`, parameters, resources, `discover_tenant`, `list_credentials`,
+`get_message_store_entry`, parameters, resources, `discover_tenant`, `graph_search`, `graph_neighbors`,
+`graph_path`, `list_credentials`,
 `list_keystore`, `undeploy` and `pd_deploy`. Security material is read-only over MCP; secrets never pass
 through the agent.
 Every result carries `ok`, an `errorCategory` matching the exit codes, and the structured result.
@@ -341,6 +342,7 @@ Setup per agent, examples and what differs from the Claude Code plugin: [docs/ag
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Other agents](docs/agents.md) | Codex, Cursor, Gemini CLI: MCP setup, skills, AGENTS.md |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |

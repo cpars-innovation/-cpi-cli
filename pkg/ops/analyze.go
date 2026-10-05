@@ -31,10 +31,20 @@ type IFlowFacts struct {
 	// address (HTTPS path, ProcessDirect address, ...) and timers.
 	Triggers []Trigger `json:"triggers"`
 	// ProcessDirectCalls are the ProcessDirect addresses the flow sends to.
-	ProcessDirectCalls []string       `json:"processDirectCalls"`
-	SenderAdapters     []string       `json:"senderAdapters"`
-	ReceiverAdapters   []string       `json:"receiverAdapters"`
-	Steps              map[string]int `json:"steps"`
+	ProcessDirectCalls []string `json:"processDirectCalls"`
+	// Receivers are the receiver adapters with their address (URL, queue,
+	// ProcessDirect address; may be a {{parameter}} or empty).
+	Receivers []Trigger `json:"receivers"`
+	// AddressParameters are the values in parameters.prop of the parameters
+	// used in sender and receiver addresses (the design-time values; a
+	// configured value on the tenant can differ).
+	AddressParameters map[string]string `json:"addressParameters,omitempty"`
+	// PDReferences are the literal Partner Directory parameters the flow
+	// reads ("PID:ID"; ":ID" when only the ID is literal).
+	PDReferences     []string       `json:"pdReferences"`
+	SenderAdapters   []string       `json:"senderAdapters"`
+	ReceiverAdapters []string       `json:"receiverAdapters"`
+	Steps            map[string]int `json:"steps"`
 	// ExceptionSubprocess is true when the flow has an exception subprocess.
 	ExceptionSubprocess     bool   `json:"exceptionSubprocess"`
 	LogLevel                string `json:"logLevel,omitempty"`
@@ -60,7 +70,7 @@ type Trigger struct {
 
 // addressKeys are adapter properties that hold the address of an endpoint,
 // in order of preference.
-var addressKeys = []string{"urlPath", "address", "path", "directory", "QueueName_inbound", "queueName"}
+var addressKeys = []string{"urlPath", "address", "httpAddressWithoutQuery", "path", "directory", "QueueName_inbound", "QueueName_outbound", "queueName"}
 
 // ScriptFacts describe one script of an integration flow.
 type ScriptFacts struct {
@@ -82,12 +92,16 @@ var (
 	reCustomHeader  = regexp.MustCompile(`addCustomHeaderProperty\s*\(\s*["']([^"']+)["']`)
 	reTableName     = regexp.MustCompile(`<cell id=['"]Name['"]>([^<]*)</cell>`)
 	reCredentialKey = regexp.MustCompile(`(?i)(credential(name)?|alias)$`)
+	reParameterRef  = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
+	// propertyUnescaper resolves the escapes CPI writes in parameters.prop
+	// values (https\://host).
+	propertyUnescaper = strings.NewReplacer(`\:`, ":", `\=`, "=", `\\`, `\`)
 )
 
 // AnalyzeIFlow reads an integration flow from fsys (the root holds META-INF
 // and src/main/resources, as in the downloaded archive).
 func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
-	f := &IFlowFacts{Triggers: []Trigger{}, ProcessDirectCalls: []string{}, SenderAdapters: []string{}, ReceiverAdapters: []string{}, Steps: map[string]int{},
+	f := &IFlowFacts{Triggers: []Trigger{}, ProcessDirectCalls: []string{}, Receivers: []Trigger{}, PDReferences: []string{}, SenderAdapters: []string{}, ReceiverAdapters: []string{}, Steps: map[string]int{},
 		Parameters: []string{}, CredentialRefs: []string{}, HeadersSet: []string{}, PropertiesSet: []string{},
 		Scripts: []ScriptFacts{}, Resources: map[string]int{}}
 
@@ -112,9 +126,23 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 		if err := f.addModel(data); err != nil {
 			return f, fmt.Errorf("%s: %w", path.Base(name), err)
 		}
+		for _, m := range rePDLiteral.FindAllSubmatch(data, -1) {
+			f.PDReferences = append(f.PDReferences, string(m[1])+":"+string(m[2]))
+		}
 	}
 	if props, err := fs.ReadFile(fsys, resourcesDir+"/parameters.prop"); err == nil {
-		f.Parameters = propertyKeys(props)
+		values := propertyValues(props)
+		f.Parameters = sortedMapKeys(values)
+		for _, t := range slices.Concat(f.Triggers, f.Receivers) {
+			for _, m := range reParameterRef.FindAllStringSubmatch(t.Address, -1) {
+				if v, ok := values[m[1]]; ok {
+					if f.AddressParameters == nil {
+						f.AddressParameters = map[string]string{}
+					}
+					f.AddressParameters[m[1]] = v
+				}
+			}
+		}
 	}
 	_ = fs.WalkDir(fsys, resourcesDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -129,11 +157,14 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 		if dir == "script" {
 			if data, err := fs.ReadFile(fsys, p); err == nil {
 				f.Scripts = append(f.Scripts, analyzeScript(path.Base(p), data))
+				for _, m := range reGroovyParam.FindAllSubmatch(data, -1) {
+					f.PDReferences = append(f.PDReferences, string(m[2])+":"+string(m[1]))
+				}
 			}
 		}
 		return nil
 	})
-	for _, l := range []*[]string{&f.ProcessDirectCalls, &f.SenderAdapters, &f.ReceiverAdapters, &f.CredentialRefs, &f.HeadersSet, &f.PropertiesSet} {
+	for _, l := range []*[]string{&f.ProcessDirectCalls, &f.PDReferences, &f.SenderAdapters, &f.ReceiverAdapters, &f.CredentialRefs, &f.HeadersSet, &f.PropertiesSet} {
 		*l = sortedUnique(*l)
 	}
 	return f, nil
@@ -242,6 +273,7 @@ func (f *IFlowFacts) addElement(el *modelElement) {
 			f.Triggers = append(f.Triggers, Trigger{Adapter: adapter, Address: address})
 		} else {
 			f.ReceiverAdapters = append(f.ReceiverAdapters, adapter)
+			f.Receivers = append(f.Receivers, Trigger{Adapter: adapter, Address: address})
 			if adapter == "ProcessDirect" && address != "" {
 				f.ProcessDirectCalls = append(f.ProcessDirectCalls, address)
 			}
@@ -311,9 +343,10 @@ func parseManifest(data []byte) map[string]string {
 	return h
 }
 
-// propertyKeys returns the keys of a Java properties file.
-func propertyKeys(data []byte) []string {
-	var keys []string
+// propertyValues returns the keys and values of a Java properties file
+// (single-line entries; escapes in keys are resolved).
+func propertyValues(data []byte) map[string]string {
+	values := map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -322,7 +355,8 @@ func propertyKeys(data []byte) []string {
 			continue
 		}
 		var key strings.Builder
-		for i := 0; i < len(line); i++ {
+		i := 0
+		for ; i < len(line); i++ {
 			c := line[i]
 			if c == '\\' && i+1 < len(line) {
 				i++
@@ -335,10 +369,14 @@ func propertyKeys(data []byte) []string {
 			key.WriteByte(c)
 		}
 		if k := strings.TrimSpace(key.String()); k != "" {
-			keys = append(keys, k)
+			v := ""
+			if i < len(line) {
+				v = strings.TrimSpace(line[i+1:])
+			}
+			values[k] = propertyUnescaper.Replace(v)
 		}
 	}
-	return sortedUnique(keys)
+	return values
 }
 
 func sortedUnique(list []string) []string {

@@ -27,6 +27,11 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
 | [`drift`](#drift) | Compare local artifacts with their designtime and runtime state on the tenant |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
+| [`graph`](#graph) | Query the content graph written by discover (offline) |
+| [`graph build`](#graph-build) | Write graph.json from an existing discovery.json |
+| [`graph neighbors`](#graph-neighbors) | Show what a node is connected to |
+| [`graph path`](#graph-path) | Find the shortest connection between two nodes |
+| [`graph search`](#graph-search) | Find nodes by key, name or attribute |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
 | [`id-mappings`](#id-mappings) | Show ID mapper entries of a source or target ID |
 | [`idempotent`](#idempotent) | List idempotent repository entries (messages or files skipped as duplicates) |
@@ -498,7 +503,12 @@ naming patterns of packages and flows.
 
 The tenant is only read; every integration flow is downloaded and analysed in
 memory. The file is the input for writing a repository's conventions (see the
-cpi-discover skill of the Claude Code plugin).
+cpi-discover skill).
+
+Next to it, graph.json holds the same content as a graph for fast lookups (see
+'cpictl graph'): which flows call which through ProcessDirect and JMS addresses,
+which flows share credentials, scripts, Partner Directory parameters and headers,
+and which systems they call. --graph=false skips it.
 ```
 
 **Usage:** `cpictl discover [flags]`
@@ -507,6 +517,7 @@ cpi-discover skill of the Claude Code plugin).
 
 ```
       --dir string            Analyse this local directory instead of the tenant
+      --graph                 Also write graph.json next to the output file (default true)
       --max-iflows int        Stop after this many integration flows (0: all)
       --output-file string    JSON file to write (default ".cpi/discovery.json")
       --package-ids strings   Only these packages (default: all)
@@ -594,6 +605,103 @@ List the URLs of deployed integration flows
 
 ```
   cpictl endpoints --artifact-id OrderIntake
+```
+
+## graph
+
+Query the content graph written by discover (offline)
+
+```
+Query .cpi/graph.json, the graph that 'cpictl discover' writes next to
+discovery.json. Nodes: package, iflow, endpoint, system, credential, script, header, property, customheader, pd.
+Node IDs are <type>:<key> (iflow:Orders_In, endpoint:ProcessDirect:/billing/in,
+pd:SAP_SYSTEM_001:Identity); commands also accept a key or a unique name.
+Edges: contains, exposes, calls, sends_to, calls_system, uses_credential, uses_script, sets_header, sets_property, logs_header, reads_pd.
+sends_to links flows through matching ProcessDirect and JMS addresses;
+{{parameter}} addresses are resolved with the flow's parameters.prop value.
+
+The graph shows what discovery saw: rerun discover after changes. Without
+graph.json, discovery.json in the same folder is used.
+```
+
+**Examples:**
+
+```
+  cpictl graph search billing
+  cpictl graph neighbors Billing --direction in --edge-types sends_to
+  cpictl graph neighbors credential:SFTP_User
+  cpictl graph path Orders_In Invoice_Send
+```
+
+## graph build
+
+Write graph.json from an existing discovery.json
+
+```
+Build the graph from a discovery file without discovering again. Discovery
+files written before cpictl had the graph lack receiver addresses and Partner
+Directory references: run discover again for the full graph.
+```
+
+**Usage:** `cpictl graph build [flags]`
+
+**Flags:**
+
+```
+      --discovery-file string   Discovery file to read (default ".cpi/discovery.json")
+```
+
+**Examples:**
+
+```
+  cpictl graph build --discovery-file .cpi/discovery.json
+```
+
+## graph neighbors
+
+Show what a node is connected to
+
+**Usage:** `cpictl graph neighbors NODE [flags]`
+
+**Flags:**
+
+```
+      --depth int            Hops (1 to 3) (default 1)
+      --direction string     out (what the node uses or calls), in (what uses or calls it), both (default "both")
+      --edge-types strings   Only these edge types
+      --limit int            Maximum number of edges (default 200)
+```
+
+## graph path
+
+Find the shortest connection between two nodes
+
+```
+Find the shortest connection between two nodes, following edges in both
+directions. By default only exposes, calls and sends_to are followed (how
+messages move between flows); --edge-types widens it, e.g. uses_credential.
+```
+
+**Usage:** `cpictl graph path FROM TO [flags]`
+
+**Flags:**
+
+```
+      --edge-types strings   Edge types to follow (default: exposes, calls, sends_to)
+      --max-depth int        Maximum number of hops (default 6)
+```
+
+## graph search
+
+Find nodes by key, name or attribute
+
+**Usage:** `cpictl graph search QUERY [flags]`
+
+**Flags:**
+
+```
+      --limit int       Maximum number of matches (default 50)
+      --types strings   Only these node types
 ```
 
 ## guidelines

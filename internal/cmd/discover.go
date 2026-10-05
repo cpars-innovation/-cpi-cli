@@ -20,7 +20,12 @@ naming patterns of packages and flows.
 
 The tenant is only read; every integration flow is downloaded and analysed in
 memory. The file is the input for writing a repository's conventions (see the
-cpi-discover skill of the Claude Code plugin).`,
+cpi-discover skill).
+
+Next to it, graph.json holds the same content as a graph for fast lookups (see
+'cpictl graph'): which flows call which through ProcessDirect and JMS addresses,
+which flows share credentials, scripts, Partner Directory parameters and headers,
+and which systems they call. --graph=false skips it.`,
 		Example: `  cpictl discover --output-file .cpi/discovery.json
   cpictl discover --package-ids SalesOrders,Finance
   cpictl discover --dir ./content   # local repository from 'sync' or 'snapshot', offline`,
@@ -43,7 +48,16 @@ cpi-discover skill of the Claude Code plugin).`,
 			if err := ops.WriteDiscovery(d, file); err != nil {
 				return err
 			}
-			output.SetResult(cmd.Context(), map[string]any{"file": file, "source": d.Source, "summary": d.Summary, "errors": d.Errors})
+			res := map[string]any{"file": file, "source": d.Source, "summary": d.Summary, "errors": d.Errors}
+			if withGraph, _ := cmd.Flags().GetBool("graph"); withGraph {
+				g := ops.BuildGraph(d)
+				if err := ops.WriteGraph(g, ops.GraphFile(file)); err != nil {
+					return err
+				}
+				res["graphFile"], res["graph"] = ops.GraphFile(file), g.Stats
+				log.Info().Msgf("Graph with %d nodes and %d edges written to %s", g.Stats.Nodes, g.Stats.Edges, ops.GraphFile(file))
+			}
+			output.SetResult(cmd.Context(), res)
 			log.Info().Msgf("Discovered %d package(s) and %d integration flow(s), written to %s", d.Summary.Packages, d.Summary.IFlows, file)
 			for _, e := range d.Errors {
 				log.Warn().Msg(e)
@@ -55,5 +69,6 @@ cpi-discover skill of the Claude Code plugin).`,
 	c.Flags().StringSlice("package-ids", nil, "Only these packages (default: all)")
 	c.Flags().Int("max-iflows", 0, "Stop after this many integration flows (0: all)")
 	c.Flags().String("dir", "", "Analyse this local directory instead of the tenant")
+	c.Flags().Bool("graph", true, "Also write graph.json next to the output file")
 	return c
 }

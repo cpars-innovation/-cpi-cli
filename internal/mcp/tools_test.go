@@ -106,4 +106,32 @@ func TestDiscoverTenantTool(t *testing.T) {
 	assert.True(t, res.IsError)
 	assert.True(t, strings.Contains(res.StructuredContent.Error, "outside"))
 	assert.Empty(t, mock.Requests(), "local discovery does not contact the tenant")
+
+	// the graph is written next to discovery.json and can be queried
+	require.FileExists(t, filepath.Join(root, ".cpi", "graph.json"))
+	resp = session(t, mock, root,
+		call(1, "graph_search", map[string]any{"query": "flow_a"}),
+		call(2, "graph_neighbors", map[string]any{"node": "Flow_A", "direction": "in"}),
+		call(3, "graph_path", map[string]any{"from": "package:Pkg", "to": "Flow_A", "edge_types": []string{"contains"}}),
+		call(4, "graph_search", map[string]any{"file": "../graph.json"}),
+		call(5, "graph_neighbors", map[string]any{"node": "Flow_A", "edge_types": []string{"links"}}),
+	)
+	res = toolResult(t, resp["1"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	matches := res.StructuredContent.Result.(map[string]any)["matches"].([]any)
+	require.NotEmpty(t, matches)
+	assert.Equal(t, "iflow:Flow_A", matches[0].(map[string]any)["id"])
+	res = toolResult(t, resp["2"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	edges := res.StructuredContent.Result.(map[string]any)["edges"].([]any)
+	require.Len(t, edges, 1)
+	assert.Equal(t, "package:Pkg", edges[0].(map[string]any)["from"])
+	res = toolResult(t, resp["3"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	assert.Equal(t, true, res.StructuredContent.Result.(map[string]any)["found"])
+	for _, id := range []string{"4", "5"} {
+		res = toolResult(t, resp[id])
+		assert.True(t, res.IsError, id)
+		assert.Equal(t, "usage", res.StructuredContent.ErrorCategory, id)
+	}
 }

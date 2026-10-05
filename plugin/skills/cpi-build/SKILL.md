@@ -16,6 +16,9 @@ Read [iflow-structure.md](iflow-structure.md) before editing a model for the fir
    productive tenant from this skill.
 3. Run `drift` on the content folder: `tenant_newer` or `diverged` means someone changed the
    flow on the tenant; download it and merge before you upload, or their change is lost.
+   Changing the address, payload or headers of an existing flow? `graph_neighbors` (node the
+   flow, `direction: "in"`, `edge_types: ["sends_to"]`) lists the flows that call it; tell the
+   user before you break them.
 4. Get the files:
    - existing flow: `download_artifact` into the repository's content folder (convention, or
      `content/<PackageId>/<FlowId>`), unless the files are already there and up to date;

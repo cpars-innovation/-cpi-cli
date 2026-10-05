@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Content graph: `discover` (MCP `discover_tenant`) also writes `.cpi/graph.json`: flows,
+  packages, endpoints, receiver systems, credentials, scripts, headers, properties and Partner
+  Directory parameters as nodes; `sends_to` links flows through matching ProcessDirect and JMS
+  addresses (`{{parameter}}` addresses resolved with `parameters.prop`). Query it with
+  `cpictl graph search|neighbors|path|build` and the MCP tools `graph_search`, `graph_neighbors`,
+  `graph_path` (read a local file only). Discovery now also records receiver addresses,
+  the values of address parameters and literal Partner Directory references per flow.
+  See [docs/graph.md](docs/graph.md).
 - Codex, Cursor and Gemini CLI: MCP configuration examples (`docs/examples/agents`),
   `scripts/install-skills.sh` to copy the skills into `.agents/skills`, `.cursor/skills` or
   `.gemini/skills`, an `AGENTS.md` template, and [docs/agents.md](docs/agents.md).

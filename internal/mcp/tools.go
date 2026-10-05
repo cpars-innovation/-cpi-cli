@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,9 @@ list_jms_queues, get_jms_broker, list_number_ranges, list_log_files / get_log_fi
 without a message log), list_idempotent_entries (skipped duplicates), list_id_mappings.
 Conventions: discover_tenant writes an inventory of existing flows (adapters, steps, error
 handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/conventions.md).
+Graph: after discovery, graph_search, graph_neighbors and graph_path answer which flows call a
+flow (ProcessDirect/JMS), use a credential, script, header or Partner Directory parameter, or
+call a system, from .cpi/graph.json (local, fast; rerun discover_tenant after changes).
 
 Autonomous loops: loop_start before changing anything, loop_status, loop_end when done or stopped.
 
@@ -96,7 +100,7 @@ func Tools(cfg Config) []Tool {
 		cfg.LogLevels = NewLogLevelReverter(cfg.Exe)
 	}
 	reverter := cfg.LogLevels
-	tools := append(toolList(cfg, readOnly, tenant, endpoints, reverter), storeTools(cfg, readOnly)...)
+	tools := slices.Concat(toolList(cfg, readOnly, tenant, endpoints, reverter), storeTools(cfg, readOnly), graphTools(cfg))
 	for i := range tools {
 		inner := tools[i].Handler
 		tools[i].Handler = func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -1062,7 +1066,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		{
 			Name: "discover_tenant", Title: "Discover conventions of existing content",
 			Description: "Inventory packages and integration flows (adapters, steps, exception subprocesses, log levels, scripts, parameters, credential names, naming patterns) " +
-				"and write it as JSON to output_file inside the server root; returns the summary. Read-only on the tenant. " +
+				"and write it as JSON to output_file inside the server root, plus graph.json next to it (query it with graph_search, graph_neighbors, graph_path); returns the summary. Read-only on the tenant. " +
 				"Use it once to derive the conventions of a tenant; it downloads every flow, so limit with package_ids on large tenants. local_dir analyses a local repository instead.",
 			InputSchema: object(props{
 				"package_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Only these packages (default: all)"},
@@ -1108,7 +1112,12 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err := ops.WriteDiscovery(d, out); err != nil {
 					return nil, err
 				}
-				return map[string]any{"file": a.OutputFile, "source": d.Source, "summary": d.Summary, "errors": d.Errors}, nil
+				g := ops.BuildGraph(d)
+				if err := ops.WriteGraph(g, ops.GraphFile(out)); err != nil {
+					return nil, err
+				}
+				return map[string]any{"file": a.OutputFile, "graphFile": filepath.ToSlash(ops.GraphFile(a.OutputFile)), "graph": g.Stats,
+					"source": d.Source, "summary": d.Summary, "errors": d.Errors}, nil
 			},
 		},
 	}

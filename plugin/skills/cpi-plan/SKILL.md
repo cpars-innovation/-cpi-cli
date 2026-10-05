@@ -14,6 +14,12 @@ user has agreed to. Do not touch the tenant in this phase except for read-only l
   say which choices are your assumptions).
 - Similar existing flows: `.cpi/discovery.json` lists adapters and steps per flow. Find flows
   with the same sender/receiver adapters and reuse their structure. Name them in the plan.
+  `graph_search` finds flows, addresses and systems quickly (e.g. the receiver host, a
+  ProcessDirect address); `graph_neighbors` shows which flows already call a system or share a
+  credential.
+- Changing an existing flow: `graph_neighbors` with `direction: "in"`, `edge_types:
+  ["sends_to"]` lists the flows that call it; a changed address or payload affects them. Name
+  them in the plan.
 - Existing packages (`list_packages`) and credentials (`list_credentials`) that the flow can use.
 
 ## 2. Clarify

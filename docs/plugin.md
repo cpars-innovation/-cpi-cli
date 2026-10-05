@@ -72,6 +72,7 @@ is already in the repository), reads a few typical flows and writes:
 .cpi/
 ├── conventions.md      # the rules, with evidence and strength (rule / common / observed)
 ├── discovery.json      # the facts, regenerate with `cpictl discover`
+├── graph.json          # the same as a graph: who calls whom, what flows share (graph_* tools)
 ├── plans/              # designs written by cpi-plan
 └── tests/<FlowId>/     # test cases and payloads used by cpi-test
 ```

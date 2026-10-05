@@ -41,6 +41,29 @@ func TestDiscoverDirOffline(t *testing.T) {
 	r = runMain(t, "discover", "--output-file", out)
 	assert.Equal(t, 2, r.code)
 	assert.Contains(t, r.stderr, "no tenant configured")
+
+	// graph.json is written next to it and queried offline
+	graph := filepath.Join(dir, "out", "graph.json")
+	require.FileExists(t, graph)
+	r = runMain(t, "graph", "neighbors", "Flow_A", "--file", graph, "--output", "json")
+	require.Equal(t, 0, r.code, r.stderr)
+	var sub struct {
+		Result struct {
+			Edges []struct{ From, To, Type string }
+		}
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &sub))
+	require.Len(t, sub.Result.Edges, 1)
+	assert.Equal(t, "package:Pkg", sub.Result.Edges[0].From)
+	r = runMain(t, "graph", "search", "missing", "--file", filepath.Join(dir, "nothing", "graph.json"))
+	assert.Equal(t, 2, r.code)
+	assert.Contains(t, r.stderr, "run discover")
+
+	// graph build from an existing discovery file
+	require.NoError(t, os.Remove(graph))
+	r = runMain(t, "graph", "build", "--discovery-file", out)
+	require.Equal(t, 0, r.code, r.stderr)
+	require.FileExists(t, graph)
 }
 
 func TestPackagesCreateAndSend(t *testing.T) {

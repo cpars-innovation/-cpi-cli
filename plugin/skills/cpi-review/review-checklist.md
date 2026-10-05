@@ -17,6 +17,8 @@ Apply `.cpi/conventions.md` first; its "Review checklist additions" are mandator
 - Exception subprocess present where the conventions require it; the sender gets a defined
   answer on errors; errors are not swallowed silently.
 - Idempotency / duplicate handling where messages can be resent.
+- Callers still fit: for a changed address, payload or header, the flows that call this one
+  (`graph_neighbors`, `direction: "in"`, `edge_types: ["sends_to"]`) were checked or adapted.
 - Large payloads: no needless conversions to String, streaming where possible.
 
 ## Configuration and security

@@ -1,7 +1,7 @@
 ---
 name: cpi-discover
 description: Discover how an SAP Cloud Integration tenant builds its integration flows (naming, adapters, error handling, logging, scripts, parameters) and write the repository's conventions file .cpi/conventions.md. Use when a repository has no .cpi/conventions.md yet, when the user asks to analyse, onboard or learn a tenant, or to refresh the conventions after the tenant changed.
-allowed-tools: Read Write Edit Glob Grep mcp__plugin_cpi_cpi__discover_tenant mcp__plugin_cpi_cpi__list_packages mcp__plugin_cpi_cpi__list_artifacts mcp__plugin_cpi_cpi__list_resources mcp__plugin_cpi_cpi__get_resource mcp__plugin_cpi_cpi__get_parameters mcp__plugin_cpi_cpi__list_credentials mcp__plugin_cpi_cpi__list_runtime_artifacts
+allowed-tools: Read Write Edit Glob Grep mcp__plugin_cpi_cpi__discover_tenant mcp__plugin_cpi_cpi__list_packages mcp__plugin_cpi_cpi__list_artifacts mcp__plugin_cpi_cpi__list_resources mcp__plugin_cpi_cpi__get_resource mcp__plugin_cpi_cpi__get_parameters mcp__plugin_cpi_cpi__list_credentials mcp__plugin_cpi_cpi__list_runtime_artifacts mcp__plugin_cpi_cpi__graph_search mcp__plugin_cpi_cpi__graph_neighbors mcp__plugin_cpi_cpi__graph_path
 ---
 
 # Discover a tenant's conventions
@@ -22,8 +22,8 @@ you never overwrite their changes.
 
 ## 2. Collect the facts
 
-Call `discover_tenant` (writes `.cpi/discovery.json`, returns the summary). Use `package_ids`
-for the representative packages. If the repository already contains the content (e.g. from
+Call `discover_tenant` (writes `.cpi/discovery.json` and `.cpi/graph.json`, returns the
+summary). Use `package_ids` for the representative packages. If the repository already contains the content (e.g. from
 `cpictl sync` or `snapshot`), `local_dir` analyses it offline.
 
 The summary contains counts, not rules. Then **look at examples** to understand the why, about
@@ -34,6 +34,10 @@ The summary contains counts, not rules. Then **look at examples** to understand 
   logging and error handling framework.
 - `get_parameters` of a few flows: how are parameters named and grouped?
 - `list_credentials`: how are credentials named (compare with `summary.credentialRefs`)?
+- The graph shows how flows work together: `graph_search` with `types: ["endpoint"]` lists the
+  ProcessDirect and JMS addresses (naming of internal interfaces), `graph_neighbors` on a
+  common script or header shows which flows share it, `sends_to` edges show whether flows are
+  split into inbound / processing / outbound parts.
 - If the repository has downloaded flows, read one `.iflw` of a typical flow to see how the
   exception subprocess and the logging steps are built.
 
