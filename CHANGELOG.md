@@ -5,6 +5,13 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl iflow copy` (MCP `copy_iflow`): copy an integration flow from the tenant or a local
+  folder under a new ID, name, description and version; renames the model and `.project`,
+  keeps `;singleton:=true`, wraps manifest lines correctly, and changes every sender address
+  (in the model or in `parameters.prop`), refusing to keep one unless asked. See
+  [docs/new-flows.md](docs/new-flows.md). The `cpi-build` skill uses it for new flows.
+- MCP `upload_artifact` without `name` uses `Bundle-Name` of the manifest, as the CLI does
+  (it used the ID).
 - Plugin: brief template for new flows (`.cpi/templates/brief.md`, filled in as
   `.cpi/briefs/<name>.md`; cpi-plan asks only for what is missing), a *Templates* section in
   the conventions (one reference flow per pattern, proposed by cpi-discover, agreed by the

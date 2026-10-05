@@ -94,7 +94,9 @@ proposes one reference flow per pattern (sync HTTPS to OData, SFTP polling, Proc
 sub-flow, ...) in the *Templates* section of `conventions.md`; the team marks them `agreed` and
 keeps those flows deployable and up to date. Many teams keep dedicated `Template_*` flows in a
 package of their own for this. The house logging and error handling scripts go to
-`.cpi/templates/scripts/`.
+`.cpi/templates/scripts/`. `cpi-build` creates a new flow with `copy_iflow` from the agreed
+template: new ID, name, description and sender addresses, nothing renamed by hand
+([new-flows.md](new-flows.md)).
 
 A request for a new flow starts with a **brief**: `cpi-plan` copies `.cpi/templates/brief.md`
 to `.cpi/briefs/<name>.md`, the requester fills in purpose, sender, receivers, messages (sample

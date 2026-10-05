@@ -127,7 +127,7 @@ leaves a tool enabled by accident.
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
 | read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `graph_*`, `loop_status`, runtime data tools | kept |
-| local files (inside `--root`) | `download_artifact`, `discover_tenant`, `loop_start`, `loop_end` | kept |
+| local files (inside `--root`) | `download_artifact`, `copy_iflow`, `discover_tenant`, `loop_start`, `loop_end` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
 
 ```json
@@ -153,6 +153,7 @@ read roles.
 | `list_resources` | | Scripts, mappings, schemas, ... of an integration flow |
 | `get_resource` | | Content of one resource (text inline, binary base64) |
 | `download_artifact` | local files | Extract an artifact into a directory inside `--root` (empty unless `overwrite`) |
+| `copy_iflow` | local files | Copy a flow (tenant or local) under a new ID, name, description and sender addresses; refuses unchanged sender addresses unless `keep_addresses`. See [new-flows.md](new-flows.md) |
 | `upload_artifact` | designtime | Create or update an artifact from a local directory; `CREATED`, `UPDATED` or `UNCHANGED` |
 | `validate_artifact` | | Tenant check of an integration flow (like *Check* in the Web UI); `PASSED` / `FAILED` with details |
 | `check_guidelines` | | Run the activated design guidelines and wait; violations with violated components |

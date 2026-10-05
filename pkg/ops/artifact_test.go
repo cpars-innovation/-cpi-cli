@@ -63,6 +63,7 @@ func TestUploadArtifactLifecycle(t *testing.T) {
 	a := mock.Artifacts["OrderIntake"]
 	require.NotNil(t, a)
 	assert.Equal(t, "Orders", a.Package)
+	assert.Equal(t, "Order Intake", a.Name, "without a name the manifest's Bundle-Name is used, as in the CLI")
 	assert.Equal(t, "println 'v1'", zipEntry(t, a.Zip, "src/main/resources/script/script1.groovy"))
 
 	res, err = UploadArtifact(mock.Executer(), req)

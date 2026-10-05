@@ -135,3 +135,47 @@ func TestDiscoverTenantTool(t *testing.T) {
 		assert.Equal(t, "usage", res.StructuredContent.ErrorCategory, id)
 	}
 }
+
+const copyTemplateModel = `<bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:ifl="http:///com.sap.ifl.model/Ifl.xsd"><bpmn2:collaboration>
+<bpmn2:messageFlow id="MessageFlow_1"><bpmn2:extensionElements>
+<ifl:property><key>ComponentType</key><value>HTTPS</value></ifl:property>
+<ifl:property><key>urlPath</key><value>/tpl/in</value></ifl:property>
+<ifl:property><key>direction</key><value>Sender</value></ifl:property>
+</bpmn2:extensionElements></bpmn2:messageFlow></bpmn2:collaboration></bpmn2:definitions>`
+
+func TestCopyIFlowTool(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"META-INF/MANIFEST.MF": "Bundle-SymbolicName: Tpl; singleton:=true\nBundle-Name: Template\nBundle-Version: 2.1.0\nSAP-BundleType: IntegrationFlow\n",
+		"src/main/resources/scenarioflows/integrationflow/Tpl.iflw": copyTemplateModel,
+	}
+	for name, content := range files {
+		p := filepath.Join(root, "content", "Templates", "Tpl", filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+	mock := cpitest.NewTenant(t, nil)
+	resp := session(t, mock, root,
+		call(1, "copy_iflow", map[string]any{"from_dir": "content/Templates/Tpl", "target_dir": "content/Sales/Orders", "id": "Orders",
+			"name": "Orders", "addresses": []string{"/orders"}}),
+		call(2, "copy_iflow", map[string]any{"from_dir": "content/Templates/Tpl", "target_dir": "../outside", "id": "X", "addresses": []string{"/x"}}),
+		call(3, "copy_iflow", map[string]any{"from_dir": "content/Templates/Tpl", "target_dir": "content/Sales/NoAddress", "id": "NoAddress"}),
+	)
+	res := toolResult(t, resp["1"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	result := res.StructuredContent.Result.(map[string]any)
+	assert.Equal(t, "content/Sales/Orders", result["dir"])
+	assert.Equal(t, "content/Templates/Tpl", result["from"])
+	mf, err := os.ReadFile(filepath.Join(root, "content", "Sales", "Orders", "META-INF", "MANIFEST.MF"))
+	require.NoError(t, err)
+	assert.Contains(t, string(mf), "Bundle-SymbolicName: Orders; singleton:=true")
+	assert.FileExists(t, filepath.Join(root, "content/Sales/Orders/src/main/resources/scenarioflows/integrationflow/Orders.iflw"))
+
+	for _, id := range []string{"2", "3"} {
+		res = toolResult(t, resp[id])
+		assert.True(t, res.IsError, id)
+		assert.Equal(t, "usage", res.StructuredContent.ErrorCategory, id)
+	}
+	assert.NoDirExists(t, filepath.Join(root, "content", "Sales", "NoAddress"))
+	assert.Empty(t, mock.Requests(), "a local copy does not contact the tenant")
+}

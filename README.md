@@ -188,6 +188,9 @@ cpictl status --artifact-ids OrderIntake
 cpictl send --artifact-id OrderIntake --body-file order.xml --content-type application/xml --wait 60s
 cpictl logs steps --message-guid <guid>
 
+# Start a new flow from a template: new ID, name and sender address (see docs/new-flows.md)
+cpictl iflow copy --from Template_Sync_HTTPS --id OrderStatus --name "Order status" --address /orders/status --dir ./OrderStatus
+
 # Change externalised parameters and activate them
 cpictl params set --artifact-id OrderIntake --param ReceiverHost=orders.example.com
 cpictl deploy --artifact-ids OrderIntake --compare-versions=false
@@ -207,7 +210,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
-| Designtime | `download`, `packages create`, `update artifact`, `update package` |
+| Designtime | `download`, `iflow copy`, `packages create`, `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
@@ -342,6 +345,7 @@ Setup per agent, examples and what differs from the Claude Code plugin: [docs/ag
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Other agents](docs/agents.md) | Codex, Cursor, Gemini CLI: MCP setup, skills, AGENTS.md |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |

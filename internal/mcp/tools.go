@@ -22,7 +22,8 @@ import (
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 
 Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
-(existing flow, once) or write files locally -> create_package (new
+(existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses)
+-> edit the files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
 get_message_steps (failing step) and get_message_log / get_message_attachment /
@@ -612,6 +613,69 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			},
 		},
 		{
+			Name: "copy_iflow", Title: "Copy an integration flow under a new ID",
+			Description: "Copy an integration flow (a template or reference flow, from the tenant with from_artifact_id or from a local from_dir) into target_dir and rename it: " +
+				"Bundle-SymbolicName, Bundle-Name, Bundle-Version (default 1.0.0) in MANIFEST.MF, description in metainfo.prop, <SourceID>.iflw -> <id>.iflw, .project, " +
+				"and the sender addresses (in the model, or in parameters.prop for a {{parameter}} address). Every sender address needs a new value in addresses " +
+				`(["NEW"] for a flow with one sender address, else "OLD=NEW" each, OLD as in the source) unless keep_addresses: the same HTTP path or ProcessDirect ` +
+				"address fails the deployment, the same directory or queue makes both flows poll it. A value with \"=\" is always OLD=NEW. " +
+				"Use this instead of renaming files by hand. The result lists the changes and files that still mention the source ID (check them). " +
+				"Writes local files inside the server root only; next upload_artifact (name from the manifest), validate_artifact, deploy.",
+			InputSchema: object(props{
+				"from_artifact_id": str("Source flow ID on the tenant (read only)"),
+				"from_version":     str(`Version of the source on the tenant, default "active"`),
+				"from_dir":         str("Local source flow directory, relative to the server root (instead of from_artifact_id)"),
+				"target_dir":       str("Target directory relative to the server root; must not exist or be empty"),
+				"id":               str("ID of the new flow, following the naming conventions"),
+				"name":             str("Display name of the new flow (default: the ID)"),
+				"description":      str("Description of the new flow (the source's description is removed when empty)"),
+				"version":          str(`Version of the new flow, default "1.0.0"`),
+				"addresses":        strArray(`New sender addresses: ["NEW"] or ["OLD=NEW", ...]`),
+				"keep_addresses":   boolean("Allow sender addresses that stay the same as in the source"),
+			}, "target_dir", "id"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					FromArtifactID string   `json:"from_artifact_id"`
+					FromVersion    string   `json:"from_version"`
+					FromDir        string   `json:"from_dir"`
+					TargetDir      string   `json:"target_dir"`
+					ID             string   `json:"id"`
+					Name           string   `json:"name"`
+					Description    string   `json:"description"`
+					Version        string   `json:"version"`
+					Addresses      []string `json:"addresses"`
+					KeepAddresses  bool     `json:"keep_addresses"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				target, err := resolvePath(cfg.Root, a.TargetDir)
+				if err != nil {
+					return nil, err
+				}
+				if target == mustAbs(cfg.Root) {
+					return nil, output.Usagef("target_dir must be a sub-directory of the server root")
+				}
+				o := ops.IFlowCopyOptions{FromID: a.FromArtifactID, FromVersion: a.FromVersion, TargetDir: target, ID: a.ID, Name: a.Name,
+					Description: a.Description, Version: a.Version, Addresses: a.Addresses, KeepAddresses: a.KeepAddresses}
+				if a.FromDir != "" {
+					if o.FromDir, err = resolvePath(cfg.Root, a.FromDir); err != nil {
+						return nil, err
+					}
+				}
+				res, err := ops.CopyIFlow(cfg.Exe, o)
+				if err != nil {
+					return nil, err
+				}
+				res.Dir = a.TargetDir
+				if a.FromDir != "" {
+					res.From = a.FromDir
+				}
+				return res, nil
+			},
+		},
+		{
 			Name: "list_credentials", Title: "List security credentials",
 			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
 			InputSchema: object(props{"kind": enum("Only this kind", cpi.CredentialKinds...)}),
@@ -719,7 +783,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			Description: "Create or update a designtime artifact from a local directory (action CREATED, UPDATED or UNCHANGED). The package must exist (create_package); the directory needs META-INF/MANIFEST.MF and src/main/resources. Does not deploy: next validate_artifact, then deploy.",
 			InputSchema: object(props{
 				"artifact_id": str("Artifact ID (must match Bundle-SymbolicName)"),
-				"name":        str("Display name, defaults to artifact_id"),
+				"name":        str("Display name, defaults to Bundle-Name of the manifest, else artifact_id"),
 				"type":        enum("Artifact type", cpi.ArtifactTypes...),
 				"package_id":  str("Integration package ID (must exist)"),
 				"dir":         str("Local artifact directory, relative to the server root"),

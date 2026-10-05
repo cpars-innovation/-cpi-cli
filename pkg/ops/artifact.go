@@ -3,6 +3,7 @@ package ops
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -38,6 +39,12 @@ func UploadArtifact(exe *httpclnt.HTTPExecuter, req UploadRequest) (*UploadResul
 	}
 	if info, err := os.Stat(req.Dir); err != nil || !info.IsDir() {
 		return nil, output.Usagef("artifact directory %q does not exist", req.Dir)
+	}
+	if req.Name == "" {
+		// as the CLI: the display name from the manifest, else the ID
+		if mf, err := os.ReadFile(filepath.Join(req.Dir, "META-INF", "MANIFEST.MF")); err == nil {
+			req.Name = parseManifest(mf)["Bundle-Name"]
+		}
 	}
 	if req.Name == "" {
 		req.Name = req.ID

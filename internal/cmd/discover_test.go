@@ -112,3 +112,45 @@ func TestMCPToolFilterSettings(t *testing.T) {
 	assert.Equal(t, 2, code)
 	assert.Contains(t, stderr.String(), "nope_*")
 }
+
+// iflow copy --from-dir works offline.
+func TestIFlowCopyOffline(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Templates", "Tpl")
+	model := `<definitions><collaboration><messageFlow><extensionElements>` +
+		`<property><key>ComponentType</key><value>ProcessDirect</value></property>` +
+		`<property><key>address</key><value>/tpl</value></property>` +
+		`<property><key>direction</key><value>Sender</value></property>` +
+		`</extensionElements></messageFlow></collaboration></definitions>`
+	for name, content := range map[string]string{
+		"META-INF/MANIFEST.MF": "Bundle-SymbolicName: Tpl\nBundle-Name: Tpl\nSAP-BundleType: IntegrationFlow\n",
+		"src/main/resources/scenarioflows/integrationflow/Tpl.iflw": model,
+	} {
+		p := filepath.Join(src, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+
+	r := runMain(t, "iflow", "copy", "--from-dir", src, "--id", "New_Flow", "--name", "New flow", "--output", "json")
+	assert.Equal(t, 2, r.code, "the ProcessDirect address must change")
+	assert.Contains(t, r.stderr, "/tpl")
+
+	r = runMain(t, "iflow", "copy", "--from-dir", src, "--id", "New_Flow", "--name", "New flow", "--address", "/new", "--output", "json")
+	require.Equal(t, 0, r.code, r.stderr)
+	var env struct {
+		Result struct {
+			Dir       string
+			Addresses []struct{ Old, New, Where string }
+		}
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env))
+	assert.Equal(t, filepath.Join(dir, "Templates", "New_Flow"), env.Result.Dir, "default: next to the source")
+	require.Len(t, env.Result.Addresses, 1)
+	assert.Equal(t, "/new", env.Result.Addresses[0].New)
+	assert.FileExists(t, filepath.Join(dir, "Templates", "New_Flow", "src/main/resources/scenarioflows/integrationflow/New_Flow.iflw"))
+
+	// --from needs a tenant
+	r = runMain(t, "iflow", "copy", "--from", "Tpl", "--id", "X")
+	assert.Equal(t, 2, r.code)
+	assert.Contains(t, r.stderr, "no tenant configured")
+}

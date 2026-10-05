@@ -48,8 +48,13 @@ What `download_artifact` extracts and `upload_artifact` expects:
 - Contents of table properties (headers and properties of a Content Modifier) are escaped XML
   inside the value (`&lt;row&gt;…`): keep the escaping.
 
-## Renaming a copied flow
+## Copying a flow under a new ID
 
-Change the folder name, `Bundle-SymbolicName` and `Bundle-Name` in MANIFEST.MF, the model's file
-name if the conventions say so, and the sender address (HTTPS `urlPath`, SOAP address) so it
-does not clash with the original flow, which would fail the deployment.
+Use `copy_iflow`, not manual renaming: it sets `Bundle-SymbolicName`, `Bundle-Name` and
+`Bundle-Version` in MANIFEST.MF (keeping `;singleton:=true` and the 72-byte line format), the
+description in metainfo.prop, renames `<SourceID>.iflw` and `.project`, and changes every sender
+address (in the model, or the parameter value in parameters.prop for a `{{parameter}}` address).
+It refuses to keep a sender address unless `keep_addresses` is set: the same HTTP path or
+ProcessDirect address fails the deployment, the same SFTP directory or JMS queue makes two flows
+take each other's messages. Afterwards check the files listed in `remaining` (process names,
+scripts that log the flow name).
