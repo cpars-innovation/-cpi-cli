@@ -163,6 +163,7 @@ Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPL
 | 5 | Deployment, validation or test message failed on the tenant | fix the artifact |
 | 6 | Timeout | check `status`, raise `--max-check-limit` |
 | 7 | Partial failure | inspect the per-item results |
+| 8 | Loop stopped (MCP only): a build loop limit was reached | stop, report the loop summary |
 
 ## AI agents (MCP)
 

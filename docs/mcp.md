@@ -100,6 +100,19 @@ server: [plugin.md](plugin.md).
 | `--tools` | all | Offer only these tools: names or patterns, e.g. `list_*,get_*,validate_artifact` |
 | `--disable-tools` | none | Do not offer these tools (names or patterns); wins over `--tools` |
 
+### Modes
+
+`--mode` (or `CPICTL_MODE`) is a preset on top of the other limits; together the most
+restrictive wins:
+
+| Mode | Tools |
+|------|-------|
+| `discover` | read-only (same as `--read-only`) |
+| `operate` | read tools, local files and `set_log_level`: monitoring and diagnosis |
+| `develop` | all tools; `pd_deploy` refuses `full_sync`, `undeploy` needs `confirm` |
+
+The mode is added to the server instructions.
+
 ### Limiting tools
 
 The server enforces the limits itself, for every MCP client: disabled tools are not listed in
@@ -109,8 +122,8 @@ leaves a tool enabled by accident.
 
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
-| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff` | kept |
-| local files (inside `--root`) | `download_artifact`, `discover_tenant` | kept |
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `loop_status` | kept |
+| local files (inside `--root`) | `download_artifact`, `discover_tenant`, `loop_start`, `loop_end` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level` | removed |
 
 ```json
@@ -204,6 +217,7 @@ Every tool call returns the same structure, both as `structuredContent` and as J
 | `failed` | 5 | The tenant rejected the content: read `error`, fix the artifact |
 | `timeout` | 6 | Not finished in time: check `get_runtime_status` |
 | `partial` | 7 | Some items failed: look at the per-item results |
+| `stopped` | 8 | A loop limit was reached: tenant changes are refused; call `loop_end` and report |
 
 Tool failures are returned as tool results with `isError: true`, not as JSON-RPC errors,
 so the model sees them. JSON-RPC errors are only used for protocol problems (unknown tool,
@@ -227,6 +241,23 @@ malformed request).
 Message logs, attachments and persisted messages contain business data. Error texts are
 truncated (4 KB in lists, 16 KB in `get_message_log`, flagged with `errorTruncated`) to keep
 tool results small. Use a development tenant with test data for agents.
+
+## Build loops
+
+For autonomous build/test/fix loops the server enforces limits the model cannot override:
+
+1. `loop_start {goal, max_iterations=5, same_error_limit=2, wall_clock_minutes=60, max_deploys=15}`
+   returns a `loop_id` (one open loop per server).
+2. While it is open every tenant-changing call is counted. An **iteration** is a `deploy` (or a
+   `pd_deploy` that is not a dry run) after a failed test result (`send_test_message`,
+   `get_trace_tree` with `firstFailure`, `list_message_logs` with a FAILED message). Failures are
+   fingerprinted (artifact, step, error text without IDs, timestamps and long numbers).
+3. When a limit is reached (iterations, the same fingerprint `same_error_limit` times, wall clock,
+   deploys), every tenant-changing tool returns `ok: false`, `errorCategory: "stopped"`, exit code
+   8. Read tools keep working.
+4. `loop_status` shows the counters; `loop_end {loop_id, outcome}` always works and writes
+   `.cpi/loops/<loop_id>.md` (goal, outcome, counters, every call). Each call is also appended to
+   `.cpi/loops/<loop_id>.jsonl` as it happens.
 
 ## Safety
 

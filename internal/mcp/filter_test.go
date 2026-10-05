@@ -20,7 +20,8 @@ func toolNames(tools []Tool) []string {
 
 // A new tool must be classified, otherwise read-only servers could offer it.
 func TestEveryToolHasAnEffect(t *testing.T) {
-	for _, tool := range Tools(Config{}) {
+	all := NewLedger(t.TempDir()).Wrap(Tools(Config{}))
+	for _, tool := range all {
 		effect, ok := toolEffects[tool.Name]
 		require.True(t, ok, "add %s to toolEffects", tool.Name)
 		ro, _ := tool.Annotations["readOnlyHint"].(bool)
@@ -31,7 +32,7 @@ func TestEveryToolHasAnEffect(t *testing.T) {
 			assert.False(t, ro, tool.Name)
 		}
 	}
-	assert.Len(t, toolEffects, len(Tools(Config{})), "toolEffects lists a tool that does not exist")
+	assert.Len(t, toolEffects, len(all), "toolEffects lists a tool that does not exist")
 }
 
 func TestFilter(t *testing.T) {

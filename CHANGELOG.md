@@ -14,6 +14,9 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact (including designtime and runtime version).
+- Build loops: `loop_start` / `loop_status` / `loop_end` with server-enforced limits
+  (iterations, repeated errors, wall clock, deploys); exit code 8 / `stopped`. `cpictl mcp --mode
+  discover|operate|develop`.
 - Tracing across flows: `send` / `send_test_message` send a W3C `traceparent` and return the
   `traceId`; `logs tree` / `get_trace_tree` build the call tree and the first failure;
   `logs --header name=value` / `custom_header` and `--package-id` search by custom header

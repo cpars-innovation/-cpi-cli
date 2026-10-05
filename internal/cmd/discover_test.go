@@ -75,6 +75,9 @@ func TestMCPToolFilterSettings(t *testing.T) {
 	r := runMain(t, append([]string{"mcp", "--tools", "deplyo"}, basicAuth(mock)...)...)
 	assert.Equal(t, 2, r.code)
 	assert.Contains(t, r.stderr, "matches no tool")
+	r = runMain(t, append([]string{"mcp", "--mode", "admin"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code)
+	assert.Contains(t, r.stderr, "invalid mode")
 
 	// runMain clears CPICTL_* variables, so call Run directly
 	t.Setenv("HOME", t.TempDir())

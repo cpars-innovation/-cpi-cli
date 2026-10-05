@@ -40,7 +40,9 @@ Limit the tools per server, e.g. for a QA or production tenant:
   --read-only                     no tool that changes the tenant or sends messages
   --tools list_*,get_*            only matching tools
   --disable-tools undeploy,pd_*   everything except these
-Also as CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+  --mode discover|operate|develop presets (combined with the above, the most
+                                  restrictive wins)
+Also as CPICTL_MODE, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
 listed and cannot be called; a pattern that matches no tool is an error.`,
 		Example: `  # Claude Code / any MCP client configuration
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
@@ -52,7 +54,10 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			// stdout is the protocol channel: logs always as JSON lines on stderr
 			logger.Init(cmd.ErrOrStderr(), true, viper.GetBool("debug"))
 
-			all := mcp.Tools(mcp.Config{
+			mode := config.GetString(cmd, "mode")
+			root := config.GetString(cmd, "root")
+			ledger := mcp.NewLedger(root)
+			all := ledger.Wrap(mcp.Tools(mcp.Config{
 				Exe:          tenantExecuter(cmd),
 				Root:         config.GetString(cmd, "root"),
 				PollInterval: time.Duration(config.GetInt(cmd, "poll-interval")) * time.Second,
@@ -60,17 +65,18 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 				TenantHost:   config.GetString(cmd, "tmn-host"),
 
 				NewEndpointExecuter: endpointExecuter(cmd),
-			})
+				DenyFullSync:        mode == "develop",
+			}))
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
-			tools, removed, err := mcp.Filter(all, filter)
+			tools, removed, err := mcp.ApplyFilters(all, mode, filter)
 			if err != nil {
 				return err
 			}
 			if len(removed) > 0 {
 				log.Info().Msgf("Tools disabled by configuration: %s", strings.Join(removed, ", "))
 			}
-			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed), tools)
+			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed)+mcp.ModeInstructions(mode), tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
 			return server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
@@ -78,6 +84,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 	c.Flags().String("root", ".", "Directory that local paths of tool calls are confined to")
 	c.Flags().Int("poll-interval", 10, "Default seconds between deploy/undeploy status checks")
 	c.Flags().Int("max-checks", 30, "Default maximum number of deploy/undeploy status checks")
+	c.Flags().String("mode", "", "Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync)")
 	c.Flags().Bool("read-only", false, "Offer only tools that do not change the tenant or trigger processing")
 	c.Flags().StringSlice("tools", nil, "Offer only these tools (names or patterns such as list_*)")
 	c.Flags().StringSlice("disable-tools", nil, "Do not offer these tools (names or patterns); wins over --tools")

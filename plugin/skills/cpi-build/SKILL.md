@@ -22,6 +22,11 @@ Read [iflow-structure.md](iflow-structure.md) before editing a model for the fir
 
 ## The loop
 
+Open it with `loop_start` (goal from the plan) before the first change on the tenant. The
+server then enforces the limits (iterations, repeated errors, time, deploys): when a tool answers
+`errorCategory: "stopped"`, stop changing things, call `loop_end` with the outcome and give the
+user the summary (`.cpi/loops/<loop_id>.md`). Call `loop_end` as well when the flow works.
+
 1. Edit the local files. Keep changes minimal and consistent with the conventions.
 2. New package? `create_package` (never changes an existing one).
 3. `upload_artifact` (action UNCHANGED means the tenant already has exactly these files).

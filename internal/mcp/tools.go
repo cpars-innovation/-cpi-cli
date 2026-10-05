@@ -38,9 +38,12 @@ list_service_endpoints.
 Conventions: discover_tenant writes an inventory of existing flows (adapters, steps, error
 handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/conventions.md).
 
+Autonomous loops: loop_start before changing anything, loop_status, loop_end when done or stopped.
+
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory: usage (fix the
 arguments), auth (stop, ask the user), tenant_http (retry later), failed (the tenant rejected the
-content or the message failed: read error, fix), timeout (check status), partial (see items).
+content or the message failed: read error, fix), timeout (check status), partial (see items),
+stopped (a loop limit was reached: stop changing things, call loop_end and report).
 undeploy requires confirm=true. Partner Directory: pd_dependencies (which flows read a parameter), get_pd_parameters (tenant
 values), pd_diff (local vs tenant), then
 pd_deploy keys=["PID:ID"] to change one parameter without redeploying flows. pd_deploy is a
@@ -64,6 +67,8 @@ type Config struct {
 	NewEndpointExecuter ops.EndpointExecuterFunc
 	// TenantHost is recorded as the source of discover_tenant.
 	TenantHost string
+	// DenyFullSync makes pd_deploy refuse full_sync (develop mode).
+	DenyFullSync bool
 }
 
 // Tools returns the CPI tool set.
@@ -852,6 +857,9 @@ func Tools(cfg Config) []Tool {
 				dir, err := resolvePath(cfg.Root, a.ResourcesPath)
 				if err != nil {
 					return nil, err
+				}
+				if a.FullSync && cfg.DenyFullSync {
+					return nil, output.Usagef("full_sync is not allowed in this mode: deploy single parameters with keys, or ask the user to run 'cpictl pd-deploy --full-sync'")
 				}
 				opts := ops.PDDeployOptions{Replace: true, FullSync: a.FullSync, DryRun: true, PIDs: a.PIDs, Keys: a.Keys}
 				if a.Replace != nil {
