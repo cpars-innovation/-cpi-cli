@@ -57,18 +57,18 @@ type SentMessage struct {
 	ArtifactID string `json:"artifactId"`
 	// Harness and HarnessMessageGuid are set when the message went through
 	// the test harness; MessageGuid is then the message of ArtifactID.
-	Harness              string    `json:"harness,omitempty"`
-	HarnessMessageGuid   string    `json:"harnessMessageGuid,omitempty"`
-	ProcessDirectAddress string    `json:"processDirectAddress,omitempty"`
+	Harness              string `json:"harness,omitempty"`
+	HarnessMessageGuid   string `json:"harnessMessageGuid,omitempty"`
+	ProcessDirectAddress string `json:"processDirectAddress,omitempty"`
 	// TraceID is the trace ID of the traceparent header sent (if any).
-	TraceID string `json:"traceId,omitempty"`
-	URL                  string    `json:"url"`
-	SentAt               time.Time `json:"sentAt"`
-	HTTPStatus           int       `json:"httpStatus"`
-	MessageGuid          string    `json:"messageGuid,omitempty"`
-	CorrelationID        string    `json:"correlationId,omitempty"`
-	ResponseContentType  string    `json:"responseContentType,omitempty"`
-	Response             Content   `json:"response"`
+	TraceID             string    `json:"traceId,omitempty"`
+	URL                 string    `json:"url"`
+	SentAt              time.Time `json:"sentAt"`
+	HTTPStatus          int       `json:"httpStatus"`
+	MessageGuid         string    `json:"messageGuid,omitempty"`
+	CorrelationID       string    `json:"correlationId,omitempty"`
+	ResponseContentType string    `json:"responseContentType,omitempty"`
+	Response            Content   `json:"response"`
 	// Log is the processing log of the message (only with Wait).
 	Log *MessageLogDetail `json:"log,omitempty"`
 }
