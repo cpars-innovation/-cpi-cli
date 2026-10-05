@@ -17,15 +17,27 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`credentials set-oauth2`](#credentials-set-oauth2) | Create or update an OAuth2 client credential |
 | [`credentials set-secure-param`](#credentials-set-secure-param) | Create or update a secure parameter (Neo environment) |
 | [`credentials set-user`](#credentials-set-user) | Create or update a user credential |
+| [`datastore`](#datastore) | List data stores and their entries, read or delete an entry |
+| [`datastore delete`](#datastore-delete) | Delete a data store entry (requires --confirm) |
+| [`datastore entries`](#datastore-entries) | List entries of a data store (or of all stores) |
+| [`datastore get`](#datastore-get) | Download the content of a data store entry |
+| [`datastore list`](#datastore-list) | List data stores with their number of entries |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
 | [`discover`](#discover) | Inventory existing integration flows to derive conventions |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
+| [`id-mappings`](#id-mappings) | Show ID mapper entries of a source or target ID |
+| [`idempotent`](#idempotent) | List idempotent repository entries (messages or files skipped as duplicates) |
+| [`jms`](#jms) | JMS queues and broker capacity |
+| [`jms broker`](#jms-broker) | Show JMS broker capacity and usage |
+| [`jms queues`](#jms-queues) | List JMS queues, fullest first |
 | [`keystore`](#keystore) | List keystore entries, check expiry, export and import certificates |
 | [`keystore export-cert`](#keystore-export-cert) | Export the certificate of a keystore entry as PEM |
 | [`keystore import-cert`](#keystore-import-cert) | Import a certificate (PEM or DER) into the tenant keystore |
 | [`keystore list`](#keystore-list) | List keystore entries with remaining validity |
+| [`log-files`](#log-files) | List system and HTTP log files of the runtime |
+| [`log-files get`](#log-files-get) | Print the end of a log file |
 | [`log-level`](#log-level) | Set the message processing log level of a deployed integration flow |
 | [`logs`](#logs) | Query message processing logs |
 | [`logs attachment`](#logs-attachment) | Download a log attachment (ID from 'logs get') |
@@ -36,6 +48,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
 | [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
+| [`number-ranges`](#number-ranges) | List number ranges |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
 | [`packages create`](#packages-create) | Create an integration package if it does not exist |
@@ -66,6 +79,8 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`update artifact`](#update-artifact) | Create or update a designtime artifact from a local directory |
 | [`update package`](#update-package) | Create or update an integration package from a JSON file |
 | [`validate`](#validate) | Validate an integration flow on the tenant (like Check in the Web UI) |
+| [`variables`](#variables) | List global and integration flow variables |
+| [`variables get`](#variables-get) | Read the value of a variable |
 
 ## Global flags
 
@@ -368,6 +383,81 @@ Create or update a user credential
   ERP_PASSWORD=... cpictl credentials set-user --name ERP_User --user svc_erp --password-env ERP_PASSWORD
 ```
 
+## datastore
+
+List data stores and their entries, read or delete an entry
+
+**Examples:**
+
+```
+  cpictl datastore list --overdue-only
+  cpictl datastore entries --data-store Orders --artifact-id OrderIntake
+  cpictl datastore get --data-store Orders --artifact-id OrderIntake --id e1 --out entry.xml
+  cpictl datastore delete --data-store Orders --artifact-id OrderIntake --id e1 --confirm
+```
+
+## datastore delete
+
+Delete a data store entry (requires --confirm)
+
+**Usage:** `cpictl datastore delete [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow of the data store (empty for global stores)
+      --confirm              Confirm the deletion
+      --data-store string    Data store name
+      --id string            Entry ID
+      --type string          Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore entries
+
+List entries of a data store (or of all stores)
+
+**Usage:** `cpictl datastore entries [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string    Integration flow of the data store (empty for global stores)
+      --data-store string     Data store name
+      --message-guid string   Only entries written by this message
+      --overdue-only          Only overdue entries
+      --top int               Maximum entries (default 100)
+      --type string           Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore get
+
+Download the content of a data store entry
+
+**Usage:** `cpictl datastore get [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow of the data store (empty for global stores)
+      --data-store string    Data store name
+      --id string            Entry ID
+      --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string           Write the content to this file instead of stdout / the JSON result
+      --type string          Data store type (stores of adapters or steps, e.g. XI, AS4)
+```
+
+## datastore list
+
+List data stores with their number of entries
+
+**Usage:** `cpictl datastore list [flags]`
+
+**Flags:**
+
+```
+      --overdue-only   Only stores with overdue entries
+```
+
 ## deploy
 
 Deploy designtime artifacts and wait for the result
@@ -496,6 +586,61 @@ skipped) give exit code 5.
   cpictl guidelines --artifact-id OrderIntake --output json
 ```
 
+## id-mappings
+
+Show ID mapper entries of a source or target ID
+
+**Usage:** `cpictl id-mappings [flags]`
+
+**Flags:**
+
+```
+      --source-id string   Source ID
+      --target-id string   Target ID
+```
+
+## idempotent
+
+List idempotent repository entries (messages or files skipped as duplicates)
+
+**Usage:** `cpictl idempotent [flags]`
+
+**Flags:**
+
+```
+      --component string   Only this component, e.g. SFTP or XI
+      --id string          Entry ID (SFTP: <directory>/<file name>, XI: message ID)
+      --source string      Only sources containing this text
+```
+
+**Examples:**
+
+```
+  cpictl idempotent --id in/orders_20261005.csv --component SFTP
+```
+
+## jms
+
+JMS queues and broker capacity
+
+## jms broker
+
+Show JMS broker capacity and usage
+
+**Usage:** `cpictl jms broker`
+
+## jms queues
+
+List JMS queues, fullest first
+
+**Usage:** `cpictl jms queues [flags]`
+
+**Flags:**
+
+```
+      --prefix string   Only queues whose name starts with this
+```
+
 ## keystore
 
 List keystore entries, check expiry, export and import certificates
@@ -553,6 +698,41 @@ List keystore entries with remaining validity
 ```
   cpictl keystore list --expiring-within 30d
   cpictl keystore list --expiring-within 30d --fail-on-expiry   # exit 5 in CI
+```
+
+## log-files
+
+List system and HTTP log files of the runtime
+
+**Usage:** `cpictl log-files [flags]`
+
+**Flags:**
+
+```
+      --since string   Only files modified after this time (duration like 2h or RFC 3339)
+      --type string    Log file type, e.g. http or trace
+```
+
+**Examples:**
+
+```
+  cpictl log-files --type http --since 2h
+  cpictl log-files get --name http_access_2026-10-05.log --application it-cpi --tail-bytes 20000
+```
+
+## log-files get
+
+Print the end of a log file
+
+**Usage:** `cpictl log-files get [flags]`
+
+**Flags:**
+
+```
+      --application string   Application of the log file
+      --name string          Log file name
+      --out string           Write the content to this file instead of stdout / the JSON result
+      --tail-bytes int       Bytes from the end of the file (default 65536)
 ```
 
 ## log-level
@@ -802,6 +982,12 @@ listed and cannot be called; a pattern that matches no tool is an error.
     "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
             "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}
 ```
+
+## number-ranges
+
+List number ranges
+
+**Usage:** `cpictl number-ranges`
 
 ## orchestrator
 
@@ -1499,4 +1685,38 @@ Validate an integration flow on the tenant (like Check in the Web UI)
 
 ```
   cpictl validate --artifact-id OrderIntake
+```
+
+## variables
+
+List global and integration flow variables
+
+**Usage:** `cpictl variables [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Only this flow's variables (plus global ones)
+```
+
+**Examples:**
+
+```
+  cpictl variables --artifact-id OrderIntake
+  cpictl variables get --name lastRun --artifact-id OrderIntake
+```
+
+## variables get
+
+Read the value of a variable
+
+**Usage:** `cpictl variables get [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string   Integration flow (empty: global variable)
+      --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --name string          Variable name
+      --out string           Write the content to this file instead of stdout / the JSON result
 ```

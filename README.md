@@ -115,6 +115,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Area | Commands |
 |------|----------|
 | Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover` |
+| Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
 | Designtime | `download`, `packages create`, `update artifact`, `update package` |

@@ -34,7 +34,10 @@ configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
 Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
 Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
-list_service_endpoints.
+list_service_endpoints; runtime data: list_data_stores, list_data_store_entries,
+get_data_store_entry, delete_data_store_entry (confirm), list_variables, get_variable,
+list_jms_queues, get_jms_broker, list_number_ranges, list_log_files / get_log_file (adapter errors
+without a message log), list_idempotent_entries (skipped duplicates), list_id_mappings.
 Conventions: discover_tenant writes an inventory of existing flows (adapters, steps, error
 handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/conventions.md).
 
@@ -92,7 +95,7 @@ func Tools(cfg Config) []Tool {
 		cfg.LogLevels = NewLogLevelReverter(cfg.Exe)
 	}
 	reverter := cfg.LogLevels
-	tools := toolList(cfg, readOnly, tenant, endpoints, reverter)
+	tools := append(toolList(cfg, readOnly, tenant, endpoints, reverter), storeTools(cfg, readOnly)...)
 	for i := range tools {
 		inner := tools[i].Handler
 		tools[i].Handler = func(ctx context.Context, raw json.RawMessage) (any, error) {

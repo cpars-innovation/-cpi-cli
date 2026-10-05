@@ -14,6 +14,8 @@ First release.
 - `--output json` result documents and a stable exit code contract.
 - Deployments confirmed via the BuildAndDeployStatus task and a fresh runtime artifact,
   with one structured result per artifact (including designtime and runtime version).
+- Runtime data: data stores (list, entries, get, delete with confirm), variables, JMS queues and
+  broker, number ranges, log files (tail), idempotent repository, ID mapper (CLI and MCP).
 - `set_log_level` reverts to INFO after `revert_after_minutes` and on server shutdown; trace tools
   report a missing role (403) as `status: "missing_role"` instead of an auth error.
 - Build loops: `loop_start` / `loop_status` / `loop_end` with server-enforced limits

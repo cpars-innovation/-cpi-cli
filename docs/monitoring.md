@@ -93,6 +93,28 @@ ID in the tracer), otherwise by scanning the scope (`--max-scan`, default 200). 
 names: `--trace-property`, `--span-property`, `--parent-property`. Tenants whose sender adapters
 need business headers (e.g. `sap-client`) get them with `--header` on `send`.
 
+## Runtime data
+
+```bash
+cpictl datastore list --overdue-only                              # stores with entry counts
+cpictl datastore entries --data-store Orders --artifact-id OrderIntake [--message-guid <guid>]
+cpictl datastore get --data-store Orders --artifact-id OrderIntake --id <entry> --out entry.xml
+cpictl datastore delete --data-store Orders --artifact-id OrderIntake --id <entry> --confirm
+cpictl variables --artifact-id OrderIntake                        # flow and global variables
+cpictl variables get --name lastRun --artifact-id OrderIntake
+cpictl jms queues --prefix ORDERS                                 # fullest first
+cpictl jms broker                                                 # capacity and usage
+cpictl number-ranges
+cpictl log-files --type http --since 2h                           # adapter errors without a message log
+cpictl log-files get --name <name> --application <app> --tail-bytes 20000
+cpictl idempotent --id in/orders.csv --component SFTP             # skipped as duplicate?
+cpictl id-mappings --source-id <id>
+```
+
+Data store entries and variables are business data: lists show metadata only, `get` downloads.
+Global data stores and variables have an empty `--artifact-id`. Retrying, moving or deleting JMS
+messages is not supported.
+
 ## Resources of an iFlow
 
 ```bash

@@ -35,6 +35,10 @@ var toolEffects = map[string]Effect{
 	"list_credentials": EffectRead, "list_keystore": EffectRead, "get_parameters": EffectRead,
 	"get_pd_parameters": EffectRead, "pd_diff": EffectRead, "get_trace_tree": EffectRead,
 	"pd_dependencies": EffectRead, "config_diff": EffectRead,
+	"list_data_stores": EffectRead, "list_data_store_entries": EffectRead, "get_data_store_entry": EffectRead,
+	"delete_data_store_entry": EffectTenant, "list_variables": EffectRead, "get_variable": EffectRead,
+	"list_jms_queues": EffectRead, "get_jms_broker": EffectRead, "list_number_ranges": EffectRead,
+	"list_log_files": EffectRead, "get_log_file": EffectRead, "list_idempotent_entries": EffectRead, "list_id_mappings": EffectRead,
 	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal,

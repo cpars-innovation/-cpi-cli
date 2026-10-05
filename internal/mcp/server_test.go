@@ -116,7 +116,9 @@ func TestProtocol(t *testing.T) {
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact",
 		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "create_package", "upload_artifact", "deploy", "send_test_message", "undeploy", "pd_deploy",
-		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "discover_tenant"}, names)
+		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "discover_tenant",
+		"list_data_stores", "list_data_store_entries", "get_data_store_entry", "delete_data_store_entry", "list_variables", "get_variable",
+		"list_jms_queues", "get_jms_broker", "list_number_ranges", "list_log_files", "get_log_file", "list_idempotent_entries", "list_id_mappings"}, names)
 
 	assert.Nil(t, resp["3"].Error)
 	assert.Equal(t, codeMethodNotFound, resp["4"].Error.Code)

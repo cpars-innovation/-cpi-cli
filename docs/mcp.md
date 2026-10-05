@@ -168,6 +168,13 @@ read roles.
 | `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow; the server sets it back to INFO after `revert_after_minutes` (default 10 for TRACE and DEBUG) and on shutdown; result `revertsAt` |
 | `get_message_trace` | | Traced steps of a message with trace IDs; `status: "missing_role"` (ok) when the key may not read message content |
 | `get_trace_message` | | Payload, headers, exchange properties at one traced step (sensitive values masked) |
+| `list_data_stores`, `list_data_store_entries`, `get_data_store_entry` | | Data stores, their entries (metadata) and one entry's content |
+| `delete_data_store_entry` | tenant, **destructive** | Delete one entry; requires `confirm: true` |
+| `list_variables`, `get_variable` | | Global and flow variables, and a value |
+| `list_jms_queues`, `get_jms_broker` | | Queues with message counts; broker capacity and usage |
+| `list_number_ranges` | | Number range objects and current values |
+| `list_log_files`, `get_log_file` | | System / HTTP log files and the end of one (adapter errors without a message log) |
+| `list_idempotent_entries`, `list_id_mappings` | | Entries ignored as duplicates; ID mapper entries |
 | `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`; `local_dir` for a local repository |

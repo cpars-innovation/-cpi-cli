@@ -196,6 +196,14 @@ type Tenant struct {
 	mu        sync.Mutex
 	Artifacts map[string]*Artifact
 	Packages  []Package
+	// Raw serves fixed OData answers by exact (decoded) path: a slice is
+	// returned as {"d":{"results":...}}, anything else as {"d":...}; []byte
+	// is returned as is ($value). DELETE on a Raw path answers 202 and is
+	// recorded in Deleted. RawQueries records the query string per path.
+	Raw        map[string]any
+	Deleted    []string
+	RawQueries map[string]string
+
 	// ForbidTraces answers 403 for TraceMessages (key without the role to
 	// read message content).
 	ForbidTraces bool
@@ -639,6 +647,30 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("CSRF token validation failed"))
 			return
 		}
+	}
+
+	if v, ok := m.Raw[path]; ok {
+		if m.RawQueries == nil {
+			m.RawQueries = map[string]string{}
+		}
+		m.RawQueries[path] = r.URL.RawQuery
+		switch {
+		case r.Method == http.MethodDelete:
+			m.Deleted = append(m.Deleted, path)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method != http.MethodGet:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		default:
+			switch val := v.(type) {
+			case []byte:
+				_, _ = w.Write(val)
+			case []map[string]any:
+				writeJSON(w, map[string]any{"d": map[string]any{"results": val}})
+			default:
+				writeJSON(w, map[string]any{"d": val})
+			}
+		}
+		return
 	}
 
 	switch {
