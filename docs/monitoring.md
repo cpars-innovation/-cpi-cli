@@ -33,6 +33,9 @@ codes: 5 for a non-2xx answer or a message that is not COMPLETED, 3 for 401/403,
 log is not final in time. The message is processed like any other, including calls to
 receivers. Credentials: [configuration.md](configuration.md#runtime-endpoints-test-messages).
 
+For flows without an HTTP sender (ProcessDirect, timers, polling adapters) see
+[testing.md](testing.md); it also covers tracing (`log-level`, `logs trace`).
+
 ## Message processing logs
 
 ```bash

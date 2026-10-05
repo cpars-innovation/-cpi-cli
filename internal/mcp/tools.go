@@ -23,7 +23,11 @@ const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant.
 Build loop: download_artifact (existing flow, once) or write files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_message_steps (failing step) and get_message_log / get_message_attachment /
-get_message_store_entry for payloads -> fix the local files and repeat.
+get_message_store_entry for payloads; for step-by-step payloads set_log_level TRACE, send again,
+get_message_trace and get_trace_message -> fix the local files and repeat.
+Flows without an HTTP sender: ProcessDirect via send_test_message process_direct_address (test
+harness flow); timer, SFTP and other polling flows: see the triggers in discover_tenant and use
+list_message_logs with since and wait_seconds after triggering them.
 Configuration: get_parameters / set_parameters, then deploy to activate.
 Review: check_guidelines (tenant design guidelines) before a release.
 Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
@@ -260,6 +264,70 @@ func Tools(cfg Config) []Tool {
 					return nil, err
 				}
 				return ops.GetMessageStoreEntry(cfg.Exe, a.EntryID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "set_log_level", Title: "Set the log level of a deployed flow",
+			Description: "Set the message processing log level of a deployed integration flow: NONE, INFO, DEBUG or TRACE. " +
+				"TRACE records payload and headers at every step for the next 10 minutes (then the tenant resets it): set it, send the message again, then get_message_trace. " +
+				"Traces contain business data; use on development tenants.",
+			InputSchema: object(props{
+				"artifact_id":         str("Integration flow ID (deployed)"),
+				"level":               enum("Log level", ops.LogLevels...),
+				"node_type":           str(`Runtime node type, default "IFLMAP"`),
+				"runtime_location_id": str(`Runtime location, default "cloudintegration" (edge integration cells use their own)`),
+			}, "artifact_id", "level"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ArtifactID        string `json:"artifact_id"`
+					Level             string `json:"level"`
+					NodeType          string `json:"node_type"`
+					RuntimeLocationID string `json:"runtime_location_id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.SetLogLevel(cfg.Exe, ops.LogLevelRequest{ArtifactID: a.ArtifactID, Level: a.Level, NodeType: a.NodeType, RuntimeLocationID: a.RuntimeLocationID})
+			},
+		},
+		{
+			Name: "get_message_trace", Title: "List traced steps of a message",
+			Description: "Steps of a message that was processed with log level TRACE, with the trace IDs of the message at each step (optionally only one model step). " +
+				"Use it to see how the payload changed step by step; read one with get_trace_message. Empty with a hint when the flow was not on TRACE.",
+			InputSchema: object(props{
+				"message_guid":  str("Message GUID"),
+				"model_step_id": str("Only this element of the .iflw model (modelStepId from get_message_steps)"),
+			}, "message_guid"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					MessageGuid string `json:"message_guid"`
+					ModelStepID string `json:"model_step_id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				return ops.GetMessageTrace(cfg.Exe, a.MessageGuid, a.ModelStepID)
+			},
+		},
+		{
+			Name: "get_trace_message", Title: "Read a traced message",
+			Description: "Payload, headers and exchange properties of the message at one traced step (trace ID from get_message_trace). Sensitive header values are masked; the payload is truncated to max_bytes.",
+			InputSchema: object(props{"trace_id": str("Trace ID from get_message_trace"), "max_bytes": maxBytesSchema()}, "trace_id"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					TraceID  string `json:"trace_id"`
+					MaxBytes int    `json:"max_bytes"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if err := checkMaxBytes(a.MaxBytes); err != nil {
+					return nil, err
+				}
+				return ops.GetTraceMessage(cfg.Exe, a.TraceID, a.MaxBytes)
 			},
 		},
 		{
@@ -592,6 +660,7 @@ func Tools(cfg Config) []Tool {
 		{
 			Name: "send_test_message", Title: "Send a test message",
 			Description: "Send a test message to an endpoint of a deployed integration flow (only URLs the tenant lists for it) and return the HTTP status, the response and the message GUID. " +
+				"Flows started by ProcessDirect are reached through the test harness flow with process_direct_address. " +
 				"With wait_seconds it also waits for the message processing log and returns it (status, error text, custom headers, attachments). " +
 				"This triggers real processing, including calls to receivers: use test data on a development tenant. On failure: get_message_steps with the message GUID.",
 			InputSchema: object(props{
@@ -603,6 +672,9 @@ func Tools(cfg Config) []Tool {
 				"headers":      map[string]any{"type": "object", "description": "Additional HTTP headers (not Authorization, Cookie or X-CSRF-Token)", "additionalProperties": map[string]any{"type": "string"}},
 				"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 600, "description": "Wait up to this long for the message processing log to reach a final status"},
 				"max_bytes":    maxBytesSchema(),
+				"process_direct_address": str("For flows with a ProcessDirect sender: send through the test harness flow to this address (e.g. /billing/in); " +
+					"artifact_id is then the flow behind the address and the returned log is that flow's message"),
+				"harness": str(`Test harness flow ID, default "` + ops.DefaultHarnessID + `"`),
 			}, "artifact_id"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -615,6 +687,8 @@ func Tools(cfg Config) []Tool {
 					Headers     map[string]string `json:"headers"`
 					WaitSeconds int               `json:"wait_seconds"`
 					MaxBytes    int               `json:"max_bytes"`
+					Address     string            `json:"process_direct_address"`
+					Harness     string            `json:"harness"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -631,6 +705,7 @@ func Tools(cfg Config) []Tool {
 				return ops.SendTestMessage(ctx, cfg.Exe, endpoints, ops.TestMessage{
 					ArtifactID: a.ArtifactID, URL: a.URL, Method: a.Method, Body: []byte(a.Body), ContentType: a.ContentType,
 					Headers: a.Headers, MaxBytes: a.MaxBytes, Wait: time.Duration(a.WaitSeconds) * time.Second, PollInterval: cfg.LogPollInterval,
+					ProcessDirectAddress: a.Address, Harness: a.Harness,
 				})
 			},
 		},

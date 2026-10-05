@@ -78,7 +78,7 @@ server: [plugin.md](plugin.md).
 | `get_parameters` | | Externalised parameters of an integration flow |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
 | `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT` |
-| `send_test_message` | **triggers processing** | Send a message to the flow's endpoint; HTTP status, response, message GUID; `wait_seconds` returns the final message log |
+| `send_test_message` | **triggers processing** | Send a message to the flow's endpoint (or via the test harness to a ProcessDirect address); HTTP status, response, message GUID; `wait_seconds` returns the final message log. See [testing.md](testing.md) |
 | `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
 | `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |
 | `list_service_endpoints` | | Callable URLs of deployed integration flows (where to send test messages) |
@@ -87,6 +87,9 @@ server: [plugin.md](plugin.md).
 | `get_message_steps` | | Processing steps of a message and the first failing step (`modelStepId`) |
 | `get_message_attachment` | | Content of a log attachment |
 | `get_message_store_entry` | | Payload persisted by a Persist step |
+| `set_log_level` | runtime setting | NONE / INFO / DEBUG / TRACE for a deployed flow (TRACE for 10 minutes) |
+| `get_message_trace` | | Traced steps of a message with trace IDs |
+| `get_trace_message` | | Payload, headers, exchange properties at one traced step (sensitive values masked) |
 | `list_credentials` | | User credentials, OAuth2 client credentials, secure parameters: names and metadata, never secrets |
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`; `local_dir` for a local repository |

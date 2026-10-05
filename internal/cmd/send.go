@@ -66,12 +66,20 @@ other, including calls to receivers: use test data on a development tenant.
 Runtime endpoints usually need other credentials than the API: set
 --runtime-oauth-clientid/--runtime-oauth-clientsecret (CPICTL_RUNTIME_OAUTH_*)
 from a service key of plan integration-flow with role ESBMessaging.send.
-Without them the API credentials are used.`,
+Without them the API credentials are used.
+
+Flows started by ProcessDirect have no endpoint of their own: --process-direct
+sends the message to the test harness flow (--harness), which forwards it to the
+given address; --artifact-id is then the flow behind the address and --wait
+reports that flow's message (found by correlation ID). See docs/testing.md.`,
 		Example: `  # Send a file and wait for the outcome
   cpictl send --artifact-id OrderIntake --body-file order.xml --content-type application/xml --wait 60s
 
   # Body from stdin, extra header
-  echo '{"id":1}' | cpictl send --artifact-id OrderIntake --body-file - --header X-Test=1`,
+  echo '{"id":1}' | cpictl send --artifact-id OrderIntake --body-file - --header X-Test=1
+
+  # A flow with a ProcessDirect sender, through the test harness
+  cpictl send --artifact-id Billing --process-direct /billing/in --body-file invoice.xml --wait 60s`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := readBody(cmd)
@@ -91,6 +99,7 @@ Without them the API credentials are used.`,
 				ArtifactID: config.GetString(cmd, "artifact-id"), URL: config.GetString(cmd, "url"),
 				Method: config.GetString(cmd, "method"), Body: body, ContentType: config.GetString(cmd, "content-type"),
 				Headers: headers, Wait: wait, PollInterval: 5 * time.Second,
+				ProcessDirectAddress: config.GetString(cmd, "process-direct"), Harness: config.GetString(cmd, "harness"),
 			})
 			if sent != nil {
 				output.SetResult(cmd.Context(), sent)
@@ -110,6 +119,8 @@ Without them the API credentials are used.`,
 	c.Flags().String("content-type", "", "Content-Type of the body")
 	c.Flags().StringSlice("header", nil, "Additional header name=value (repeatable)")
 	c.Flags().Duration("wait", 0, "Wait up to this long for the message processing log (e.g. 60s)")
+	c.Flags().String("process-direct", "", "Send through the test harness flow to this ProcessDirect address (flows without an HTTP sender)")
+	c.Flags().String("harness", ops.DefaultHarnessID, "Test harness flow ID (with --process-direct)")
 	addRuntimeAuthFlags(c)
 	_ = c.MarkFlagRequired("artifact-id")
 	return c

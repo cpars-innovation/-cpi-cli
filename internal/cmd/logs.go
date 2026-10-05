@@ -147,7 +147,89 @@ Statuses: ` + strings.Join(cpi.MessageLogStatuses, ", "),
 	payload.Flags().String("id", "", "Message store entry ID")
 	addContentFlags(payload)
 
-	c.AddCommand(get, steps, attachment, payload)
+	trace := &cobra.Command{
+		Use:   "trace",
+		Short: "List the traced steps of a message (flow on log level TRACE)",
+		Long: `List the steps of a message that was processed with log level TRACE and the
+trace IDs of the message at each step. Read one with 'logs trace-message'.
+Set the level with 'cpictl log-level --level TRACE' (active for 10 minutes).`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.GetMessageTrace(tenantExecuter(cmd), config.GetString(cmd, "message-guid"), config.GetString(cmd, "model-step-id"))
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			for _, st := range res.Steps {
+				for _, tr := range st.Traces {
+					log.Info().Msgf("%-12s %-30s %s (%d bytes)", tr.TraceID, st.ModelStepID, st.Activity, tr.PayloadSize)
+				}
+			}
+			if res.Hint != "" {
+				log.Warn().Msg(res.Hint)
+			}
+			return nil
+		},
+	}
+	trace.Flags().String("message-guid", "", "Message GUID")
+	trace.Flags().String("model-step-id", "", "Only this element of the iFlow model")
+
+	traceMessage := &cobra.Command{
+		Use:          "trace-message",
+		Short:        "Show payload, headers and exchange properties of a traced step (ID from 'logs trace')",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.GetTraceMessage(tenantExecuter(cmd), config.GetString(cmd, "id"), contentLimit(cmd))
+			if err != nil {
+				return err
+			}
+			for _, h := range res.Headers {
+				log.Info().Msgf("header %s: %s", h.Name, h.Value)
+			}
+			for _, p := range res.ExchangeProperties {
+				log.Info().Msgf("property %s: %s", p.Name, p.Value)
+			}
+			return emitContent(cmd, res, res.Payload)
+		},
+	}
+	traceMessage.Flags().String("id", "", "Trace ID")
+	addContentFlags(traceMessage)
+
+	c.AddCommand(get, steps, attachment, payload, trace, traceMessage)
+	return c
+}
+
+func NewLogLevelCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "log-level",
+		Short: "Set the message processing log level of a deployed integration flow",
+		Long: `Set the log level of a deployed integration flow: NONE, INFO, DEBUG or TRACE.
+TRACE records payload and headers at every step for 10 minutes, then the tenant
+falls back to the previous level; read traces with 'logs trace'. Traces contain
+business data: use them on development tenants.
+
+Uses the operations command of the Web UI (there is no OData API for it).`,
+		Example:      `  cpictl log-level --artifact-id OrderIntake --level TRACE`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.SetLogLevel(tenantExecuter(cmd), ops.LogLevelRequest{
+				ArtifactID: config.GetString(cmd, "artifact-id"), Level: config.GetString(cmd, "level"),
+				NodeType: config.GetString(cmd, "node-type"), RuntimeLocationID: config.GetString(cmd, "runtime-location-id"),
+			})
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			log.Info().Msg(res.String())
+			return nil
+		},
+	}
+	c.Flags().String("artifact-id", "", "Integration flow ID (deployed)")
+	c.Flags().String("level", "", "NONE, INFO, DEBUG or TRACE")
+	c.Flags().String("node-type", "IFLMAP", "Runtime node type")
+	c.Flags().String("runtime-location-id", "cloudintegration", "Runtime location (edge integration cells use their own)")
+	_ = c.MarkFlagRequired("artifact-id")
+	_ = c.MarkFlagRequired("level")
 	return c
 }
 

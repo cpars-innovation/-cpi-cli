@@ -50,6 +50,9 @@
 ## Testing
 
 - Where test messages live (`.cpi/tests/<FlowId>/`):
+- Test harness flow (default `CPICTL_Test_Harness`) and its package:
+- Test entries (ProcessDirect `/test/<FlowId>` for polling/scheduled flows): allowed and kept / removed before transport / not allowed
+- Tracing: allowed on which tenants, reset the log level afterwards?
 - Test data rules (no production data, ...):
 - Receivers that must not be called from tests:
 

@@ -29,6 +29,7 @@ const testIFlow = `<?xml version="1.0" encoding="UTF-8"?>
     <bpmn2:messageFlow id="MessageFlow_1" name="HTTPS">
       <bpmn2:extensionElements>
         <ifl:property><key>ComponentType</key><value>HTTPS</value></ifl:property>
+        <ifl:property><key>urlPath</key><value>/orders/in</value></ifl:property>
         <ifl:property><key>direction</key><value>Sender</value></ifl:property>
         <ifl:property><key>cmdVariantUri</key><value>ctype::AdapterVariant/cname::sap:HTTPS/direction::Sender</value></ifl:property>
       </bpmn2:extensionElements>
@@ -40,6 +41,14 @@ const testIFlow = `<?xml version="1.0" encoding="UTF-8"?>
         <ifl:property><key>credential_name</key><value>ignored</value></ifl:property>
         <ifl:property><key>credentialName</key><value>SFTP_Orders</value></ifl:property>
         <ifl:property><key>cmdVariantUri</key><value>ctype::AdapterVariant/cname::sap:SFTP/direction::Receiver</value></ifl:property>
+      </bpmn2:extensionElements>
+    </bpmn2:messageFlow>
+    <bpmn2:messageFlow id="MessageFlow_3" name="ProcessDirect">
+      <bpmn2:extensionElements>
+        <ifl:property><key>ComponentType</key><value>ProcessDirect</value></ifl:property>
+        <ifl:property><key>direction</key><value>Receiver</value></ifl:property>
+        <ifl:property><key>address</key><value>/billing/in</value></ifl:property>
+        <ifl:property><key>cmdVariantUri</key><value>ctype::AdapterVariant/cname::sap:ProcessDirect/direction::Receiver</value></ifl:property>
       </bpmn2:extensionElements>
     </bpmn2:messageFlow>
   </bpmn2:collaboration>
@@ -103,7 +112,9 @@ func TestAnalyzeIFlow(t *testing.T) {
 	assert.Equal(t, "Orders_In Flow", f.Name)
 	assert.Equal(t, "1.0.3", f.Version)
 	assert.Equal(t, []string{"HTTPS"}, f.SenderAdapters)
-	assert.Equal(t, []string{"SFTP"}, f.ReceiverAdapters)
+	assert.Equal(t, []string{"ProcessDirect", "SFTP"}, f.ReceiverAdapters)
+	assert.Equal(t, []Trigger{{Adapter: "HTTPS", Address: "/orders/in"}}, f.Triggers)
+	assert.Equal(t, []string{"/billing/in"}, f.ProcessDirectCalls)
 	assert.Equal(t, map[string]int{"Enricher": 1, "GroovyScript": 2, "ErrorEventSubProcessTemplate": 1}, f.Steps)
 	assert.True(t, f.ExceptionSubprocess)
 	assert.Equal(t, "All events", f.LogLevel)

@@ -26,11 +26,14 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`keystore export-cert`](#keystore-export-cert) | Export the certificate of a keystore entry as PEM |
 | [`keystore import-cert`](#keystore-import-cert) | Import a certificate (PEM or DER) into the tenant keystore |
 | [`keystore list`](#keystore-list) | List keystore entries with remaining validity |
+| [`log-level`](#log-level) | Set the message processing log level of a deployed integration flow |
 | [`logs`](#logs) | Query message processing logs |
 | [`logs attachment`](#logs-attachment) | Download a log attachment (ID from 'logs get') |
 | [`logs get`](#logs-get) | Show one message: status, error text, custom headers, attachments |
 | [`logs payload`](#logs-payload) | Download a persisted message (message store entry ID from 'logs get') |
 | [`logs steps`](#logs-steps) | Show the processing steps of a message and the step that failed |
+| [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
+| [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
@@ -530,6 +533,36 @@ List keystore entries with remaining validity
   cpictl keystore list --expiring-within 30d --fail-on-expiry   # exit 5 in CI
 ```
 
+## log-level
+
+Set the message processing log level of a deployed integration flow
+
+```
+Set the log level of a deployed integration flow: NONE, INFO, DEBUG or TRACE.
+TRACE records payload and headers at every step for 10 minutes, then the tenant
+falls back to the previous level; read traces with 'logs trace'. Traces contain
+business data: use them on development tenants.
+
+Uses the operations command of the Web UI (there is no OData API for it).
+```
+
+**Usage:** `cpictl log-level [flags]`
+
+**Flags:**
+
+```
+      --artifact-id string           Integration flow ID (deployed)
+      --level string                 NONE, INFO, DEBUG or TRACE
+      --node-type string             Runtime node type (default "IFLMAP")
+      --runtime-location-id string   Runtime location (edge integration cells use their own) (default "cloudintegration")
+```
+
+**Examples:**
+
+```
+  cpictl log-level --artifact-id OrderIntake --level TRACE
+```
+
 ## logs
 
 Query message processing logs
@@ -622,6 +655,39 @@ Show the processing steps of a message and the step that failed
 
 ```
       --message-guid string   Message GUID
+```
+
+## logs trace
+
+List the traced steps of a message (flow on log level TRACE)
+
+```
+List the steps of a message that was processed with log level TRACE and the
+trace IDs of the message at each step. Read one with 'logs trace-message'.
+Set the level with 'cpictl log-level --level TRACE' (active for 10 minutes).
+```
+
+**Usage:** `cpictl logs trace [flags]`
+
+**Flags:**
+
+```
+      --message-guid string    Message GUID
+      --model-step-id string   Only this element of the iFlow model
+```
+
+## logs trace-message
+
+Show payload, headers and exchange properties of a traced step (ID from 'logs trace')
+
+**Usage:** `cpictl logs trace-message [flags]`
+
+**Flags:**
+
+```
+      --id string       Trace ID
+      --max-bytes int   Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
+      --out string      Write the content to this file instead of stdout / the JSON result
 ```
 
 ## mcp
@@ -973,6 +1039,11 @@ Runtime endpoints usually need other credentials than the API: set
 --runtime-oauth-clientid/--runtime-oauth-clientsecret (CPICTL_RUNTIME_OAUTH_*)
 from a service key of plan integration-flow with role ESBMessaging.send.
 Without them the API credentials are used.
+
+Flows started by ProcessDirect have no endpoint of their own: --process-direct
+sends the message to the test harness flow (--harness), which forwards it to the
+given address; --artifact-id is then the flow behind the address and --wait
+reports that flow's message (found by correlation ID). See docs/testing.md.
 ```
 
 **Usage:** `cpictl send [flags]`
@@ -984,8 +1055,10 @@ Without them the API credentials are used.
       --body string                         Message body
       --body-file string                    Read the message body from this file ('-' for stdin)
       --content-type string                 Content-Type of the body
+      --harness string                      Test harness flow ID (with --process-direct) (default "CPICTL_Test_Harness")
       --header strings                      Additional header name=value (repeatable)
       --method string                       HTTP method (default "POST")
+      --process-direct string               Send through the test harness flow to this ProcessDirect address (flows without an HTTP sender)
       --runtime-oauth-clientid string       OAuth client ID for runtime endpoints (default: the API credentials)
       --runtime-oauth-clientsecret string   OAuth client secret for runtime endpoints
       --runtime-oauth-host string           OAuth token server host for runtime endpoints (default: --oauth-host)
@@ -1003,6 +1076,9 @@ Without them the API credentials are used.
 
   # Body from stdin, extra header
   echo '{"id":1}' | cpictl send --artifact-id OrderIntake --body-file - --header X-Test=1
+
+  # A flow with a ProcessDirect sender, through the test harness
+  cpictl send --artifact-id Billing --process-direct /billing/in --body-file invoice.xml --wait 60s
 ```
 
 ## snapshot

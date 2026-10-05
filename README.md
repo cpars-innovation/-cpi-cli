@@ -96,7 +96,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Area | Commands |
 |------|----------|
 | Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover` |
-| Testing and monitoring | `send`, `logs`, `logs get`, `logs steps`, `logs attachment`, `logs payload` |
+| Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines` |
 | Designtime | `download`, `packages create`, `update artifact`, `update package` |
 | Runtime | `deploy`, `undeploy` |
@@ -188,6 +188,7 @@ Then run the `cpi-discover` skill once per repository. See [docs/plugin.md](docs
 | [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
 | [Security material](docs/security.md) | Credentials, `credentials apply`, keystore and certificate expiry |

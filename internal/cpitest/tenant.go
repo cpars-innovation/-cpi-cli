@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -116,6 +117,7 @@ type Resource struct {
 // MessageLog is a message processing log of the mock tenant.
 type MessageLog struct {
 	Guid, Artifact, Status string
+	CorrelationID          string
 	Start, End             time.Time
 	ErrorText              string
 	Headers                map[string]string
@@ -127,6 +129,16 @@ type MessageLog struct {
 // Step is a processing step of a message (one run per message).
 type Step struct {
 	StepID, ModelStepID, Activity, Status, Error string
+	// Traces are the trace messages of the step (log level TRACE).
+	Traces []Trace
+}
+
+// Trace is a trace message: the message at one step.
+type Trace struct {
+	ID                 string // numeric
+	Payload            string
+	Headers            map[string]string
+	ExchangeProperties map[string]string
 }
 
 // KeystoreEntry is a certificate of the mock tenant keystore.
@@ -151,6 +163,10 @@ type Tenant struct {
 	// LastMessageLogQuery is the raw query string of the last MPL query.
 	LastMessageLogQuery string
 	mplQueries          int
+
+	// LogLevels records the log level set per artifact via the operations
+	// command (request body as received).
+	LogLevels map[string]map[string]string
 
 	// Inbound configures runtime endpoints (paths starting with /http/ or
 	// /cxf/, as in ServiceEndpoints URLs) that receive test messages.
@@ -240,6 +256,8 @@ var (
 	reMPL             = regexp.MustCompile(`^/api/v1/MessageProcessingLogs\('([^']+)'\)(.*)$`)
 	reAttValue        = regexp.MustCompile(`^/api/v1/MessageProcessingLogAttachments\('([^']+)'\)/\$value$`)
 	reStoreValue      = regexp.MustCompile(`^/api/v1/MessageStoreEntries\('([^']+)'\)/\$value$`)
+	reStepTraces      = regexp.MustCompile(`^/api/v1/MessageProcessingLogRunSteps\(RunId='([^']+)',ChildCount=([0-9]+)\)/TraceMessages$`)
+	reTrace           = regexp.MustCompile(`^/api/v1/TraceMessages\(([0-9]+)\)/(\$value|Properties|ExchangeProperties)$`)
 	reRunSteps        = regexp.MustCompile(`^/api/v1/MessageProcessingLogRuns\('([^']+)'\)/RunSteps$`)
 	reGuidelineList   = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/DesignGuidelineExecutionResults$`)
 	reGuidelineResult = regexp.MustCompile(`^/api/v1/IntegrationDesigntimeArtifacts\(Id='([^']+)',Version='active'\)/DesignGuidelineExecutionResults\('([^']+)'\)$`)
@@ -354,7 +372,7 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 
 func mplJSON(l MessageLog) map[string]any {
 	return map[string]any{
-		"MessageGuid": l.Guid, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
+		"MessageGuid": l.Guid, "CorrelationId": l.CorrelationID, "Status": l.Status, "CustomStatus": l.Status, "LogLevel": "INFO",
 		"LogStart": odataDate(l.Start), "LogEnd": odataDate(l.End), "IntegrationFlowName": l.Artifact,
 		"IntegrationArtifact": map[string]string{"Id": l.Artifact, "Name": l.Artifact, "Type": "INTEGRATION_FLOW", "PackageId": "P"},
 	}
@@ -366,6 +384,21 @@ func (m *Tenant) findMessageLog(guid string) *MessageLog {
 		for i := range step {
 			if step[i].Guid == guid {
 				return &step[i]
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Tenant) findTrace(id string) *Trace {
+	for _, step := range m.MessageLogSteps {
+		for _, l := range step {
+			for _, st := range l.Steps {
+				for i := range st.Traces {
+					if st.Traces[i].ID == id {
+						return &st.Traces[i]
+					}
+				}
 			}
 		}
 	}
@@ -577,9 +610,46 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rows := []map[string]any{}
-		for _, st := range l.Steps {
-			rows = append(rows, map[string]any{"StepId": st.StepID, "ModelStepId": st.ModelStepID, "Activity": st.Activity,
+		for i, st := range l.Steps {
+			rows = append(rows, map[string]any{"StepId": st.StepID, "ModelStepId": st.ModelStepID, "Activity": st.Activity, "ChildCount": i,
 				"Status": st.Status, "Error": st.Error, "StepStart": odataDate(l.Start), "StepStop": odataDate(l.End)})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && reStepTraces.MatchString(path):
+		mm := reStepTraces.FindStringSubmatch(path)
+		l := m.findMessageLog(strings.TrimPrefix(mm[1], "run-"))
+		i, _ := strconv.Atoi(mm[2])
+		if l == nil || i >= len(l.Steps) {
+			notFound(w)
+			return
+		}
+		rows := []map[string]any{}
+		for _, tr := range l.Steps[i].Traces {
+			rows = append(rows, map[string]any{"TraceId": tr.ID, "ModelStepId": l.Steps[i].ModelStepID, "PayloadSize": fmt.Sprint(len(tr.Payload)), "MimeType": "text/plain"})
+		}
+		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+
+	case r.Method == http.MethodGet && reTrace.MatchString(path):
+		mm := reTrace.FindStringSubmatch(path)
+		tr := m.findTrace(mm[1])
+		if tr == nil {
+			notFound(w)
+			return
+		}
+		var props map[string]string
+		switch mm[2] {
+		case "$value":
+			_, _ = w.Write([]byte(tr.Payload))
+			return
+		case "Properties":
+			props = tr.Headers
+		case "ExchangeProperties":
+			props = tr.ExchangeProperties
+		}
+		rows := []map[string]string{}
+		for _, k := range sortedKeys(props) {
+			rows = append(rows, map[string]string{"Name": k, "Value": props[k]})
 		}
 		writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
 
@@ -689,6 +759,18 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = w.Write(a.Zip)
+
+	case r.Method == http.MethodPost && path == "/Operations/com.sap.it.op.tmn.commands.dashboard.webui.IntegrationComponentSetMplLogLevelCommand":
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || m.Artifacts[body["artifactSymbolicName"]] == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if m.LogLevels == nil {
+			m.LogLevels = map[string]map[string]string{}
+		}
+		m.LogLevels[body["artifactSymbolicName"]] = body
+		writeJSON(w, map[string]any{})
 
 	case r.Method == http.MethodGet && rePackage.MatchString(path):
 		id := rePackage.FindStringSubmatch(path)[1]

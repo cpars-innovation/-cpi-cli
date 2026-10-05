@@ -44,7 +44,7 @@ stay inside the repository you opened.
 | `cpi-discover` | Analyse the existing flows and write `.cpi/conventions.md` (first time and refresh) | local files |
 | `cpi-plan` | Turn a requirement into a design in `.cpi/plans/<FlowId>.md`, agreed with you | local files |
 | `cpi-build` | Implement the design: edit files, upload, validate, deploy, fix until it runs | tenant (designtime, runtime) |
-| `cpi-test` | Write test cases in `.cpi/tests/<FlowId>/`, send them, diagnose failures | triggers processing |
+| `cpi-test` | Write test cases in `.cpi/tests/<FlowId>/`, choose the route by trigger (direct, test harness, test entry), send them, trace and diagnose failures ([testing.md](testing.md)) | triggers processing |
 | `cpi-review` | Review against conventions, plan, tenant checks and a checklist | none |
 | agent `cpi-reviewer` | Does the review for cpi-review with a fresh context and read-only tools | none |
 

@@ -388,6 +388,9 @@ type MessageRunStep struct {
 	BranchID    string    `json:"branchId,omitempty"`
 	Start       time.Time `json:"start"`
 	Stop        time.Time `json:"stop"`
+	// RunID and ChildCount identify the step (key of MessageProcessingLogRunSteps).
+	RunID      string `json:"runId,omitempty"`
+	ChildCount int    `json:"childCount"`
 }
 
 // Runs lists the processing runs of a message.
@@ -413,6 +416,7 @@ func (m *MessageLogs) Runs(guid string) ([]MessageRun, error) {
 func (m *MessageLogs) RunSteps(runID string) ([]MessageRunStep, error) {
 	var rows []struct {
 		StepId, ModelStepId, Activity, Status, Error, BranchId, StepStart, StepStop string
+		ChildCount                                                                  int
 	}
 	urlPath := fmt.Sprintf("/api/v1/MessageProcessingLogRuns(%s)/RunSteps", odataString(runID))
 	if err := getResults(m.exe, urlPath, "Get run steps", &rows); err != nil {
@@ -423,7 +427,78 @@ func (m *MessageLogs) RunSteps(runID string) ([]MessageRunStep, error) {
 		start, _ := ParseODataTime(r.StepStart)
 		stop, _ := ParseODataTime(r.StepStop)
 		out = append(out, MessageRunStep{StepID: r.StepId, ModelStepID: r.ModelStepId, Activity: r.Activity, Status: r.Status,
-			Error: r.Error, BranchID: r.BranchId, Start: start, Stop: stop})
+			Error: r.Error, BranchID: r.BranchId, Start: start, Stop: stop, RunID: runID, ChildCount: r.ChildCount})
+	}
+	return out, nil
+}
+
+// TraceMessage is the message as it was at one step of a traced run (log
+// level TRACE).
+type TraceMessage struct {
+	TraceID     string `json:"traceId"`
+	ModelStepID string `json:"modelStepId,omitempty"`
+	PayloadSize int64  `json:"payloadSize"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// TraceMessages lists the trace messages of a run step.
+// Endpoint: MessageProcessingLogRunSteps(RunId='{RunId}',ChildCount={n})/TraceMessages.
+func (m *MessageLogs) TraceMessages(runID string, childCount int) ([]TraceMessage, error) {
+	var rows []struct {
+		TraceId     json.Number
+		ModelStepId string
+		PayloadSize json.Number
+		MimeType    string
+	}
+	urlPath := fmt.Sprintf("/api/v1/MessageProcessingLogRunSteps(RunId=%s,ChildCount=%d)/TraceMessages", odataString(runID), childCount)
+	if err := getResults(m.exe, urlPath, "Get trace messages", &rows); err != nil {
+		return nil, err
+	}
+	out := make([]TraceMessage, 0, len(rows))
+	for _, r := range rows {
+		size, _ := r.PayloadSize.Int64()
+		out = append(out, TraceMessage{TraceID: r.TraceId.String(), ModelStepID: r.ModelStepId, PayloadSize: size, MimeType: r.MimeType})
+	}
+	return out, nil
+}
+
+// traceKey formats a TraceId (Edm.Int64) as OData key.
+func traceKey(id string) (string, error) {
+	if _, err := strconv.ParseInt(id, 10, 64); err != nil {
+		return "", fmt.Errorf("invalid trace ID %q", id)
+	}
+	return id, nil
+}
+
+// TracePayload downloads the payload of a trace message.
+// Endpoint: TraceMessages({TraceId})/$value.
+func (m *MessageLogs) TracePayload(traceID string) ([]byte, error) {
+	key, err := traceKey(traceID)
+	if err != nil {
+		return nil, err
+	}
+	return getValue(m.exe, "/api/v1/TraceMessages("+key+")/$value", "Get trace payload")
+}
+
+// TraceHeaders returns the headers (Properties) or, with exchange set, the
+// exchange properties of a trace message.
+// Endpoints: TraceMessages({TraceId})/Properties and /ExchangeProperties.
+func (m *MessageLogs) TraceHeaders(traceID string, exchange bool) ([]NameValue, error) {
+	key, err := traceKey(traceID)
+	if err != nil {
+		return nil, err
+	}
+	nav := "Properties"
+	if exchange {
+		nav = "ExchangeProperties"
+	}
+	var rows []struct{ Name, Value string }
+	if err := getResults(m.exe, "/api/v1/TraceMessages("+key+")/"+nav, "Get trace "+nav, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]NameValue, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, NameValue{Name: r.Name, Value: r.Value})
 	}
 	return out, nil
 }

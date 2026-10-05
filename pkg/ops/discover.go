@@ -74,6 +74,8 @@ type DiscoverySummary struct {
 	IFlowNaming   NamingStats `json:"iflowNaming"`
 	IFlowNames    NamingStats `json:"iflowDisplayNames"`
 
+	// Triggers counts how flows are started (sender adapters and Timer).
+	Triggers         []Count `json:"triggers"`
 	SenderAdapters   []Count `json:"senderAdapters"`
 	ReceiverAdapters []Count `json:"receiverAdapters"`
 	Steps            []Count `json:"steps"`
@@ -325,6 +327,9 @@ func summarize(d *Discovery) DiscoverySummary {
 		if f.Name != "" {
 			flowNames = append(flowNames, f.Name)
 		}
+		for _, tr := range f.Triggers {
+			add("triggers", tr.Adapter)
+		}
 		add("sender", f.SenderAdapters...)
 		add("receiver", f.ReceiverAdapters...)
 		for step, n := range f.Steps {
@@ -354,6 +359,7 @@ func summarize(d *Discovery) DiscoverySummary {
 		}
 	}
 	s.PackageNaming, s.IFlowNaming, s.IFlowNames = naming(pkgIDs), naming(flowIDs), naming(flowNames)
+	s.Triggers = top(counters["triggers"], 1)
 	s.SenderAdapters, s.ReceiverAdapters = top(counters["sender"], 1), top(counters["receiver"], 1)
 	s.Steps, s.LogLevels, s.ReturnExceptionToSender = top(counters["steps"], 1), top(counters["log"], 1), top(counters["returnException"], 1)
 	s.ScriptLanguages, s.ScriptNames = top(counters["lang"], 1), top(counters["scriptNames"], 2)

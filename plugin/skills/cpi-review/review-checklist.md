@@ -39,6 +39,8 @@ Apply `.cpi/conventions.md` first; its "Review checklist additions" are mandator
 
 ## Tests
 - Test cases exist in `.cpi/tests/<FlowId>/` for the happy path and the error paths; they pass.
+- A test entry (ProcessDirect `/test/<FlowId>`) is present or absent as the conventions require.
+- The log level is not left on TRACE/DEBUG where the conventions require INFO.
 
 ## Report format
 

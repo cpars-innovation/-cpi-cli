@@ -27,9 +27,14 @@ type IFlowFacts struct {
 	Path          string `json:"path,omitempty"`
 	RuntimeStatus string `json:"runtimeStatus,omitempty"`
 
-	SenderAdapters   []string       `json:"senderAdapters"`
-	ReceiverAdapters []string       `json:"receiverAdapters"`
-	Steps            map[string]int `json:"steps"`
+	// Triggers are how the flow is started: sender adapters with their
+	// address (HTTPS path, ProcessDirect address, ...) and timers.
+	Triggers []Trigger `json:"triggers"`
+	// ProcessDirectCalls are the ProcessDirect addresses the flow sends to.
+	ProcessDirectCalls []string       `json:"processDirectCalls"`
+	SenderAdapters     []string       `json:"senderAdapters"`
+	ReceiverAdapters   []string       `json:"receiverAdapters"`
+	Steps              map[string]int `json:"steps"`
 	// ExceptionSubprocess is true when the flow has an exception subprocess.
 	ExceptionSubprocess     bool   `json:"exceptionSubprocess"`
 	LogLevel                string `json:"logLevel,omitempty"`
@@ -44,6 +49,18 @@ type IFlowFacts struct {
 	Resources      map[string]int `json:"resources"`
 	Error          string         `json:"error,omitempty"`
 }
+
+// Trigger is one way a flow is started.
+type Trigger struct {
+	Adapter string `json:"adapter"`
+	// Address is the adapter's endpoint, path or directory as configured
+	// (may be a {{parameter}}); empty when unknown.
+	Address string `json:"address,omitempty"`
+}
+
+// addressKeys are adapter properties that hold the address of an endpoint,
+// in order of preference.
+var addressKeys = []string{"urlPath", "address", "path", "directory", "QueueName_inbound", "queueName"}
 
 // ScriptFacts describe one script of an integration flow.
 type ScriptFacts struct {
@@ -70,7 +87,7 @@ var (
 // AnalyzeIFlow reads an integration flow from fsys (the root holds META-INF
 // and src/main/resources, as in the downloaded archive).
 func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
-	f := &IFlowFacts{SenderAdapters: []string{}, ReceiverAdapters: []string{}, Steps: map[string]int{},
+	f := &IFlowFacts{Triggers: []Trigger{}, ProcessDirectCalls: []string{}, SenderAdapters: []string{}, ReceiverAdapters: []string{}, Steps: map[string]int{},
 		Parameters: []string{}, CredentialRefs: []string{}, HeadersSet: []string{}, PropertiesSet: []string{},
 		Scripts: []ScriptFacts{}, Resources: map[string]int{}}
 
@@ -116,7 +133,7 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 		}
 		return nil
 	})
-	for _, l := range []*[]string{&f.SenderAdapters, &f.ReceiverAdapters, &f.CredentialRefs, &f.HeadersSet, &f.PropertiesSet} {
+	for _, l := range []*[]string{&f.ProcessDirectCalls, &f.SenderAdapters, &f.ReceiverAdapters, &f.CredentialRefs, &f.HeadersSet, &f.PropertiesSet} {
 		*l = sortedUnique(*l)
 	}
 	return f, nil
@@ -213,14 +230,28 @@ func (f *IFlowFacts) addElement(el *modelElement) {
 		if adapter == "" {
 			adapter = strings.TrimPrefix(cname, "sap:")
 		}
+		address := ""
+		for _, k := range addressKeys {
+			if p[k] != "" {
+				address = p[k]
+				break
+			}
+		}
 		if p["direction"] == "Sender" {
 			f.SenderAdapters = append(f.SenderAdapters, adapter)
+			f.Triggers = append(f.Triggers, Trigger{Adapter: adapter, Address: address})
 		} else {
 			f.ReceiverAdapters = append(f.ReceiverAdapters, adapter)
+			if adapter == "ProcessDirect" && address != "" {
+				f.ProcessDirectCalls = append(f.ProcessDirectCalls, address)
+			}
 		}
 	case ctype == "FlowstepVariant" || ctype == "FlowElementVariant":
 		if cname != "IntegrationProcess" {
 			f.Steps[cname]++
+		}
+		if el.name == "startEvent" && strings.Contains(strings.ToLower(cname), "timer") {
+			f.Triggers = append(f.Triggers, Trigger{Adapter: "Timer"})
 		}
 		if strings.Contains(cname, "ErrorEventSubProcess") || strings.Contains(cname, "ExceptionSubProcess") {
 			f.ExceptionSubprocess = true

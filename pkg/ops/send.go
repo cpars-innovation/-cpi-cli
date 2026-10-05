@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
@@ -33,18 +34,35 @@ type TestMessage struct {
 	// a final status.
 	Wait         time.Duration
 	PollInterval time.Duration
+	// ProcessDirectAddress sends the message through the test harness flow
+	// (Harness, default DefaultHarnessID) to this ProcessDirect address, for
+	// flows without an HTTP sender. ArtifactID is the flow behind the address.
+	ProcessDirectAddress string
+	Harness              string
 }
+
+// DefaultHarnessID is the test harness flow: an HTTPS sender that forwards
+// the message to the ProcessDirect address in header HarnessAddressHeader.
+const DefaultHarnessID = "CPICTL_Test_Harness"
+
+// HarnessAddressHeader carries the ProcessDirect target address to the harness.
+const HarnessAddressHeader = "CpictlTargetAddress"
 
 // SentMessage is the outcome of SendTestMessage.
 type SentMessage struct {
-	ArtifactID          string    `json:"artifactId"`
-	URL                 string    `json:"url"`
-	SentAt              time.Time `json:"sentAt"`
-	HTTPStatus          int       `json:"httpStatus"`
-	MessageGuid         string    `json:"messageGuid,omitempty"`
-	CorrelationID       string    `json:"correlationId,omitempty"`
-	ResponseContentType string    `json:"responseContentType,omitempty"`
-	Response            Content   `json:"response"`
+	ArtifactID string `json:"artifactId"`
+	// Harness and HarnessMessageGuid are set when the message went through
+	// the test harness; MessageGuid is then the message of ArtifactID.
+	Harness              string    `json:"harness,omitempty"`
+	HarnessMessageGuid   string    `json:"harnessMessageGuid,omitempty"`
+	ProcessDirectAddress string    `json:"processDirectAddress,omitempty"`
+	URL                  string    `json:"url"`
+	SentAt               time.Time `json:"sentAt"`
+	HTTPStatus           int       `json:"httpStatus"`
+	MessageGuid          string    `json:"messageGuid,omitempty"`
+	CorrelationID        string    `json:"correlationId,omitempty"`
+	ResponseContentType  string    `json:"responseContentType,omitempty"`
+	Response             Content   `json:"response"`
 	// Log is the processing log of the message (only with Wait).
 	Log *MessageLogDetail `json:"log,omitempty"`
 }
@@ -109,7 +127,21 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 	if m.ContentType != "" {
 		headers["Content-Type"] = m.ContentType
 	}
-	url, err := ResolveEndpoint(exe, m.ArtifactID, m.URL)
+	endpointArtifact := m.ArtifactID
+	if m.ProcessDirectAddress != "" {
+		if !strings.HasPrefix(m.ProcessDirectAddress, "/") {
+			return nil, output.Usagef("ProcessDirect address must start with /")
+		}
+		if m.Harness == "" {
+			m.Harness = DefaultHarnessID
+		}
+		endpointArtifact = m.Harness
+		headers[HarnessAddressHeader] = m.ProcessDirectAddress
+	}
+	url, err := ResolveEndpoint(exe, endpointArtifact, m.URL)
+	if err != nil && m.ProcessDirectAddress != "" && output.ExitCode(err) == exitcode.Usage {
+		return nil, output.Usagef("test harness %s is not deployed or has no endpoint (see the cpi-test skill to set it up): %v", m.Harness, err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +151,9 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 	}
 
 	sent := &SentMessage{ArtifactID: m.ArtifactID, URL: url, SentAt: time.Now().UTC().Truncate(time.Millisecond)}
+	if m.ProcessDirectAddress != "" {
+		sent.Harness, sent.ProcessDirectAddress = m.Harness, m.ProcessDirectAddress
+	}
 	resp, err := rtExe.Exec(method, path, bytes.NewReader(m.Body), headers)
 	if err != nil {
 		return nil, err
@@ -134,8 +169,15 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 	sent.Response = NewContent(body, m.MaxBytes)
 
 	authFailed := resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden
+	if sent.Harness != "" {
+		sent.HarnessMessageGuid, sent.MessageGuid = sent.MessageGuid, ""
+	}
 	if m.Wait > 0 && !authFailed {
-		sent.Log, err = waitForMessage(ctx, exe, sent, m.Wait, m.PollInterval)
+		if sent.Harness != "" {
+			sent.Log, err = waitForHarnessTarget(ctx, exe, sent, m.Wait, m.PollInterval)
+		} else {
+			sent.Log, err = waitForMessage(ctx, exe, sent, m.Wait, m.PollInterval)
+		}
 		if err != nil {
 			return sent, err
 		}
@@ -152,10 +194,14 @@ func SendTestMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, newExe End
 }
 
 func messageHint(s *SentMessage) string {
-	if s.MessageGuid == "" {
+	guid := s.MessageGuid
+	if guid == "" {
+		guid = s.HarnessMessageGuid
+	}
+	if guid == "" {
 		return ""
 	}
-	return fmt.Sprintf(" (message %s, see get_message_log / get_message_steps)", s.MessageGuid)
+	return fmt.Sprintf(" (message %s, see get_message_log / get_message_steps)", guid)
 }
 
 // waitForMessage waits until the message log of s is final. Without a message
@@ -194,4 +240,43 @@ func waitForMessage(ctx context.Context, exe *httpclnt.HTTPExecuter, s *SentMess
 			return nil, err
 		}
 	}
+}
+
+// waitForHarnessTarget waits for the message that the harness passed on: the
+// flow behind the ProcessDirect address shares the harness message's
+// correlation ID.
+func waitForHarnessTarget(ctx context.Context, exe *httpclnt.HTTPExecuter, s *SentMessage, timeout, interval time.Duration) (*MessageLogDetail, error) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	correlation := s.CorrelationID
+	mpl := cpi.NewMessageLogs(exe)
+	for correlation == "" && s.HarnessMessageGuid != "" {
+		l, err := mpl.Get(s.HarnessMessageGuid)
+		if err != nil && !isTransient(err) {
+			return nil, err
+		}
+		if l != nil && l.CorrelationId != "" {
+			correlation = l.CorrelationId
+			break
+		}
+		if time.Now().Add(interval).After(deadline) {
+			return nil, &TimeoutError{Msg: fmt.Sprintf("harness message %s has no processing log within %s", s.HarnessMessageGuid, timeout)}
+		}
+		if err := sleep(ctx, interval); err != nil {
+			return nil, err
+		}
+	}
+	if correlation == "" {
+		return nil, output.Failed(fmt.Errorf("the harness returned no message GUID or correlation ID, cannot find the message of %s", s.ArtifactID))
+	}
+	s.CorrelationID = correlation
+	q := MessageLogQuery{ArtifactID: s.ArtifactID, CorrelationID: correlation, Top: 1}
+	list, err := WaitForMessageLogs(ctx, exe, q, time.Until(deadline), interval)
+	if err != nil {
+		return nil, err
+	}
+	s.MessageGuid = list.Logs[0].MessageGuid
+	return GetMessageLog(exe, s.MessageGuid, 0)
 }

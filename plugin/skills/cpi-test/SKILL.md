@@ -9,6 +9,38 @@ Tests run against a deployed flow on a **development tenant** and trigger real p
 including calls to receivers. Check `.cpi/conventions.md` (Testing) for receivers that must
 not be called and for test data rules. Never use productive data.
 
+## How the message gets in
+
+Look up the flow's trigger: `iflows[].triggers` in `.cpi/discovery.json` (refresh with
+`discover_tenant`), or the sender adapters in the local `.iflw`. Then choose:
+
+| Trigger | Route |
+|---------|-------|
+| HTTPS / SOAP / OData / REST | `send_test_message` with `artifact_id` |
+| ProcessDirect | `send_test_message` with `artifact_id` = the flow and `process_direct_address` = its address, through the test harness |
+| Timer, run once | `deploy`, then `list_message_logs` (artifact_id, since = deploy time, wait_seconds) |
+| Timer scheduled, SFTP, mail, JMS, ... | the test entry (below), or ask the user to provide the input and observe with `list_message_logs` |
+
+### Test harness (ProcessDirect)
+
+If `send_test_message` reports that the harness `CPICTL_Test_Harness` is not deployed, offer to
+build it on the development tenant (ask first): HTTPS sender `/cpictl/test` -> Request Reply ->
+ProcessDirect receiver with address `${header.CpictlTargetAddress}`; Allowed Header(s)
+`CpictlTargetAddress` plus the test headers. Use the cpi-build loop and copy the HTTPS sender and
+the ProcessDirect receiver from existing flows of the tenant (discovery: `triggers` with HTTPS,
+`processDirectCalls`). Put it in a test tooling package that is never transported. Details in
+the cpictl docs (docs/testing.md).
+
+### Test entry (polling and scheduled flows)
+
+Check the Testing section of conventions.md for the team's decision. If test entries are
+allowed: move the logic into a local integration process, keep the original trigger calling it,
+and add an integration process with a ProcessDirect sender `/test/<FlowId>` that calls it too.
+Test it through the harness. If the conventions say test entries are removed before transport,
+note it in the plan so cpi-build removes it and cpi-review checks it. Never add a test entry
+without the user's agreement when the conventions do not say anything; ask and record the answer
+in conventions.md.
+
 ## Test cases
 
 One folder per flow, one YAML file per case, payloads next to it:
@@ -29,6 +61,7 @@ request:
   headers: { X-Test-Case: valid-order }
   body_file: valid-order.xml        # or body: "<inline/>"
   endpoint: ""                      # only if the flow has several endpoints (list_service_endpoints)
+  process_direct_address: ""        # ProcessDirect flows / test entries: send through the harness
 expect:
   http_status: 200
   message_status: COMPLETED         # COMPLETED, FAILED, ESCALATED, ... ("" = do not wait)
@@ -54,6 +87,10 @@ For each case:
      (the id of the element in the .iflw).
    - `get_message_log` / `get_message_attachment` / `get_message_store_entry` for the payload
      at the logged points.
+   - Still unclear what happens between the steps: `set_log_level` TRACE, send the case
+     again within 10 minutes, `get_message_trace` with the message GUID and
+     `get_trace_message` for payload and headers before and after the failing step.
+     Set the level back (`INFO`) afterwards if the conventions ask for it.
    - Decide whether the flow or the test is wrong. Fix the flow with the cpi-build loop,
      never weaken an expectation just to make the test pass. Ask the user when the expected
      behaviour is unclear.

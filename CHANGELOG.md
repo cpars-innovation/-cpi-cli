@@ -22,7 +22,9 @@ First release.
 - Security material: `credentials` (list, set-user, set-oauth2, set-secure-param, declarative
   `apply`, delete) with secrets from env/file/stdin only; `keystore` (list with expiry check,
   export-cert, import-cert).
-- `send` (test messages to a flow's endpoint, waits for the processing log), `discover`
+- `send` (test messages to a flow's endpoint or, through a test harness flow, to a
+  ProcessDirect address; waits for the processing log), `log-level` (e.g. TRACE),
+  `logs trace` / `logs trace-message` (payload and headers per step), `discover`
   (inventory of existing flows for conventions), `packages create`.
 - CSRF tokens handled once per session with transparent refresh and retry.
 - MCP server (`cpictl mcp`) with tools for listing, status, message logs, parameters,
