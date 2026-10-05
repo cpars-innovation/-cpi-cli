@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
@@ -16,7 +14,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 // ConfigureStats tracks configuration processing statistics
@@ -28,6 +25,8 @@ type ConfigureStats struct {
 	ArtifactsDeployed         int `json:"artifactsDeployed"`
 	ArtifactsFailed           int `json:"artifactsFailed"`
 	ParametersUpdated         int `json:"parametersUpdated"`
+	ParametersUnchanged       int `json:"parametersUnchanged"`
+	ArtifactsUnchanged        int `json:"artifactsUnchanged"`
 	ParametersFailed          int `json:"parametersFailed"`
 	BatchRequestsExecuted     int `json:"batchRequestsExecuted"`
 	IndividualRequestsUsed    int `json:"individualRequestsUsed"`
@@ -59,6 +58,8 @@ func NewConfigureCommand() *cobra.Command {
 		parallelDeployments int
 		batchSize           int
 		disableBatch        bool
+		force               bool
+		offline             bool
 	)
 
 	configureCmd := &cobra.Command{
@@ -68,9 +69,12 @@ func NewConfigureCommand() *cobra.Command {
 		Long: `Set externalised parameters of many artifacts from YAML files and optionally
 deploy them afterwards.
 
-Phase 1 writes the parameters (OData $batch by default, falling back to single
-requests), phase 2 deploys artifacts marked with deploy: true, package by
-package with up to --parallel-deployments concurrent deployments.
+Phase 1 compares each artifact's parameters with the tenant and writes only the
+ones that differ (OData $batch by default, falling back to single requests); an
+unknown key fails the artifact before anything is written. Phase 2 deploys the
+artifacts marked with deploy: true that had a change, package by package with up
+to --parallel-deployments concurrent deployments. --force writes and deploys
+everything as before.
 
 --config-path accepts a file or a folder (all *.yml/*.yaml files, not
 recursive). Generate files with the current tenant values with
@@ -83,8 +87,14 @@ All flags can be set in the config file under 'configure'.`,
   # Configure and deploy
   cpictl configure --config-path ./config/prod-config.yml
 
-  # Dry run to see what would be changed
+  # Dry run: compare with the tenant (what would be written and deployed)
   cpictl configure --config-path ./config.yml --dry-run
+
+  # Only show the file, without reading the tenant
+  cpictl configure --config-path ./config.yml --dry-run --offline
+
+  # Write everything and redeploy, even if the tenant has the values
+  cpictl configure --config-path ./config.yml --force
 
   # Apply deployment prefix
   cpictl configure --config-path ./config.yml --deployment-prefix DEV_
@@ -143,8 +153,11 @@ All flags can be set in the config file under 'configure'.`,
 				batchSize = httpclnt.DefaultBatchSize
 			}
 
+			if offline && !dryRun {
+				return output.Usagef("--offline only works with --dry-run")
+			}
 			return runConfigure(cmd, configPath, deploymentPrefix, packageFilter, artifactFilter,
-				dryRun, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
+				configureMode{dryRun: dryRun, force: force, offline: offline}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
 		},
 	}
 
@@ -158,14 +171,28 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)")
 	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
 	configureCmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of parameters per batch request (config: configure.batchSize, default: 90)")
+	configureCmd.Flags().BoolVar(&force, "force", false, "Write all parameters and deploy all marked artifacts, even if the tenant already has the values")
+	configureCmd.Flags().BoolVar(&offline, "offline", false, "With --dry-run: only show the file contents, do not read the tenant")
 	configureCmd.Flags().BoolVar(&disableBatch, "disable-batch", false, "Disable batch processing, use individual requests (config: configure.disableBatch)")
 	configureCmd.AddCommand(NewConfigurePullCommand())
 
 	return configureCmd
 }
 
+// configureMode selects how configure compares and writes.
+type configureMode struct {
+	dryRun bool
+	// force writes every parameter and deploys every marked artifact;
+	// otherwise only parameters that differ from the tenant are written and
+	// only artifacts with a change are deployed.
+	force bool
+	// offline (dry run only) does not read the tenant.
+	offline bool
+}
+
 func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilterStr, artifactFilterStr string,
-	dryRun bool, deployRetries, deployDelaySeconds, parallelDeployments, batchSize int, disableBatch bool) error {
+	mode configureMode, deployRetries, deployDelaySeconds, parallelDeployments, batchSize int, disableBatch bool) error {
+	dryRun := mode.dryRun
 
 	log.Info().Msg("Starting artifact configuration")
 
@@ -182,7 +209,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 
 	// Load configuration from file or folder
 	log.Info().Msgf("Loading configuration from: %s", configPath)
-	configFiles, err := loadConfigureConfigs(configPath)
+	configFiles, err := ops.LoadConfigureFiles(configPath)
 	if err != nil {
 		return output.Usage(fmt.Errorf("failed to load configuration: %w", err))
 	}
@@ -193,7 +220,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	log.Info().Msgf("Batch processing: %v (size: %d)", !disableBatch, batchSize)
 
 	// Merge all configurations
-	configData := mergeConfigureConfigs(configFiles, deploymentPrefix)
+	configData := ops.MergeConfigureFiles(configFiles, deploymentPrefix)
 
 	// Apply deployment prefix if specified
 	if deploymentPrefix != "" {
@@ -213,8 +240,8 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 	log.Info().Msg("PHASE 1: CONFIGURING ARTIFACTS")
 	log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
 
-	deploymentTasks, err := configureAllArtifacts(exe, configData, packageFilter, artifactFilter,
-		stats, dryRun, batchSize, disableBatch)
+	deploymentTasks, diff, err := configureAllArtifacts(exe, configData, packageFilter, artifactFilter,
+		stats, mode, batchSize, disableBatch)
 	if err != nil {
 		return err
 	}
@@ -235,7 +262,7 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 
 	// Print summary
 	printConfigureSummary(stats, dryRun)
-	output.SetResult(cmd.Context(), configureResult{DryRun: dryRun, Stats: stats, Deployments: deployments})
+	output.SetResult(cmd.Context(), configureResult{DryRun: dryRun, Stats: stats, Deployments: deployments, Diff: diff})
 
 	// Return error if there were failures
 	if stats.ArtifactsFailed > 0 || stats.DeploymentTasksFailed > 0 {
@@ -254,121 +281,18 @@ type configureResult struct {
 	DryRun      bool            `json:"dryRun"`
 	Stats       *ConfigureStats `json:"stats"`
 	Deployments []ops.Result    `json:"deployments"`
-}
-
-// ConfigureConfigFile represents a loaded config file with metadata
-type ConfigureConfigFile struct {
-	Config   *models.ConfigureConfig
-	Source   string
-	FileName string
-}
-
-func loadConfigureConfigs(path string) ([]*ConfigureConfigFile, error) {
-	// Check if path is a file or directory
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to access path: %w", err)
-	}
-
-	if info.IsDir() {
-		return loadConfigureConfigsFromFolder(path)
-	}
-	return loadConfigureConfigFromFile(path)
-}
-
-func loadConfigureConfigFromFile(path string) ([]*ConfigureConfigFile, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	var cfg models.ConfigureConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	return []*ConfigureConfigFile{
-		{
-			Config:   &cfg,
-			Source:   path,
-			FileName: filepath.Base(path),
-		},
-	}, nil
-}
-
-func loadConfigureConfigsFromFolder(folderPath string) ([]*ConfigureConfigFile, error) {
-	var configFiles []*ConfigureConfigFile
-
-	entries, err := os.ReadDir(folderPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		// Match YAML files (*.yml, *.yaml)
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
-			continue
-		}
-
-		filePath := filepath.Join(folderPath, name)
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Warn().Msgf("Failed to read config file %s: %v", name, err)
-			continue
-		}
-
-		var cfg models.ConfigureConfig
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			log.Warn().Msgf("Failed to parse config file %s: %v", name, err)
-			continue
-		}
-
-		configFiles = append(configFiles, &ConfigureConfigFile{
-			Config:   &cfg,
-			Source:   filePath,
-			FileName: name,
-		})
-	}
-
-	if len(configFiles) == 0 {
-		return nil, fmt.Errorf("no valid configuration files found in folder: %s", folderPath)
-	}
-
-	log.Info().Msgf("Loaded %d configuration file(s) from folder", len(configFiles))
-	return configFiles, nil
-}
-
-func mergeConfigureConfigs(configFiles []*ConfigureConfigFile, overridePrefix string) *models.ConfigureConfig {
-	merged := &models.ConfigureConfig{
-		Packages: []models.ConfigurePackage{},
-	}
-
-	// Use override prefix if provided, otherwise use first config's prefix
-	if overridePrefix != "" {
-		merged.DeploymentPrefix = overridePrefix
-	} else if len(configFiles) > 0 && configFiles[0].Config.DeploymentPrefix != "" {
-		merged.DeploymentPrefix = configFiles[0].Config.DeploymentPrefix
-	}
-
-	// Merge all packages from all config files
-	for _, configFile := range configFiles {
-		log.Info().Msgf("  Merging packages from: %s", configFile.FileName)
-		merged.Packages = append(merged.Packages, configFile.Config.Packages...)
-	}
-
-	return merged
+	// Diff compares every parameter with the tenant (not with --force or
+	// --offline).
+	Diff []ops.ConfigDiffItem `json:"diff,omitempty"`
 }
 
 func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig,
-	packageFilter, artifactFilter []string, stats *ConfigureStats, dryRun bool,
-	batchSize int, disableBatch bool) ([]DeploymentTask, error) {
+	packageFilter, artifactFilter []string, stats *ConfigureStats, mode configureMode,
+	batchSize int, disableBatch bool) ([]DeploymentTask, []ops.ConfigDiffItem, error) {
 
+	dryRun := mode.dryRun
 	var deploymentTasks []DeploymentTask
+	var allDiff []ops.ConfigDiffItem
 	configuration := cpi.NewConfiguration(exe)
 
 	for _, pkg := range cfg.Packages {
@@ -426,13 +350,52 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 				continue
 			}
 
+			parameters := artifact.Parameters
+			if !mode.force && !mode.offline {
+				diff, err := ops.DiffArtifactConfig(exe, packageID, artifactID, artifact.Version, artifact.Parameters)
+				if err != nil {
+					log.Error().Msgf("      ❌ Failed to read the current parameters: %v", err)
+					stats.ArtifactsFailed++
+					packageHasError = true
+					continue
+				}
+				allDiff = append(allDiff, diff...)
+				var changed, unknown []string
+				parameters = nil
+				for i, d := range diff {
+					switch d.Change {
+					case ops.ConfigUpdate:
+						changed = append(changed, d.Key)
+						parameters = append(parameters, artifact.Parameters[i])
+						log.Info().Msgf("        ~ %s: %q -> %q", d.Key, d.Tenant, d.Local)
+					case ops.ConfigUnknownKey:
+						unknown = append(unknown, d.Key)
+					default:
+						stats.ParametersUnchanged++
+					}
+				}
+				if len(unknown) > 0 {
+					// a typo must not leave a half-applied configuration
+					log.Error().Msgf("      ❌ Unknown parameter key(s): %s; nothing written for this artifact", strings.Join(unknown, ", "))
+					stats.ArtifactsFailed++
+					stats.ParametersFailed += len(unknown)
+					packageHasError = true
+					continue
+				}
+				if len(changed) == 0 {
+					log.Info().Msg("      ✅ Tenant already has these values: nothing to write or deploy")
+					stats.ArtifactsUnchanged++
+					continue
+				}
+			}
+
 			if dryRun {
 				log.Info().Msg("      [DRY RUN] Would update the following parameters:")
-				for _, param := range artifact.Parameters {
+				for _, param := range parameters {
 					log.Info().Msgf("        - %s = %s", param.Key, param.Value)
 				}
 				stats.ArtifactsConfigured++
-				stats.ParametersUpdated += len(artifact.Parameters)
+				stats.ParametersUpdated += len(parameters)
 
 				// Queue for deployment if requested
 				if artifact.Deploy || pkg.Deploy {
@@ -455,12 +418,12 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 
 			// Update configuration parameters
 			var configErr error
-			if useBatch && len(artifact.Parameters) > 0 {
+			if useBatch && len(parameters) > 0 {
 				configErr = updateParametersBatch(exe, configuration, artifactID, artifact.Version,
-					artifact.Parameters, effectiveBatchSize, stats)
+					parameters, effectiveBatchSize, stats)
 			} else {
 				configErr = updateParametersIndividual(configuration, artifactID, artifact.Version,
-					artifact.Parameters, stats)
+					parameters, stats)
 			}
 
 			if configErr != nil {
@@ -471,7 +434,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 			}
 
 			stats.ArtifactsConfigured++
-			log.Info().Msgf("      ✅ Successfully configured %d parameters", len(artifact.Parameters))
+			log.Info().Msgf("      ✅ Successfully configured %d parameters", len(parameters))
 
 			// Queue for deployment if requested
 			if artifact.Deploy || pkg.Deploy {
@@ -491,7 +454,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 		}
 	}
 
-	return deploymentTasks, nil
+	return deploymentTasks, allDiff, nil
 }
 
 func updateParametersBatch(exe *httpclnt.HTTPExecuter, configuration *cpi.Configuration,

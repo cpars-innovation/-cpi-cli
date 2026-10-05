@@ -80,7 +80,18 @@ cpictl pd-deploy --keys ONE_OMS:now_email --dry-run  # then without --dry-run
   other extensions need a `_metadata.json` entry. The result lists `CREATED`, `UPDATED` or
   `UNCHANGED` per key.
 
-MCP: `get_pd_parameters`, `pd_diff`, `pd_deploy` with `keys`.
+Before changing a parameter, check which flows read it (local content, no tenant calls):
+
+```bash
+cpictl pd deps --local-dir ./content --resources-path ./partner-directory --pid ONE_OMS
+```
+
+It lists literal `pd:<PID>:<ID>:<Binary|String>` references in `.iflw` models (with the step id),
+dynamic `pd:${...}` references, `getParameter(id, pid, ...)` calls in Groovy scripts, and
+`unknownPids`: referenced PIDs without a local directory (e.g. `pd:OMS:...` when the PID is
+`ONE_OMS`).
+
+MCP: `pd_dependencies`, `get_pd_parameters`, `pd_diff`, `pd_deploy` with `keys`.
 
 ## Config file
 

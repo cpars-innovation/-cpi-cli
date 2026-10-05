@@ -19,6 +19,9 @@ First release.
   `logs --header name=value` / `custom_header` and `--package-id` search by custom header
   (scoped, capped client-side scans). Message logs include `applicationMessageType`,
   `packageName` and `predecessorMessageGuid`.
+- `configure` writes only changed parameters and redeploys only changed artifacts (`--force`,
+  `--dry-run` diff, `--offline`); MCP `config_diff`. `pd deps` / `pd_dependencies` show which
+  flows read which Partner Directory parameters.
 - Partner Directory: `pd get` / `get_pd_parameters`, `pd diff` / `pd_diff`, and
   `pd-deploy --keys PID:ID` / `pd_deploy keys` for single-parameter changes.
 - Downgrade guard: a designtime version older than the running one is not deployed unless

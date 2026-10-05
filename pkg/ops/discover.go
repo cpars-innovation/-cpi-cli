@@ -236,51 +236,26 @@ func DiscoverDir(ctx context.Context, dir string) (*Discovery, error) {
 	}
 	d := &Discovery{GeneratedAt: time.Now().UTC().Truncate(time.Second), Source: dir, Packages: []DiscoveredPackage{}, IFlows: []IFlowFacts{}}
 	packages := map[string]*DiscoveredPackage{}
-	err = filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
-		if err != nil {
-			d.Errors = append(d.Errors, err.Error())
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !e.IsDir() || e.Name() == ".git" {
-			if e.IsDir() {
-				return filepath.SkipDir
+	err = walkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
+		if a.PackageID != "" {
+			if packages[a.PackageID] == nil {
+				packages[a.PackageID] = &DiscoveredPackage{ID: a.PackageID, Artifacts: map[string]int{}}
 			}
-			return nil
+			packages[a.PackageID].Artifacts[a.Type]++
 		}
-		mf, err := os.ReadFile(filepath.Join(p, "META-INF", "MANIFEST.MF"))
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(dir, p)
-		rel = filepath.ToSlash(rel)
-		pkg := ""
-		if parts := strings.Split(rel, "/"); len(parts) == 2 {
-			pkg = parts[0]
-		}
-		typ := artifactTypeOf(parseManifest(mf)["SAP-BundleType"])
-		if pkg != "" {
-			if packages[pkg] == nil {
-				packages[pkg] = &DiscoveredPackage{ID: pkg, Artifacts: map[string]int{}}
-			}
-			packages[pkg].Artifacts[typ]++
-		}
-		if typ == "Integration" {
-			facts, err := AnalyzeIFlow(os.DirFS(p))
+		if a.Type == "Integration" {
+			facts, err := AnalyzeIFlow(os.DirFS(a.Dir))
 			if facts == nil {
-				facts = &IFlowFacts{ID: path.Base(rel)}
+				facts = &IFlowFacts{ID: path.Base(a.Rel)}
 			}
-			facts.PackageID, facts.Path = pkg, rel
+			facts.PackageID, facts.Path = a.PackageID, a.Rel
 			if err != nil {
 				facts.Error = err.Error()
-				d.Errors = append(d.Errors, fmt.Sprintf("iflow %s: %v", rel, err))
+				d.Errors = append(d.Errors, fmt.Sprintf("iflow %s: %v", a.Rel, err))
 			}
 			d.IFlows = append(d.IFlows, *facts)
 		}
-		return filepath.SkipDir
-	})
+	}, func(err error) { d.Errors = append(d.Errors, err.Error()) })
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +264,58 @@ func DiscoverDir(ctx context.Context, dir string) (*Discovery, error) {
 	}
 	d.Summary = summarize(d)
 	return d, nil
+}
+
+// LocalArtifact is an artifact directory (with META-INF/MANIFEST.MF) in a
+// local content tree.
+type LocalArtifact struct {
+	// Dir is the directory, Rel its slash-separated path below the root.
+	Dir, Rel string
+	// ID is the Bundle-SymbolicName (the folder name if missing).
+	ID string
+	// PackageID is the parent folder when the artifact is two levels below
+	// the root (layout <package>/<artifact>, as written by sync).
+	PackageID string
+	Type      string
+}
+
+// walkLocalArtifacts calls fn for every artifact directory below dir (.git is
+// skipped, artifact directories are not descended into). Unreadable entries
+// are reported to onErr.
+func walkLocalArtifacts(ctx context.Context, dir string, fn func(LocalArtifact), onErr func(error)) error {
+	return filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			onErr(err)
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !e.IsDir() {
+			return nil
+		}
+		if e.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		mf, err := os.ReadFile(filepath.Join(p, "META-INF", "MANIFEST.MF"))
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, p)
+		rel = filepath.ToSlash(rel)
+		a := LocalArtifact{Dir: p, Rel: rel}
+		if parts := strings.Split(rel, "/"); len(parts) == 2 {
+			a.PackageID = parts[0]
+		}
+		h := parseManifest(mf)
+		a.Type = artifactTypeOf(h["SAP-BundleType"])
+		a.ID, _, _ = strings.Cut(h["Bundle-SymbolicName"], ";")
+		if a.ID = strings.TrimSpace(a.ID); a.ID == "" {
+			a.ID = path.Base(rel)
+		}
+		fn(a)
+		return filepath.SkipDir
+	})
 }
 
 func artifactTypeOf(bundleType string) string {

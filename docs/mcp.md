@@ -109,7 +109,7 @@ leaves a tool enabled by accident.
 
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
-| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff` | kept |
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff` | kept |
 | local files (inside `--root`) | `download_artifact`, `discover_tenant` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level` | removed |
 
@@ -161,6 +161,8 @@ read roles.
 | `undeploy` | runtime, **destructive** | Remove from runtime and wait; requires `confirm: true` |
 | `get_pd_parameters` | | Partner Directory parameters of one PID (binaries: content type, size, sha256; content with `include_content`) |
 | `pd_diff` | | Local Partner Directory files vs tenant: create / update / unchanged / remote_only per parameter |
+| `pd_dependencies` | | Which local flows reference which Partner Directory parameters; dynamic references; unknown PIDs |
+| `config_diff` | | Configure YAML vs tenant parameters: update / unchanged / unknown_key |
 | `pd_deploy` | Partner Directory, **destructive with full_sync** | Upload Partner Directory parameters; dry run unless `dry_run: false`; `keys: ["PID:ID"]` changes only those parameters |
 
 Content tools (`get_resource`, `get_message_attachment`, `get_message_store_entry`) return

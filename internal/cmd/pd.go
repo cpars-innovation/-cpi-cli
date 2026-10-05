@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/repo"
@@ -15,7 +17,7 @@ import (
 func NewPDCommand() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "pd",
-		Short: "Inspect Partner Directory parameters (get, diff)",
+		Short: "Inspect Partner Directory parameters (get, diff, deps)",
 	}
 
 	get := &cobra.Command{
@@ -77,6 +79,44 @@ would delete it). Exit code 7 when a PID could not be read locally.`,
 	diff.Flags().String("resources-path", "./partner-directory", "Path to partner directory parameters")
 	diff.Flags().StringSlice("pids", nil, "Only these partner IDs")
 
-	c.AddCommand(get, diff)
+	deps := &cobra.Command{
+		Use:   "deps",
+		Short: "Show which flows read which Partner Directory parameters (local files)",
+		Long: `Scan local content for Partner Directory references: pd:<PID>:<ID>:<Binary|String>
+in .iflw models, dynamic pd:${...} references and getParameter(id, pid, ...) in
+Groovy scripts. With --resources-path, PIDs that are referenced but have no local
+directory are listed as unknown. Nothing is read from the tenant.`,
+		Example:      `  cpictl pd deps --local-dir ./content --resources-path ./partner-directory --pid ONE_OMS`,
+		SilenceUsage: true,
+		Annotations:  map[string]string{annotationOffline: "true"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ops.FindPDDependencies(cmd.Context(), config.GetString(cmd, "local-dir"), ops.PDDependenciesFilter{
+				Pid: config.GetString(cmd, "pid"), ID: config.GetString(cmd, "id"), ResourcesPath: config.GetString(cmd, "resources-path")})
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			for _, r := range res.References {
+				pid := r.Pid
+				if pid == "" {
+					pid = "?"
+				}
+				log.Info().Msgf("%s:%s %-6s %s  %s %s", pid, r.ID, r.Kind, r.Artifact, r.File, r.Step)
+			}
+			for _, d := range res.Dynamic {
+				log.Info().Msgf("dynamic %s  %s %s  %s", d.Artifact, d.File, d.Step, d.Expression)
+			}
+			if len(res.UnknownPids) > 0 {
+				log.Warn().Msgf("Referenced PIDs without local files: %s", strings.Join(res.UnknownPids, ", "))
+			}
+			return nil
+		},
+	}
+	deps.Flags().String("local-dir", ".", "Local content directory")
+	deps.Flags().String("resources-path", "", "Local Partner Directory tree (to report unknown PIDs)")
+	deps.Flags().String("pid", "", "Only this partner ID")
+	deps.Flags().String("id", "", "Only this parameter ID")
+
+	c.AddCommand(get, diff, deps)
 	return c
 }

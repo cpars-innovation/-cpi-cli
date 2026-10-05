@@ -42,7 +42,8 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`params`](#params) | Read or change externalised parameters of an integration flow |
 | [`params get`](#params-get) | Show the parameters of an integration flow |
 | [`params set`](#params-set) | Set parameters of an integration flow (deploy afterwards to activate) |
-| [`pd`](#pd) | Inspect Partner Directory parameters (get, diff) |
+| [`pd`](#pd) | Inspect Partner Directory parameters (get, diff, deps) |
+| [`pd deps`](#pd-deps) | Show which flows read which Partner Directory parameters (local files) |
 | [`pd diff`](#pd-diff) | Compare local Partner Directory files with the tenant |
 | [`pd get`](#pd-get) | Show the Partner Directory parameters of a partner ID on the tenant |
 | [`pd-deploy`](#pd-deploy) | Upload Partner Directory parameters from local files |
@@ -151,9 +152,12 @@ Set artifact parameters from YAML files and optionally deploy
 Set externalised parameters of many artifacts from YAML files and optionally
 deploy them afterwards.
 
-Phase 1 writes the parameters (OData $batch by default, falling back to single
-requests), phase 2 deploys artifacts marked with deploy: true, package by
-package with up to --parallel-deployments concurrent deployments.
+Phase 1 compares each artifact's parameters with the tenant and writes only the
+ones that differ (OData $batch by default, falling back to single requests); an
+unknown key fails the artifact before anything is written. Phase 2 deploys the
+artifacts marked with deploy: true that had a change, package by package with up
+to --parallel-deployments concurrent deployments. --force writes and deploys
+everything as before.
 
 --config-path accepts a file or a folder (all *.yml/*.yaml files, not
 recursive). Generate files with the current tenant values with
@@ -175,6 +179,8 @@ All flags can be set in the config file under 'configure'.
   -p, --deployment-prefix string   Deployment prefix for artifact IDs (config: configure.deploymentPrefix)
       --disable-batch              Disable batch processing, use individual requests (config: configure.disableBatch)
       --dry-run                    Show what would be done without making changes (config: configure.dryRun)
+      --force                      Write all parameters and deploy all marked artifacts, even if the tenant already has the values
+      --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
 ```
@@ -188,8 +194,14 @@ All flags can be set in the config file under 'configure'.
   # Configure and deploy
   cpictl configure --config-path ./config/prod-config.yml
 
-  # Dry run to see what would be changed
+  # Dry run: compare with the tenant (what would be written and deployed)
   cpictl configure --config-path ./config.yml --dry-run
+
+  # Only show the file, without reading the tenant
+  cpictl configure --config-path ./config.yml --dry-run --offline
+
+  # Write everything and redeploy, even if the tenant has the values
+  cpictl configure --config-path ./config.yml --force
 
   # Apply deployment prefix
   cpictl configure --config-path ./config.yml --deployment-prefix DEV_
@@ -938,7 +950,35 @@ Set parameters of an integration flow (deploy afterwards to activate)
 
 ## pd
 
-Inspect Partner Directory parameters (get, diff)
+Inspect Partner Directory parameters (get, diff, deps)
+
+## pd deps
+
+Show which flows read which Partner Directory parameters (local files)
+
+```
+Scan local content for Partner Directory references: pd:<PID>:<ID>:<Binary|String>
+in .iflw models, dynamic pd:${...} references and getParameter(id, pid, ...) in
+Groovy scripts. With --resources-path, PIDs that are referenced but have no local
+directory are listed as unknown. Nothing is read from the tenant.
+```
+
+**Usage:** `cpictl pd deps [flags]`
+
+**Flags:**
+
+```
+      --id string               Only this parameter ID
+      --local-dir string        Local content directory (default ".")
+      --pid string              Only this partner ID
+      --resources-path string   Local Partner Directory tree (to report unknown PIDs)
+```
+
+**Examples:**
+
+```
+  cpictl pd deps --local-dir ./content --resources-path ./partner-directory --pid ONE_OMS
+```
 
 ## pd diff
 

@@ -29,7 +29,8 @@ get_message_trace and get_trace_message -> fix the local files and repeat.
 Flows without an HTTP sender: ProcessDirect via send_test_message process_direct_address (test
 harness flow); timer, SFTP and other polling flows: see the triggers in discover_tenant and use
 list_message_logs with since and wait_seconds after triggering them.
-Configuration: get_parameters / set_parameters, then deploy to activate.
+Configuration: get_parameters / set_parameters, then deploy to activate; config_diff compares a
+configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
 Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
 Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
@@ -40,7 +41,8 @@ handling, scripts, naming); follow the conventions of the repository (e.g. .cpi/
 Every result has {ok, errorCategory, exitCode, error, result}; errorCategory: usage (fix the
 arguments), auth (stop, ask the user), tenant_http (retry later), failed (the tenant rejected the
 content or the message failed: read error, fix), timeout (check status), partial (see items).
-undeploy requires confirm=true. Partner Directory: get_pd_parameters (tenant values), pd_diff (local vs tenant), then
+undeploy requires confirm=true. Partner Directory: pd_dependencies (which flows read a parameter), get_pd_parameters (tenant
+values), pd_diff (local vs tenant), then
 pd_deploy keys=["PID:ID"] to change one parameter without redeploying flows. pd_deploy is a
 dry run unless dry_run=false. send_test_message
 triggers real processing, including receiver calls. Security material is read-only here
@@ -910,6 +912,73 @@ func Tools(cfg Config) []Tool {
 					return nil, err
 				}
 				return ops.PDDiff(cpi.NewPartnerDirectory(cfg.Exe), repo.NewPartnerDirectory(dir), a.PIDs)
+			},
+		},
+		{
+			Name: "pd_dependencies", Title: "Find which flows use Partner Directory parameters",
+			Description: "Scan local content (inside the server root) for Partner Directory references: pd:<PID>:<ID>:<Binary|String> in .iflw models (with the step id), dynamic pd:${...} references, " +
+				"and getParameter(id, pid, ...) in Groovy scripts. With resources_path, unknownPids lists referenced PIDs that have no local directory (often a typo in the model). " +
+				"Use it before pd_deploy: every listed flow is affected by the change. Reads local files only.",
+			InputSchema: object(props{
+				"local_dir":      str("Local content directory, relative to the server root"),
+				"resources_path": str("Local Partner Directory tree, to report unknown PIDs"),
+				"pid":            str("Only references to this partner ID"),
+				"id":             str("Only references to this parameter ID"),
+			}, "local_dir"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					LocalDir      string `json:"local_dir"`
+					ResourcesPath string `json:"resources_path"`
+					Pid           string `json:"pid"`
+					ID            string `json:"id"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.LocalDir)
+				if err != nil {
+					return nil, err
+				}
+				f := ops.PDDependenciesFilter{Pid: a.Pid, ID: a.ID}
+				if a.ResourcesPath != "" {
+					if f.ResourcesPath, err = resolvePath(cfg.Root, a.ResourcesPath); err != nil {
+						return nil, err
+					}
+				}
+				return ops.FindPDDependencies(ctx, dir, f)
+			},
+		},
+		{
+			Name: "config_diff", Title: "Compare a configure file with the tenant",
+			Description: "Compare the parameters of a configure YAML file (or folder) with the tenant: per key update (with local and tenant value), unchanged, or unknown_key. " +
+				"Shows what 'cpictl configure' would write and which artifacts it would redeploy (only those with a change).",
+			InputSchema: object(props{
+				"config_path":       str("Configure YAML file or folder, relative to the server root"),
+				"package_filter":    strArray("Only these packages (IDs as in the file)"),
+				"artifact_filter":   strArray("Only these artifacts (IDs as in the file)"),
+				"deployment_prefix": str("Prefix for package and artifact IDs (overrides the file's deploymentPrefix)"),
+			}, "config_path"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					ConfigPath       string   `json:"config_path"`
+					PackageFilter    []string `json:"package_filter"`
+					ArtifactFilter   []string `json:"artifact_filter"`
+					DeploymentPrefix string   `json:"deployment_prefix"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				path, err := resolvePath(cfg.Root, a.ConfigPath)
+				if err != nil {
+					return nil, err
+				}
+				files, err := ops.LoadConfigureFiles(path)
+				if err != nil {
+					return nil, output.Usage(err)
+				}
+				return ops.ConfigDiff(cfg.Exe, ops.MergeConfigureFiles(files, a.DeploymentPrefix), ops.ConfigFilter{Packages: a.PackageFilter, Artifacts: a.ArtifactFilter})
 			},
 		},
 		{

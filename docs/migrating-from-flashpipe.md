@@ -73,6 +73,9 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
 - Deployments run package by package in config order, with up to `--parallel-deployments`
   concurrent deployments per package. `configure` used to start all packages at once in
   random order.
+- `configure` writes only parameters that differ from the tenant and redeploys only artifacts
+  with a change; unknown keys fail the artifact before anything is written. `--force` restores
+  the old behaviour, `--dry-run` now compares with the tenant (`--offline` for the file only).
 - `orchestrator` has no own `--debug` flag any more; the global `--debug` does the same.
 - Remote deployment configs (`--deploy-config https://...`) must be public; the
   authentication options in FlashPipe's documentation could never be set.
