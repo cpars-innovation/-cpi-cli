@@ -76,7 +76,15 @@ user for real-world samples with anonymised data if the mapping needs them.
 
 ## Running
 
-For each case:
+First the static checks, once per test run, on the version that is deployed:
+
+- `validate_artifact` (the tenant's check of the model, as *Check* in the Web UI). FAILED means
+  the flow is not ready: report it and fix it with the cpi-build loop before sending anything.
+- `check_guidelines` (the tenant's activated design guidelines). List every violation in the
+  report; they do not stop the run, but each one must be fixed or justified before the review.
+- `get_runtime_status`: the flow is STARTED and the runtime version equals the version you test.
+
+Then for each case:
 
 1. `send_test_message` with artifact_id, body, content_type, headers and
    `wait_seconds: 60` (more for slow receivers). The result has `httpStatus`, `response`,
@@ -95,7 +103,8 @@ For each case:
      never weaken an expectation just to make the test pass. Ask the user when the expected
      behaviour is unclear.
 
-Report a table: case, result, HTTP status, message status, message GUID, reason.
+Report the static checks (validation status, guideline violations) and a table: case, result,
+HTTP status, message status, message GUID, reason.
 
 ## Errors that are not the flow's fault
 

@@ -41,7 +41,8 @@ user the summary (`.cpi/loops/<loop_id>.md`). Call `loop_end` as well when the f
 1. Edit the local files. Keep changes minimal and consistent with the conventions.
 2. New package? `create_package` (never changes an existing one).
 3. `upload_artifact` (action UNCHANGED means the tenant already has exactly these files).
-4. `validate_artifact`. On FAILED read the details, fix, go back to 1.
+4. `validate_artifact`. On FAILED read the details, fix, go back to 1. Then `check_guidelines`:
+   fix violations the conventions care about now; list the others for the review.
 5. `deploy`. On FAILED the result's `error` is the runtime error (for example a missing
    credential, an unknown key alias, a script compile error, a port or path conflict).
    Fix the files and go back to 1. Missing security material is not yours to create:

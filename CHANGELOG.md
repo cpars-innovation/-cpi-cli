@@ -5,6 +5,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Skills: cpi-test starts every run with the static checks (`validate_artifact`,
+  `check_guidelines`, runtime version) and reports them; cpi-build runs `check_guidelines`
+  after the validation.
 - Package IDs: only letters and digits are accepted (`packages create`, MCP `create_package`);
   the tenant refuses `_`, `-` and `.`. Examples and the cpi-discover skill no longer suggest them.
 - MCP tool `help`: what the server offers in its mode (available and disabled tools), workflows
