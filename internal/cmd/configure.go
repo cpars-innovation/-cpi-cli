@@ -350,6 +350,33 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 				continue
 			}
 
+			if err := ops.CheckConfigurable(artifact.Type, artifact.Parameters); err != nil {
+				log.Error().Msgf("      ❌ %v", err)
+				stats.ArtifactsFailed++
+				packageHasError = true
+				continue
+			}
+			deploy := artifact.Deploy || pkg.Deploy
+
+			// nothing to configure (script collections, mappings, flows without
+			// parameters): never read or write parameters, deploy when asked
+			// and the runtime does not run the designtime version yet
+			if len(artifact.Parameters) == 0 {
+				log.Info().Msg("      No parameters: nothing to configure")
+				stats.ArtifactsUnchanged++
+				if deploy {
+					stats.DeploymentTasksQueued++
+					if dryRun {
+						log.Info().Msg("      [DRY RUN] Would deploy unless the runtime already has the designtime version")
+						continue
+					}
+					deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
+						PackageID: packageID, DisplayName: artifact.DisplayName})
+					log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
+				}
+				continue
+			}
+
 			parameters := artifact.Parameters
 			if !mode.force && !mode.offline {
 				diff, err := ops.DiffArtifactConfig(exe, packageID, artifactID, artifact.Version, artifact.Parameters)
@@ -383,8 +410,19 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 					continue
 				}
 				if len(changed) == 0 {
-					log.Info().Msg("      ✅ Tenant already has these values: nothing to write or deploy")
+					log.Info().Msg("      ✅ Tenant already has these values: nothing to write")
 					stats.ArtifactsUnchanged++
+					// a newer designtime version still needs a deployment
+					if deploy {
+						stats.DeploymentTasksQueued++
+						if dryRun {
+							log.Info().Msg("      [DRY RUN] Would deploy unless the runtime already has the designtime version")
+							continue
+						}
+						deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
+							PackageID: packageID, DisplayName: artifact.DisplayName})
+						log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
+					}
 					continue
 				}
 			}
@@ -398,7 +436,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 				stats.ParametersUpdated += len(parameters)
 
 				// Queue for deployment if requested
-				if artifact.Deploy || pkg.Deploy {
+				if deploy {
 					stats.DeploymentTasksQueued++
 					log.Info().Msgf("      [DRY RUN] Would deploy after configuration")
 				}
@@ -436,13 +474,15 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 			stats.ArtifactsConfigured++
 			log.Info().Msgf("      ✅ Successfully configured %d parameters", len(parameters))
 
-			// Queue for deployment if requested
-			if artifact.Deploy || pkg.Deploy {
+			// Queue for deployment if requested; the configuration change does
+			// not change the version, so the deployment is forced
+			if deploy {
 				deploymentTasks = append(deploymentTasks, DeploymentTask{
 					ArtifactID:   artifactID,
 					ArtifactType: artifact.Type,
 					PackageID:    packageID,
 					DisplayName:  artifact.DisplayName,
+					Force:        true,
 				})
 				stats.DeploymentTasksQueued++
 				log.Info().Msgf("      📋 Queued for deployment")
@@ -571,9 +611,9 @@ func updateParametersIndividual(configuration *cpi.Configuration, artifactID, ve
 func deployConfiguredArtifacts(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
 	deployRetries, deployDelaySeconds, parallelDeployments int, stats *ConfigureStats) []ops.Result {
 
-	// Configuration changes do not change the artifact version, so the
-	// deployment must not be skipped based on a version comparison.
-	results := deployTasks(ctx, exe, tasks, false, deployRetries, deployDelaySeconds, parallelDeployments)
+	// Tasks with configuration changes are forced (the version does not
+	// change); the others are skipped when the runtime has the version.
+	results := deployTasks(ctx, exe, tasks, true, deployRetries, deployDelaySeconds, parallelDeployments)
 	for _, r := range results {
 		if r.Status.Succeeded() {
 			stats.DeploymentTasksSuccessful++

@@ -15,26 +15,35 @@ type DeploymentTask struct {
 	ArtifactType string
 	PackageID    string
 	DisplayName  string
+	// Force deploys even when the runtime already has the designtime
+	// version (configuration changes do not change the version).
+	Force bool
 }
 
 // deployTasks deploys the tasks of configure and orchestrator through the
 // shared deployer. Packages are processed one after another (in the order in
 // which they first appear); within a package up to parallelDeployments
-// artifacts are deployed concurrently. Results are returned in task order.
+// artifacts are deployed concurrently (forced tasks first). Results are returned per package.
 func deployTasks(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []DeploymentTask,
 	compareVersions bool, maxChecks, delaySeconds, parallelDeployments int) []ops.Result {
 
+	// per package: forced tasks and tasks that follow compareVersions
+	type group struct{ forced, compared []ops.Artifact }
 	var packageOrder []string
-	byPackage := make(map[string][]ops.Artifact)
+	byPackage := make(map[string]*group)
 	for _, t := range tasks {
-		if _, seen := byPackage[t.PackageID]; !seen {
+		g, seen := byPackage[t.PackageID]
+		if !seen {
 			packageOrder = append(packageOrder, t.PackageID)
+			g = &group{}
+			byPackage[t.PackageID] = g
 		}
-		byPackage[t.PackageID] = append(byPackage[t.PackageID], ops.Artifact{
-			ID:        t.ArtifactID,
-			Type:      mapArtifactTypeForSync(t.ArtifactType),
-			PackageID: t.PackageID,
-		})
+		a := ops.Artifact{ID: t.ArtifactID, Type: mapArtifactTypeForSync(t.ArtifactType), PackageID: t.PackageID}
+		if t.Force || !compareVersions {
+			g.forced = append(g.forced, a)
+		} else {
+			g.compared = append(g.compared, a)
+		}
 	}
 
 	tenant := ops.NewTenant(exe)
@@ -47,9 +56,16 @@ func deployTasks(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []Deploy
 
 	results := make([]ops.Result, 0, len(tasks))
 	for _, packageID := range packageOrder {
-		artifacts := byPackage[packageID]
-		log.Info().Msgf("📦 Deploying %d artifact(s) for package %s (max %d concurrent)", len(artifacts), packageID, parallelDeployments)
-		results = append(results, ops.Deploy(ctx, tenant, artifacts, opts)...)
+		g := byPackage[packageID]
+		log.Info().Msgf("📦 Deploying %d artifact(s) for package %s (max %d concurrent)", len(g.forced)+len(g.compared), packageID, parallelDeployments)
+		if len(g.forced) > 0 {
+			forced := opts
+			forced.CompareVersions = false
+			results = append(results, ops.Deploy(ctx, tenant, g.forced, forced)...)
+		}
+		if len(g.compared) > 0 {
+			results = append(results, ops.Deploy(ctx, tenant, g.compared, opts)...)
+		}
 	}
 	logResults(results)
 	return results

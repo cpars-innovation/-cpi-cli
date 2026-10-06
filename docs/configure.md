@@ -34,9 +34,16 @@ cpictl configure --config-path ./config/dev.yml --force              # write and
 ```
 
 `configure` compares every artifact's parameters with the tenant first and writes only the keys
-that differ; artifacts marked for deployment are redeployed only when at least one key changed.
-A second run on an unchanged tenant therefore writes and deploys nothing. A key that the artifact
+that differ. Artifacts marked for deployment are deployed when at least one key changed (always:
+a configuration change does not change the version), and otherwise only when the runtime does
+not run the designtime version yet (for example after an upload earlier in the pipeline). A
+second run on an unchanged tenant therefore writes and deploys nothing. A key that the artifact
 does not have (`unknown_key`, usually a typo) fails that artifact before anything is written.
+
+Artifacts without `parameters` (script collections, message and value mappings, flows that only
+need a deployment) are not read or written; with `deploy: true` they are deployed unless the
+runtime already runs their designtime version. Only integration flows have externalised
+parameters: `parameters` on another type is an error for that artifact.
 `--force` writes all parameters and deploys all marked artifacts, as earlier versions did. The
 MCP tool `config_diff` shows the same comparison.
 
@@ -70,7 +77,8 @@ How it runs:
    one by one. Keys that do not exist on the artifact are skipped and counted as failed.
 2. **Deploy**: artifacts with `deploy: true` (or in a package with `deploy: true`) that were
    configured successfully are deployed package by package, up to `--parallel-deployments`
-   (default 3) at a time, always (no version comparison). Status is checked
+   (default 3) at a time: always after a parameter change, otherwise only when the runtime
+   version differs from the designtime version. Status is checked
    `--deploy-retries` (default 5) times every `--deploy-delay` (default 15) seconds.
 
 | Flag | Description |

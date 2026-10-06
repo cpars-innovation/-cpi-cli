@@ -174,6 +174,10 @@ func ConfigDiff(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig, f Confi
 			if !f.includes(f.Artifacts, a.ID) {
 				continue
 			}
+			if err := CheckConfigurable(a.Type, a.Parameters); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", cfg.DeploymentPrefix+a.ID, err))
+				continue
+			}
 			items, err := DiffArtifactConfig(exe, cfg.DeploymentPrefix+pkg.ID, cfg.DeploymentPrefix+a.ID, a.Version, a.Parameters)
 			if err != nil {
 				if httpclnt.IsAuthError(err) {
@@ -194,8 +198,22 @@ func ConfigDiff(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig, f Confi
 	return res, nil
 }
 
-// DiffArtifactConfig compares the given parameters with the artifact's.
+// CheckConfigurable reports parameters on an artifact type that has none:
+// only integration flows have externalised parameters. Artifacts without
+// parameters (script collections, mappings to deploy) are always fine.
+func CheckConfigurable(artifactType string, params []models.ConfigurationParameter) error {
+	if len(params) > 0 && artifactType != "" && artifactType != "Integration" {
+		return output.Usagef("%s artifacts have no configurable parameters; remove 'parameters' (deploy works without them)", artifactType)
+	}
+	return nil
+}
+
+// DiffArtifactConfig compares the given parameters with the artifact's. An
+// artifact without parameters is not read from the tenant.
 func DiffArtifactConfig(exe *httpclnt.HTTPExecuter, packageID, artifactID, version string, params []models.ConfigurationParameter) ([]ConfigDiffItem, error) {
+	if len(params) == 0 {
+		return []ConfigDiffItem{}, nil
+	}
 	current, err := GetConfiguration(exe, artifactID, version)
 	if err != nil {
 		return nil, err

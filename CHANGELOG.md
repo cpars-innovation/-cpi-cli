@@ -5,11 +5,23 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.2.1
+
+- `configure`: artifacts without `parameters` (script collections, mappings, flows that only need
+  a deployment) no longer fail with 404 (`Integration design time artifact not found`): their
+  parameters are not read, and with `deploy: true` they are deployed unless the runtime already
+  runs the designtime version. Artifacts whose parameters are unchanged are now also deployed
+  when the designtime version is newer than the runtime (they were skipped). `parameters` on a
+  type other than Integration is reported as an error before anything is written; `config_diff`
+  skips artifacts without parameters.
 - Skills: cpi-test starts every run with the static checks (`validate_artifact`,
   `check_guidelines`, runtime version) and reports them; cpi-build runs `check_guidelines`
   after the validation.
 - Package IDs: only letters and digits are accepted (`packages create`, MCP `create_package`);
   the tenant refuses `_`, `-` and `.`. Examples and the cpi-discover skill no longer suggest them.
+
+## 0.2.0
+
 - MCP tool `help`: what the server offers in its mode (available and disabled tools), workflows
   (task -> skill, tools, docs), the cpi skills with their instructions and reference files, and
   the CLI commands; `topic` for details of one tool, skill, skill file or command. Lets clients
@@ -42,7 +54,7 @@ All notable changes to cpictl. Coming from FlashPipe? See
   `.gemini/skills`, an `AGENTS.md` template, and [docs/agents.md](docs/agents.md).
   `cpi-review` reviews by itself when there is no `cpi-reviewer` agent.
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 First release.
 
