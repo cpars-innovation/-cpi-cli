@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Package IDs: only letters and digits are accepted (`packages create`, MCP `create_package`);
+  the tenant refuses `_`, `-` and `.`. Examples and the cpi-discover skill no longer suggest them.
 - MCP tool `help`: what the server offers in its mode (available and disabled tools), workflows
   (task -> skill, tools, docs), the cpi skills with their instructions and reference files, and
   the CLI commands; `topic` for details of one tool, skill, skill file or command. Lets clients

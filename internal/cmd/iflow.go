@@ -48,15 +48,15 @@ error the target directory is left as it was.`,
 		Example: `  # template on the tenant, one HTTPS sender
   cpictl iflow copy --from Template_Sync_HTTPS --id SD_Orders_S4_Sync \
     --name "SD Orders to S/4 (sync)" --description "Order intake from the web shop" \
-    --address /sd/orders/s4 --dir content/SD_Orders/SD_Orders_S4_Sync
+    --address /sd/orders/s4 --dir content/SDOrders/SD_Orders_S4_Sync
 
   # local template with two senders (a parameterised HTTPS path and a ProcessDirect test entry)
   cpictl iflow copy --from-dir content/Templates/Template_Async --id FI_Invoices_In \
     --address '{{Inbound_Path}}=/fi/invoices' --address /test/Template_Async=/test/FI_Invoices_In
 
   # then
-  cpictl update artifact --artifact-id SD_Orders_S4_Sync --package-id SD_Orders \
-    --dir-artifact content/SD_Orders/SD_Orders_S4_Sync`,
+  cpictl update artifact --artifact-id SD_Orders_S4_Sync --package-id SDOrders \
+    --dir-artifact content/SDOrders/SD_Orders_S4_Sync`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		Annotations:  map[string]string{annotationOffline: "from-dir"},

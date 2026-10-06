@@ -55,7 +55,7 @@ cpictl iflow copy --from Template_Sync_HTTPS_OData \
   --id SD_Orders_S4_Sync --name "SD Orders to S/4 (sync)" \
   --description "Order intake from the web shop, creates sales orders in S/4" \
   --address /sd/orders/s4 \
-  --dir content/SD_Orders/SD_Orders_S4_Sync
+  --dir content/SDOrders/SD_Orders_S4_Sync
 
 # from a local folder (offline), template with two sender addresses
 cpictl iflow copy --from-dir content/Templates/Template_Async_SFTP_IDoc \
@@ -128,7 +128,7 @@ share it:
   "id": "SD_Orders_S4_Sync",
   "name": "SD Orders to S/4 (sync)",
   "version": "1.0.0",
-  "dir": "content/SD_Orders/SD_Orders_S4_Sync",
+  "dir": "content/SDOrders/SD_Orders_S4_Sync",
   "files": 12,
   "changes": [
     "MANIFEST.MF: Bundle-SymbolicName Template_Sync_HTTPS_OData -> SD_Orders_S4_Sync, ...",
@@ -151,9 +151,9 @@ target folder is left as it was (removed again if `iflow copy` created it).
 
 1. Check the `remaining` files and adapt the copy: receivers, mapping, scripts, parameter values
    for the development tenant, the test entry (`/test/<FlowId>`) if your conventions use one.
-2. Create the package if it is new: `cpictl packages create --package-id SD_Orders`.
-3. Upload: `cpictl update artifact --artifact-id SD_Orders_S4_Sync --package-id SD_Orders
-   --dir-artifact content/SD_Orders/SD_Orders_S4_Sync`. The display name comes from
+2. Create the package if it is new: `cpictl packages create --package-id SDOrders`.
+3. Upload: `cpictl update artifact --artifact-id SD_Orders_S4_Sync --package-id SDOrders
+   --dir-artifact content/SDOrders/SD_Orders_S4_Sync`. The display name comes from
    `Bundle-Name` (MCP `upload_artifact` does the same when `name` is not given).
 4. `cpictl validate --artifact-id SD_Orders_S4_Sync`, then
    `cpictl deploy --artifact-ids SD_Orders_S4_Sync`. A deployment error such as a missing

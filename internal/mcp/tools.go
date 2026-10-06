@@ -761,7 +761,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			Name: "create_package", Title: "Create an integration package",
 			Description: "Create an integration package if it does not exist (action CREATED or EXISTS; an existing package is never changed). Use it before upload_artifact of an artifact in a new package.",
 			InputSchema: object(props{
-				"package_id":  str("Package ID: letters, digits, '_' and '.'"),
+				"package_id":  str("Package ID: letters and digits only, no special characters"),
 				"name":        str("Display name, defaults to package_id"),
 				"description": str("Description"),
 				"short_text":  str("Short description, defaults to name"),

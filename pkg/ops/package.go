@@ -23,13 +23,13 @@ type PackageResult struct {
 	Action string `json:"action"` // CREATED or EXISTS
 }
 
-var packageIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
+var packageIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
 // CreatePackage creates an integration package unless one with the ID exists
 // (action EXISTS; the existing package is not changed).
 func CreatePackage(exe *httpclnt.HTTPExecuter, req PackageRequest) (*PackageResult, error) {
 	if !packageIDPattern.MatchString(req.ID) {
-		return nil, output.Usagef("invalid package ID %q: letters, digits, '_' and '.' only", req.ID)
+		return nil, output.Usagef("invalid package ID %q: letters and digits only (the tenant refuses special characters such as '_', '-' or '.')", req.ID)
 	}
 	if req.Name == "" {
 		req.Name = req.ID

@@ -45,7 +45,7 @@ The summary contains counts, not rules. Then **look at examples** to understand 
 
 Start from [conventions-template.md](conventions-template.md). For every rule:
 
-- State it as an instruction ("Package IDs: `<Domain>_<System>`, e.g. `SD_S4`").
+- State it as an instruction ("Package IDs: `<Domain><System>`, e.g. `SDS4`"; package IDs allow letters and digits only).
 - Give the evidence: how many flows follow it and one or two example IDs.
 - Mark the strength: **rule** (≥ 80 % of the flows), **common** (≥ 50 %), **observed**
   (less, or contradicting variants). Never promote a minority pattern to a rule.

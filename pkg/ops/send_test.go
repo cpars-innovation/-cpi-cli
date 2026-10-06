@@ -132,6 +132,10 @@ func TestCreatePackage(t *testing.T) {
 	assert.Equal(t, PackageResult{ID: "Existing", Name: "Existing one", Action: "EXISTS"}, *res)
 	assert.Equal(t, 1, mock.Count("POST /api/v1/IntegrationPackages"))
 
-	_, err = CreatePackage(mock.Executer(), PackageRequest{ID: "bad id'"})
-	assert.Equal(t, exitcode.Usage, output.ExitCode(err))
+	// the tenant accepts letters and digits only
+	for _, id := range []string{"bad id'", "CPICTL_Test_Tools", "SD.Orders", "SD-Orders", ""} {
+		_, err = CreatePackage(mock.Executer(), PackageRequest{ID: id})
+		assert.Equal(t, exitcode.Usage, output.ExitCode(err), id)
+	}
+	assert.Equal(t, 1, mock.Count("POST /api/v1/IntegrationPackages"), "nothing invalid reaches the tenant")
 }
