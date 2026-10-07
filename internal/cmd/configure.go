@@ -183,7 +183,8 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().StringVarP(&deploymentPrefix, "deployment-prefix", "p", "", "Deployment prefix for artifact IDs (config: configure.deploymentPrefix)")
 	configureCmd.Flags().StringVar(&packageFilter, "package-filter", "", "Comma-separated list of packages to include (config: configure.packageFilter)")
 	configureCmd.Flags().StringVar(&artifactFilter, "artifact-filter", "", "Comma-separated list of artifacts to include (config: configure.artifactFilter)")
-	configureCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be done without making changes (config: configure.dryRun)")
+	configureCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be done without making changes, including which artifacts would be deployed and why (config: configure.dryRun)")
+	configureCmd.Flags().BoolVar(&dryRun, "plan", false, "Same as --dry-run")
 	configureCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: configure.deployRetries, default: 5)")
 	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)")
 	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
@@ -285,9 +286,20 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 			parallelDeployments, stats)
 	}
 
+	// dry run: what the deployment phase would do
+	var plan []PlanItem
+	if dryRun && !mode.offline && len(deploymentTasks) > 0 {
+		collector := &planCollector{index: map[string]int{}}
+		planDeployments(deploymentTasks, collector, serviceDetails)
+		plan = collector.items
+		if err := logPlan(plan); err != nil {
+			log.Warn().Msg(err.Error())
+		}
+	}
+
 	// Print summary
 	printConfigureSummary(stats, dryRun)
-	output.SetResult(cmd.Context(), configureResult{DryRun: dryRun, Stats: stats, Deployments: deployments, Diff: diff})
+	output.SetResult(cmd.Context(), configureResult{DryRun: dryRun, Stats: stats, Deployments: deployments, Diff: diff, Plan: plan})
 
 	// Return error if there were failures
 	if stats.ArtifactsFailed > 0 || stats.DeploymentTasksFailed > 0 {
@@ -309,6 +321,8 @@ type configureResult struct {
 	// Diff compares every parameter with the tenant (not with --force or
 	// --offline).
 	Diff []ops.ConfigDiffItem `json:"diff,omitempty"`
+	// Plan is what the deployment phase would do (dry run).
+	Plan []PlanItem `json:"plan,omitempty"`
 }
 
 func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig,
@@ -401,7 +415,6 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 					stats.DeploymentTasksQueued++
 					if dryRun {
 						log.Info().Msg("      [DRY RUN] Would deploy unless the runtime already has the designtime version")
-						continue
 					}
 					deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
 						PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade, Versioning: versionMode})
@@ -450,7 +463,6 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 						stats.DeploymentTasksQueued++
 						if dryRun {
 							log.Info().Msg("      [DRY RUN] Would deploy unless the runtime already has the designtime version")
-							continue
 						}
 						deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
 							PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade, Versioning: versionMode})
@@ -472,6 +484,8 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 				if deploy {
 					stats.DeploymentTasksQueued++
 					log.Info().Msgf("      [DRY RUN] Would deploy after configuration")
+					deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
+						PackageID: packageID, DisplayName: artifact.DisplayName, Force: true, AllowDowngrade: allowDowngrade, Versioning: versionMode})
 				}
 				continue
 			}

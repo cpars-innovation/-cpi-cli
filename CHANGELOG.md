@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Plan mode: `orchestrator --plan` reports per artifact whether it would be created, updated or
+  left unchanged and whether it would be deployed, and why; nothing is written. `configure
+  --plan` (= `--dry-run`) now also says which artifacts would be deployed and why (`plan` in the
+  result). MCP: `upload_artifact` and `deploy` take `dry_run`.
+
 - `orchestrator`: compares existing artifacts with the snapshot state (`.cpi/snapshot-state.json`,
   written by `snapshot` earlier in the pipeline) instead of downloading each one again. Artifacts
   the state does not cover, or that changed on the tenant since the snapshot, are downloaded as

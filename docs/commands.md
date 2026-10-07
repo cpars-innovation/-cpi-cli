@@ -210,11 +210,12 @@ All flags can be set in the config file under 'configure'.
       --deploy-retries int         Number of retries for deployment status checks (config: configure.deployRetries, default: 5)
   -p, --deployment-prefix string   Deployment prefix for artifact IDs (config: configure.deploymentPrefix)
       --disable-batch              Disable batch processing, use individual requests (config: configure.disableBatch)
-      --dry-run                    Show what would be done without making changes (config: configure.dryRun)
+      --dry-run                    Show what would be done without making changes, including which artifacts would be deployed and why (config: configure.dryRun)
       --force                      Write all parameters and deploy all marked artifacts, even if the tenant already has the values
       --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
+      --plan                       Same as --dry-run
       --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
@@ -1277,6 +1278,7 @@ Configuration:
       --package-filter string      Comma-separated list of packages to include (config: orchestrator.packageFilter)
   -d, --packages-dir string        Directory containing packages (config: orchestrator.packagesDir)
       --parallel-deployments int   Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)
+      --plan                       Only show what would be uploaded and deployed, and why; nothing is written to the tenant
       --snapshot-state string      Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; "off": always download)
       --update                     Update and deploy artifacts
       --update-only                Only update artifacts, don't deploy

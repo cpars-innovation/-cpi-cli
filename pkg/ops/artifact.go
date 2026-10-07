@@ -22,6 +22,8 @@ type UploadRequest struct {
 	Dir       string `json:"dir"` // contains META-INF/MANIFEST.MF and src/main/resources
 	// Versioning decides the designtime version (see docs/versioning.md).
 	Versioning versioning.Mode `json:"-"`
+	// DryRun compares and reports what the upload would do without writing.
+	DryRun bool `json:"-"`
 }
 
 // UploadResult is the outcome of UploadArtifact.
@@ -60,6 +62,7 @@ func UploadArtifact(exe *httpclnt.HTTPExecuter, req UploadRequest) (*UploadResul
 
 	syncer := sync.New(exe)
 	syncer.Versioning = req.Versioning
+	syncer.DryRun = req.DryRun
 	outcome, err := syncer.UploadArtifact(req.ID, req.Name, req.Type, req.PackageID, req.Dir, workDir, "", nil)
 	// the outcome (versionRule, version) is returned with the error as well
 	return &UploadResult{ID: req.ID, PackageID: req.PackageID, UploadOutcome: outcome}, err

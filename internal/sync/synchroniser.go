@@ -47,8 +47,11 @@ type Synchroniser struct {
 	// does not cover are downloaded. VerifyDownload always downloads.
 	Baseline       *SnapshotState
 	VerifyDownload bool
-	skipped        atomic.Int64
-	downloaded     atomic.Int64
+	// DryRun makes UploadArtifact read only: it compares and reports what it
+	// would do (Action, the version the upload would give) without writing.
+	DryRun     bool
+	skipped    atomic.Int64
+	downloaded atomic.Int64
 }
 
 // Downloaded returns the number of artifacts downloaded by exports.
@@ -492,6 +495,9 @@ type UploadOutcome struct {
 	Compared string `json:"compared,omitempty"`
 	// CompareReason explains a download when a baseline was given.
 	CompareReason string `json:"compareReason,omitempty"`
+	// DryRun is true when nothing was written (Synchroniser.DryRun): Action
+	// and Version are what the upload would do.
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
@@ -519,6 +525,12 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 	designtimeBefore := ""
 	contentChanged := false
 
+	if !exists && s.DryRun {
+		outcome.Action, outcome.DryRun = "CREATED", true
+		outcome.Version, outcome.VersionRule, outcome.VersionReason = s.plannedVersion(artifactId, repoVersion, "", true)
+		log.Info().Msgf("[PLAN] %v would be created (version %v)", artifactId, orNone(outcome.Version))
+		return outcome, nil
+	}
 	if !exists {
 		log.Info().Msgf("Artifact %v will be created", artifactId)
 		if artifactType == "Integration" {
@@ -564,6 +576,12 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 			}
 		}
 
+		if s.DryRun {
+			outcome.Action, outcome.DryRun = map[bool]string{true: "UPDATED", false: "UNCHANGED"}[changesFound], true
+			outcome.Version, outcome.VersionRule, outcome.VersionReason = s.plannedVersion(artifactId, repoVersion, designtimeBefore, changesFound)
+			log.Info().Msgf("[PLAN] %v: %v (version %v)", artifactId, map[bool]string{true: "would be updated", false: "unchanged"}[changesFound], orNone(outcome.Version))
+			return outcome, nil
+		}
 		if changesFound {
 			log.Info().Msg("Changes found in designtime artifact. Designtime artifact will be updated in CPI tenant")
 			err = prepareUploadDir(workDir, artifactDir, dt)
@@ -695,6 +713,36 @@ func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, de
 	log.Info().Str("artifact", artifactId).Str("version", outcome.Version).Str("rule", outcome.VersionRule).
 		Msgf("Version of %v: %v (rule %v: %v)", artifactId, outcome.Version, outcome.VersionRule, outcome.VersionReason)
 	return nil
+}
+
+// plannedVersion is the designtime version an upload would leave (DryRun):
+// the rules of applyVersioning without writing. Empty: assigned by the
+// tenant (a created artifact without a versioning mode).
+func (s *Synchroniser) plannedVersion(artifactId, repoVersion, designtime string, changed bool) (version, rule, reason string) {
+	switch s.Versioning {
+	case versioning.Manifest:
+		return repoVersion, versioning.RuleManifest, "manifest: Bundle-Version of the repository"
+	case versioning.TenantBump:
+		if !changed {
+			return designtime, versioning.RuleBump, "tenant-bump: content unchanged, version kept"
+		}
+		running := ""
+		if rt, err := cpi.NewRuntime(s.exe).GetArtifact(artifactId); err == nil && rt != nil {
+			running = rt.Version
+		}
+		highest := versioning.Max(designtime, running)
+		if highest == "" {
+			return "", versioning.RuleBump, "tenant-bump: assigned by the tenant on creation, then raised"
+		}
+		next, err := versioning.Bump(highest, "patch")
+		if err != nil {
+			return "", versioning.RuleBump, err.Error()
+		}
+		return next, versioning.RuleBump, fmt.Sprintf("tenant-bump: max(designtime %s, runtime %s)+1", orNone(designtime), orNone(running))
+	case versioning.Keep:
+		return designtime, versioning.RuleKeep, "keep: the tenant's version"
+	}
+	return designtime, versioning.RuleTenant, "no versioning mode: the tenant's version"
 }
 
 func orNone(v string) string {

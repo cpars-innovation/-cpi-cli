@@ -294,3 +294,43 @@ func TestConfigureVersioning(t *testing.T) {
 	r = runMain(t, append([]string{"configure", "--config-path", path, "--versioning", "always"}, basicAuth(mock)...)...)
 	assert.Equal(t, 2, r.code)
 }
+
+// --plan (= --dry-run) says which artifacts would be deployed and why.
+func TestConfigurePlanPredictsDeployments(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.0", Parameters: map[string]string{"Host": "old"},
+			Runtime: &cpitest.Runtime{Version: "1.0.0", Status: "STARTED"}},
+		"B": {Type: "Integration", DesignVersion: "1.0.0", Parameters: map[string]string{"Host": "same"},
+			Runtime: &cpitest.Runtime{Version: "1.0.0", Status: "STARTED"}},
+		"C": {Type: "Integration", DesignVersion: "1.0.1", Parameters: map[string]string{"Host": "same"},
+			Runtime: &cpitest.Runtime{Version: "1.0.0", Status: "STARTED"}},
+	})
+	path := filepath.Join(t.TempDir(), "dev.yml")
+	require.NoError(t, os.WriteFile(path, []byte(`packages:
+  - integrationSuiteId: Orders
+    deploy: true
+    artifacts:
+      - {artifactId: A, type: Integration, parameters: [{key: Host, value: new}]}
+      - {artifactId: B, type: Integration, parameters: [{key: Host, value: same}]}
+      - {artifactId: C, type: Integration, parameters: [{key: Host, value: same}]}
+`), 0o644))
+	r := runMain(t, append([]string{"configure", "--config-path", path, "--plan", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	for _, req := range mock.Requests() {
+		assert.Regexp(t, `^GET `, req, "plan only reads")
+	}
+	var env struct {
+		Result configureResult `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env))
+	plan := map[string]PlanItem{}
+	for _, it := range env.Result.Plan {
+		plan[it.Artifact] = it
+	}
+	require.Len(t, plan, 3)
+	assert.True(t, plan["A"].Deploy)
+	assert.Equal(t, "configuration changed: deployed again", plan["A"].Reason)
+	assert.False(t, plan["B"].Deploy, plan["B"].Reason)
+	assert.True(t, plan["C"].Deploy)
+	assert.Contains(t, plan["C"].Reason, "designtime 1.0.1, running 1.0.0")
+}

@@ -342,3 +342,21 @@ func TestToolCallsAreRecorded(t *testing.T) {
 	assert.Equal(t, "list_packages", entries[0].Command)
 	assert.Equal(t, stats.SourceMCP, entries[0].Source)
 }
+
+// deploy with dry_run predicts and triggers nothing.
+func TestDeployDryRun(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Same":  {Type: "Integration", DesignVersion: "1.0.0", Runtime: &cpitest.Runtime{Version: "1.0.0", Status: "STARTED"}},
+		"Newer": {Type: "Integration", DesignVersion: "1.0.1", Runtime: &cpitest.Runtime{Version: "1.0.0", Status: "STARTED"}},
+		"Idle":  {Type: "Integration", DesignVersion: "1.0.0"},
+	})
+	resp := session(t, mock, t.TempDir(), call(1, "deploy", map[string]any{"artifact_ids": []string{"Same", "Newer", "Idle"}, "dry_run": true}))
+	res := toolResult(t, resp["1"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	plan := res.StructuredContent.Result.(map[string]any)["plan"].([]any)
+	require.Len(t, plan, 3)
+	assert.Equal(t, false, plan[0].(map[string]any)["deploy"])
+	assert.Equal(t, true, plan[1].(map[string]any)["deploy"])
+	assert.Equal(t, "not deployed yet", plan[2].(map[string]any)["reason"])
+	assert.Equal(t, 0, mock.Count("POST "), "nothing triggered")
+}

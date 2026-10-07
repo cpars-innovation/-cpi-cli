@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -217,6 +218,7 @@ Configuration:
 	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)")
 	addVersioningFlag(orchestratorCmd)
 	orchestratorCmd.Flags().String("snapshot-state", "", "Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; \"off\": always download)")
+	orchestratorCmd.Flags().Bool("plan", false, "Only show what would be uploaded and deployed, and why; nothing is written to the tenant")
 	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
 
@@ -315,6 +317,10 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	}
 
 	upload := uploadOptions{versionMode: versionMode}
+	if plan, _ := cmd.Flags().GetBool("plan"); plan {
+		upload.plan = &planCollector{index: map[string]int{}}
+		log.Info().Msg("PLAN: nothing is written to the tenant")
+	}
 	if mode != ModeDeployOnly {
 		if upload.baseline, err = loadBaseline(cmd, packagesDir, serviceDetails.Host); err != nil {
 			return err
@@ -365,6 +371,15 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 			}
 			deploymentTasks = append(deploymentTasks, tasks...)
 		}
+	}
+
+	if upload.plan != nil {
+		if mode != ModeUpdateOnly {
+			planDeployments(deploymentTasks, upload.plan, serviceDetails)
+		}
+		res := orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: []ops.Result{}, Plan: upload.plan.items}
+		output.SetResult(cmd.Context(), res)
+		return logPlan(upload.plan.items)
 	}
 
 	// Phase 2: Deploy all artifacts in parallel (if not update-only mode)
@@ -453,7 +468,9 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 		log.Info().Msgf("Package Name: %s", finalPackageName)
 
 		// Update package metadata
-		if mode != ModeDeployOnly {
+		if mode != ModeDeployOnly && upload.plan != nil {
+			log.Info().Msgf("[PLAN] package %s would be created or updated", finalPackageID)
+		} else if mode != ModeDeployOnly {
 			err := updatePackage(&pkg, finalPackageID, finalPackageName, workDir, serviceDetails)
 			if err != nil {
 				log.Error().Msgf("Failed to update package %s: %v", pkg.ID, err)
@@ -561,6 +578,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	exe := cpi.InitHTTPExecuter(serviceDetails)
 	synchroniser := artifactsync.New(exe)
 	synchroniser.Baseline, synchroniser.VerifyDownload = upload.baseline, upload.verifyDownload
+	synchroniser.DryRun = upload.plan != nil
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
@@ -673,6 +691,16 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 				stats.ComparedWithSnapshot++
 			case "download":
 				stats.DownloadedForComparison++
+			}
+			if upload.plan != nil {
+				upload.plan.upsert(finalArtifactID, func(it *PlanItem) {
+					it.Package, it.Type = finalPackageID, artifactType
+					it.Upload = map[string]string{"CREATED": "create", "UPDATED": "update", "UNCHANGED": "unchanged"}[outcome.Action]
+					it.Compared, it.Designtime, it.VersionRule = outcome.Compared, outcome.Version, outcome.VersionRule
+					if err != nil {
+						it.Upload, it.Error = "fails", err.Error()
+					}
+				})
 			}
 			if err == nil {
 				if outcome.Action == "UNCHANGED" {
@@ -811,6 +839,8 @@ type orchestratorResult struct {
 	Mode        string           `json:"mode"`
 	Stats       *ProcessingStats `json:"stats"`
 	Deployments []ops.Result     `json:"deployments"`
+	// Plan lists per artifact what would be done (--plan).
+	Plan []PlanItem `json:"plan,omitempty"`
 }
 
 // uploadOptions are the settings of the update phase.
@@ -820,6 +850,120 @@ type uploadOptions struct {
 	// every existing artifact for the comparison).
 	baseline       *artifactsync.SnapshotState
 	verifyDownload bool
+	// plan collects what would be done (--plan); nil: do it.
+	plan *planCollector
+}
+
+// PlanItem is what the orchestrator would do with one artifact.
+type PlanItem struct {
+	Package  string `json:"package,omitempty"`
+	Artifact string `json:"artifact"`
+	Type     string `json:"type,omitempty"`
+	// Upload is create, update, unchanged, fails (see error) or empty (not
+	// synchronised).
+	Upload   string `json:"upload,omitempty"`
+	Compared string `json:"compared,omitempty"`
+	// Designtime is the designtime version after the upload.
+	Designtime    string `json:"designtime,omitempty"`
+	VersionRule   string `json:"versionRule,omitempty"`
+	Running       string `json:"running,omitempty"`
+	RuntimeStatus string `json:"runtimeStatus,omitempty"`
+	Deploy        bool   `json:"deploy"`
+	Reason        string `json:"reason,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+type planCollector struct {
+	items []PlanItem
+	index map[string]int
+}
+
+func (p *planCollector) upsert(id string, f func(*PlanItem)) {
+	i, ok := p.index[id]
+	if !ok {
+		i = len(p.items)
+		p.index[id] = i
+		p.items = append(p.items, PlanItem{Artifact: id})
+	}
+	f(&p.items[i])
+}
+
+// planDeployments predicts the deployment of each task (read only).
+func planDeployments(tasks []DeploymentTask, plan *planCollector, serviceDetails *cpi.ServiceDetails) {
+	exe := cpi.InitHTTPExecuter(serviceDetails)
+	rt := cpi.NewRuntime(exe)
+	for _, t := range tasks {
+		plan.upsert(t.ArtifactID, func(it *PlanItem) {
+			it.Package = cmp.Or(it.Package, t.PackageID)
+			if it.Upload == "fails" {
+				it.Reason = "not deployed: the upload fails"
+				return
+			}
+			version := it.Designtime
+			if it.Upload == "" { // not synchronised: the tenant's designtime version
+				typ := mapArtifactTypeForSync(t.ArtifactType)
+				it.Type = cmp.Or(it.Type, typ)
+				v, _, exists, err := cpi.NewDesigntimeArtifact(typ, exe).Get(t.ArtifactID, "active")
+				if err != nil {
+					it.Error = err.Error()
+					return
+				}
+				if !exists {
+					it.Error = "designtime artifact does not exist"
+					return
+				}
+				version = v
+				it.Designtime = v
+			}
+			running, err := rt.GetArtifact(t.ArtifactID)
+			if err != nil {
+				it.Error = err.Error()
+				return
+			}
+			if running != nil {
+				it.Running, it.RuntimeStatus = running.Version, running.Status
+			}
+			changed := it.Upload == "create" || it.Upload == "update"
+			var refused bool
+			it.Deploy, it.Reason, refused = ops.DeployDecision(running, version, changed, t.Versioning, t.AllowDowngrade)
+			if refused {
+				it.Error = it.Reason
+			} else if t.Force {
+				it.Deploy, it.Reason = true, "configuration changed: deployed again"
+			} else if t.ExpectedVersion != "" && version != "" && version != t.ExpectedVersion {
+				it.Deploy, it.Error = false, fmt.Sprintf("refused: designtime %s is not the repository's Bundle-Version %s", version, t.ExpectedVersion)
+			}
+		})
+	}
+}
+
+// logPlan prints the plan and returns an error when anything would fail.
+func logPlan(items []PlanItem) error {
+	uploads, deploys, failures := 0, 0, 0
+	for _, it := range items {
+		if it.Upload == "create" || it.Upload == "update" {
+			uploads++
+		}
+		if it.Deploy {
+			deploys++
+		}
+		what := cmp.Or(it.Upload, "-")
+		dep := "no deploy"
+		if it.Deploy {
+			dep = "DEPLOY"
+		}
+		ev := log.Info()
+		if it.Error != "" {
+			failures++
+			ev = log.Error()
+		}
+		ev.Msgf("[PLAN] %-40s upload: %-9s %-9s %s%s", it.Artifact, what, dep, it.Reason, map[bool]string{true: " ❌ " + it.Error, false: ""}[it.Error != ""])
+	}
+	log.Info().Msgf("[PLAN] %d artifact(s): %d upload(s), %d deployment(s), %d failure(s)", len(items), uploads, deploys, failures)
+	if failures > 0 {
+		return output.Failed(fmt.Errorf("plan: %d artifact(s) would fail", failures))
+	}
+	return nil
 }
 
 // loadBaseline reads the snapshot state used instead of downloads: the

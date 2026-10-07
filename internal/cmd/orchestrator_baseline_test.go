@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,4 +131,79 @@ func TestOrchestratorComparesWithSnapshot(t *testing.T) {
 	r = runMain(t, append([]string{"orchestrator", "--packages-dir", repo, "--deploy-config", cfg, "--update-only",
 		"--snapshot-state", filepath.Join(repo, "nope.json")}, basicAuth(mock)...)...)
 	assert.Equal(t, 2, r.code)
+}
+
+// --plan writes nothing and says per artifact what would be uploaded and
+// deployed, and why.
+func TestOrchestratorPlan(t *testing.T) {
+	modified := time.Now().Add(-time.Hour).Truncate(time.Second)
+	flow := func(id string, rt *cpitest.Runtime) *cpitest.Artifact {
+		return &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.5", Package: "Pkg", Name: id, ModifiedAt: modified,
+			Zip: namedFlowZip(t, id, "v1"), Runtime: rt}
+	}
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Same":    flow("Same", &cpitest.Runtime{Version: "1.0.5", Status: "STARTED"}),
+		"Changed": flow("Changed", &cpitest.Runtime{Version: "1.0.5", Status: "STARTED"}),
+		"Older":   flow("Older", &cpitest.Runtime{Version: "1.0.4", Status: "STARTED"}),
+		"Error":   flow("Error", &cpitest.Runtime{Version: "1.0.5", Status: "ERROR"}),
+		"Idle":    flow("Idle", nil),
+		"New":     {Type: "Integration"},
+	})
+	mock.Packages = []cpitest.Package{{ID: "Pkg", Version: "1.0.0"}}
+	repo := t.TempDir()
+	r := runMain(t, append([]string{"snapshot", "--dir-git-repo", repo, "--dir-work", t.TempDir(), "--git-skip-commit",
+		"--sync-package-details=false"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "Pkg", "Changed", "src", "main", "resources", "script", "s.groovy"), []byte("v2"), 0o644))
+	// a new flow, only in the repository
+	newDir := filepath.Join(repo, "Pkg", "New")
+	require.NoError(t, os.MkdirAll(newDir, 0o755))
+	zipPath := filepath.Join(t.TempDir(), "new.zip")
+	require.NoError(t, os.WriteFile(zipPath, namedFlowZip(t, "New", "v1"), 0o644))
+	require.NoError(t, file.UnzipSource(zipPath, newDir))
+
+	var artifacts string
+	for _, id := range []string{"Same", "Changed", "Older", "Error", "Idle", "New"} {
+		artifacts += "      - {artifactId: " + id + ", artifactDir: " + id + ", type: IntegrationFlow}\n"
+	}
+	cfg := filepath.Join(t.TempDir(), "deploy.yml")
+	require.NoError(t, os.WriteFile(cfg, []byte("packages:\n  - integrationSuiteId: Pkg\n    packageDir: Pkg\n    artifacts:\n"+artifacts), 0o644))
+
+	before := len(mock.Requests())
+	r = runMain(t, append([]string{"orchestrator", "--packages-dir", repo, "--deploy-config", cfg, "--plan", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	for _, req := range mock.Requests()[before:] {
+		assert.Regexp(t, `^GET `, req, "plan only reads")
+	}
+	var env struct {
+		Result orchestratorResult `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env))
+	plan := map[string]PlanItem{}
+	for _, it := range env.Result.Plan {
+		plan[it.Artifact] = it
+	}
+	require.Len(t, plan, 6)
+	assert.Equal(t, "unchanged", plan["Same"].Upload)
+	assert.False(t, plan["Same"].Deploy, plan["Same"].Reason)
+	assert.Equal(t, "update", plan["Changed"].Upload)
+	assert.True(t, plan["Changed"].Deploy)
+	assert.Contains(t, plan["Changed"].Reason, "content changed, same version")
+	assert.True(t, plan["Older"].Deploy)
+	assert.Contains(t, plan["Older"].Reason, "running 1.0.4")
+	assert.True(t, plan["Error"].Deploy)
+	assert.Contains(t, plan["Error"].Reason, "ERROR")
+	assert.True(t, plan["Idle"].Deploy)
+	assert.Equal(t, "not deployed yet", plan["Idle"].Reason)
+	assert.Equal(t, "create", plan["New"].Upload)
+	assert.True(t, plan["New"].Deploy)
+	for _, it := range plan {
+		assert.Equal(t, 0, mock.Artifacts[it.Artifact].Uploads)
+	}
+
+	// versioning manifest: same Bundle-Version with new content is refused
+	r = runMain(t, append([]string{"orchestrator", "--packages-dir", repo, "--deploy-config", cfg, "--plan", "--versioning", "manifest",
+		"--artifact-filter", "Changed"}, basicAuth(mock)...)...)
+	assert.Equal(t, 5, r.code, r.stderr)
+	assert.Contains(t, r.stderr, "raise Bundle-Version")
 }

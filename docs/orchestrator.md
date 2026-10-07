@@ -76,6 +76,7 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--deploy-delay` | `15` | Seconds between status checks |
 | `--keep-temp` | `false` | Keep the temporary working directory |
 | `--snapshot-state` | `.cpi/snapshot-state.json` (current directory, else above `--packages-dir`) | Snapshot state to compare with instead of downloading; `off` always downloads |
+| `--plan` | `false` | Only report per artifact what would be uploaded and deployed, and why; nothing is written |
 | `--verify-download` | `false` | Download every existing artifact for the comparison anyway |
 
 All of these can be set in the global config file under `orchestrator:` (camelCase keys, e.g.
@@ -99,6 +100,29 @@ artifact whose runtime version already equals the designtime version is skipped.
 
 With `--output json` the result contains the statistics and one deployment result per
 artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
+
+### Plan
+
+`--plan` runs the comparison of phase 1 and the version checks of phase 2 without writing
+anything (only GET requests). Per artifact:
+
+| Field | Values |
+|-------|--------|
+| `upload` | `create`, `update`, `unchanged`, `fails` (see `error`) |
+| `compared` | `snapshot` or `download` (see below) |
+| `designtime` | the designtime version after the upload (versioning mode applied) |
+| `running`, `runtimeStatus` | what runs now |
+| `deploy`, `reason` | whether phase 2 would deploy, e.g. `not deployed yet`, `designtime 1.0.6, running 1.0.5`, `content changed, same version 1.0.5: undeployed and deployed again`, `running 1.0.5 already (STARTED)` |
+
+```bash
+cpictl orchestrator -d ./packages -c ./001-deploy-config.yml --plan --output json \
+  | jq '.result.plan[] | select(.upload != "unchanged" or .deploy)'
+```
+
+Anything that would fail (a refused version, a missing `Bundle-Version` in `manifest` mode) is
+listed with `error` and gives exit code 5, so a pipeline can stop before changing the tenant.
+`configure --plan` (same as `--dry-run`) reports the same for parameters, and the MCP tools
+`upload_artifact` and `deploy` take `dry_run`.
 
 ### Comparison without downloads
 

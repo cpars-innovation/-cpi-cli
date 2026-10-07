@@ -828,6 +828,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				"type":        enum("Artifact type", cpi.ArtifactTypes...),
 				"package_id":  str("Integration package ID (must exist)"),
 				"dir":         str("Local artifact directory, relative to the server root"),
+				"dry_run":     boolean("Only compare with the tenant and report what the upload would do (action, version); nothing is written"),
 			}, "artifact_id", "type", "package_id", "dir"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -837,6 +838,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					Type       string `json:"type"`
 					PackageID  string `json:"package_id"`
 					Dir        string `json:"dir"`
+					DryRun     bool   `json:"dry_run"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -845,7 +847,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning})
+				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning, DryRun: a.DryRun})
 			},
 		},
 		{
@@ -858,6 +860,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				"allow_downgrade":       boolean("Deploy even if the designtime version is older than the running one (default false: such a deploy FAILS before it is triggered, because the tenant copy was probably not updated)"),
 				"poll_interval_seconds": integer("Seconds between status checks"),
 				"max_checks":            integer("Maximum number of status checks per artifact"),
+				"dry_run":               boolean("Only predict per artifact whether it would be deployed and why (designtime vs. running version and status); nothing is triggered"),
 			}, "artifact_ids"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -868,6 +871,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					AllowDowngrade  bool     `json:"allow_downgrade"`
 					PollInterval    *int     `json:"poll_interval_seconds"`
 					MaxChecks       *int     `json:"max_checks"`
+					DryRun          bool     `json:"dry_run"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -881,6 +885,10 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				}
 				if !cpi.IsValidArtifactType(a.ArtifactType) {
 					return nil, output.Usagef("invalid artifact_type %q (valid: %s)", a.ArtifactType, strings.Join(cpi.ArtifactTypes, ", "))
+				}
+				if a.DryRun {
+					plan, err := ops.PlanDeploy(cfg.Exe, a.ArtifactType, ids, cfg.Versioning, a.AllowDowngrade)
+					return map[string]any{"plan": plan}, err
 				}
 				artifacts := make([]ops.Artifact, 0, len(ids))
 				for _, id := range ids {
