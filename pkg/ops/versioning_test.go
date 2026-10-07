@@ -150,3 +150,69 @@ func TestExportKeepsRepositoryVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "1.0.17", versionOf(t, dl))
 }
+
+func TestVersioningManifestEdgeCases(t *testing.T) {
+	upload := func(mock *cpitest.Tenant, dir string) (*UploadResult, error) {
+		return UploadArtifact(mock.Executer(), UploadRequest{ID: "OrderIntake", Type: "Integration", PackageID: "Orders", Dir: dir, Versioning: versioning.Manifest})
+	}
+	t.Run("same version, different content: bump requested, nothing written", func(t *testing.T) {
+		for _, tc := range []struct{ designtime, runtime string }{{"1.0.15", "1.0.14"}, {"1.0.14", "1.0.15"}} {
+			mock, dir := versionedTenant(t, tc.designtime, tc.runtime, "1.0.15", "v2")
+			_, err := upload(mock, dir)
+			require.Error(t, err, tc)
+			assert.Contains(t, err.Error(), "equals the tenant's version")
+			assert.Contains(t, err.Error(), "cpictl version bump --changed")
+			assert.Equal(t, 1, mock.Artifacts["OrderIntake"].Uploads, "only the seed upload")
+			assert.Empty(t, mock.Artifacts["OrderIntake"].SavedVersions)
+		}
+	})
+	t.Run("order: content, version, verification", func(t *testing.T) {
+		mock, dir := versionedTenant(t, "1.0.13", "1.0.15", "1.0.16", "v2")
+		before := len(mock.Requests())
+		_, err := upload(mock, dir)
+		require.NoError(t, err)
+		var seq []string
+		for _, r := range mock.Requests()[before:] {
+			switch {
+			case r == "PUT /api/v1/IntegrationDesigntimeArtifacts(Id='OrderIntake',Version='active')":
+				seq = append(seq, "content")
+			case r == "POST /api/v1/IntegrationDesigntimeArtifactSaveAsVersion":
+				seq = append(seq, "version")
+			case r == "GET /api/v1/IntegrationDesigntimeArtifacts(Id='OrderIntake',Version='active')" && len(seq) > 0 && seq[len(seq)-1] == "version":
+				seq = append(seq, "verify")
+			}
+		}
+		assert.Equal(t, []string{"content", "version", "verify"}, seq)
+	})
+	t.Run("lower than the designtime version: accepted and verified", func(t *testing.T) {
+		mock, dir := versionedTenant(t, "1.0.20", "1.0.15", "1.0.16", "v2")
+		up, err := upload(mock, dir)
+		require.NoError(t, err)
+		assert.Equal(t, "1.0.16", up.Version)
+		assert.Equal(t, "manifest", up.VersionRule)
+	})
+	t.Run("lower than the designtime version: refused by the tenant", func(t *testing.T) {
+		mock, dir := versionedTenant(t, "1.0.20", "1.0.15", "1.0.16", "v2")
+		mock.Artifacts["OrderIntake"].SaveAsVersionRejectsLower = true
+		up, err := upload(mock, dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "refused to set OrderIntake to 1.0.16, below its designtime version 1.0.20: raise Bundle-Version above 1.0.20")
+		assert.Equal(t, "guard", up.VersionRule)
+	})
+	t.Run("SaveAsVersion without effect is caught by the verification", func(t *testing.T) {
+		mock, dir := versionedTenant(t, "1.0.13", "1.0.15", "1.0.16", "v2")
+		mock.Artifacts["OrderIntake"].SaveAsVersionIgnored = true
+		_, err := upload(mock, dir)
+		assert.ErrorContains(t, err, "was saved as version 1.0.16 but the tenant reports 1.0.13")
+	})
+	t.Run("deploy refuses a designtime version that is not the repository's", func(t *testing.T) {
+		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1.0.13"}})
+		opts := fastOpts()
+		opts.Versioning = versioning.Manifest
+		res := Deploy(context.Background(), NewTenant(mock.Executer()), []Artifact{{ID: "A", Type: "Integration", ExpectedVersion: "1.0.16"}}, opts)
+		assert.Equal(t, StatusFailed, res[0].Status)
+		assert.Equal(t, RuleGuard, res[0].Rule)
+		assert.Contains(t, res[0].Error, "is not the repository's Bundle-Version 1.0.16")
+		assert.Equal(t, 0, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+	})
+}

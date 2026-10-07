@@ -386,6 +386,9 @@ type UploadOutcome struct {
 	VersionReason string `json:"versionReason,omitempty"`
 	// VersionSet is true when the designtime version was set (SaveAsVersion).
 	VersionSet bool `json:"versionSet,omitempty"`
+	// VersionRule is the rule that chose the version: manifest, bump, keep,
+	// tenant (no mode) or guard (refused).
+	VersionRule string `json:"versionRule,omitempty"`
 }
 
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
@@ -453,6 +456,21 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 			return outcome, err
 		}
 
+		if changesFound && s.Versioning == versioning.Manifest {
+			// same version, different content: refuse before anything is written
+			running := ""
+			if rt, err := cpi.NewRuntime(s.exe).GetArtifact(artifactId); err != nil {
+				return outcome, err
+			} else if rt != nil {
+				running = rt.Version
+			}
+			if repoVersion == designtimeBefore || repoVersion == running {
+				outcome.VersionRule = versioning.RuleGuard
+				return outcome, fmt.Errorf("versioning manifest: the content of %v differs from the tenant's, but Bundle-Version %v equals the tenant's version (designtime %v, running %v): raise Bundle-Version in the repository (cpictl version bump --changed)",
+					artifactId, repoVersion, designtimeBefore, orNone(running))
+			}
+		}
+
 		if changesFound {
 			log.Info().Msg("Changes found in designtime artifact. Designtime artifact will be updated in CPI tenant")
 			err = prepareUploadDir(workDir, artifactDir, dt)
@@ -514,8 +532,27 @@ func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, de
 	outcome.Version = current
 	setVersion := func(version, reason string) error {
 		if version != current {
+			lower := versioning.Compare(version, current) < 0
+			if lower {
+				log.Warn().Str("artifact", artifactId).Msgf("Lowering the designtime version of %v from %v to %v", artifactId, current, version)
+			}
 			if err := cpi.SaveAsVersion(s.exe, artifactType, artifactId, version); err != nil {
+				outcome.VersionRule = versioning.RuleGuard
+				if lower {
+					return fmt.Errorf("versioning %s: the tenant refused to set %v to %v, below its designtime version %v: raise Bundle-Version above %v: %w",
+						s.Versioning, artifactId, version, current, current, err)
+				}
 				return fmt.Errorf("versioning %s: cannot set %v to %v: %w", s.Versioning, artifactId, version, err)
+			}
+			// verify: the deployment must use exactly this version
+			got, _, _, err := cpi.NewDesigntimeArtifact(artifactType, s.exe).Get(artifactId, "active")
+			if err != nil {
+				return err
+			}
+			if got != version {
+				outcome.VersionRule = versioning.RuleGuard
+				return fmt.Errorf("versioning %s: %v was saved as version %v but the tenant reports %v%s", s.Versioning, artifactId, version, got,
+					map[bool]string{true: " (the tenant may not allow a version below the current one)", false: ""}[lower])
 			}
 			outcome.VersionSet = true
 		}
@@ -525,6 +562,7 @@ func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, de
 
 	switch s.Versioning {
 	case versioning.Manifest:
+		outcome.VersionRule = versioning.RuleManifest
 		reason := "manifest: Bundle-Version of the repository"
 		if current != repoVersion {
 			reason += fmt.Sprintf(" (tenant had %s)", current)
@@ -533,6 +571,7 @@ func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, de
 			return err
 		}
 	case versioning.TenantBump:
+		outcome.VersionRule = versioning.RuleBump
 		if !contentChanged {
 			outcome.VersionReason = "tenant-bump: content unchanged, version kept"
 			break
@@ -556,11 +595,12 @@ func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, de
 			return err
 		}
 	case versioning.Keep:
-		outcome.VersionReason = "keep: the tenant's version"
+		outcome.VersionRule, outcome.VersionReason = versioning.RuleKeep, "keep: the tenant's version"
 	default:
-		outcome.VersionReason = "no versioning mode: the tenant's version"
+		outcome.VersionRule, outcome.VersionReason = versioning.RuleTenant, "no versioning mode: the tenant's version"
 	}
-	log.Info().Str("artifact", artifactId).Str("version", outcome.Version).Msgf("Version of %v: %v (%v)", artifactId, outcome.Version, outcome.VersionReason)
+	log.Info().Str("artifact", artifactId).Str("version", outcome.Version).Str("rule", outcome.VersionRule).
+		Msgf("Version of %v: %v (rule %v: %v)", artifactId, outcome.Version, outcome.VersionRule, outcome.VersionReason)
 	return nil
 }
 

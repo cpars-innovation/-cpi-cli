@@ -205,7 +205,7 @@ func TestConfigureDowngrade(t *testing.T) {
 		assert.Equal(t, "FAILED", res["Stale"]["status"])
 		assert.Equal(t, "version", res["Stale"]["rule"])
 		assert.Contains(t, res["Stale"]["error"], "allowDowngrade: true")
-		assert.Contains(t, r.stderr, "[rule: modified after deployment]", "the rule is on the artifact's log line")
+		assert.Contains(t, r.stderr, "[rule: modified after deployment: designtime 1.0.13 lower than running 1.0.15", "rule and reason are on the artifact's log line")
 	})
 
 	t.Run("allowDowngrade in the file: artifact wins over package", func(t *testing.T) {
@@ -287,7 +287,7 @@ func TestConfigureVersioning(t *testing.T) {
 	assert.Equal(t, "FAILED", res["Strict"]["status"], "manifest: the version decides, not the timestamps")
 	assert.Equal(t, "manifest", res["Strict"]["versioning"])
 	assert.Equal(t, "DEPLOYED", res["Loose"]["status"], "keep on the artifact wins")
-	assert.Equal(t, "versioning keep", res["Loose"]["rule"])
+	assert.Equal(t, "keep", res["Loose"]["rule"])
 	assert.NotContains(t, res, "Bad")
 	assert.Contains(t, r.stderr, `invalid versioning \"sometimes\"`)
 

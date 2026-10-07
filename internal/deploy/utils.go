@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 )
 
 // FileExists checks if a file exists
@@ -71,66 +73,28 @@ func CopyDir(src, dst string) error {
 	})
 }
 
-// UpdateManifestBundleName updates the Bundle-Name and Bundle-SymbolicName in MANIFEST.MF
+// UpdateManifestBundleName sets Bundle-SymbolicName and Bundle-Name in
+// MANIFEST.MF and writes the result to outputPath. Attributes of the symbolic
+// name (e.g. "; singleton:=true") and all other headers (Bundle-Version, ...)
+// are kept; values are wrapped at 72 bytes and continuation lines of the old
+// values are removed.
 func UpdateManifestBundleName(manifestPath, bundleSymbolicName, bundleName, outputPath string) error {
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("failed to read MANIFEST.MF: %w", err)
 	}
-
-	// Detect line ending style (CRLF or LF)
-	lineEnding := "\n"
-	if strings.Contains(string(data), "\r\n") {
-		lineEnding = "\r\n"
+	symbolic := bundleSymbolicName
+	if _, attrs, ok := strings.Cut(manifest.Parse(data)["Bundle-SymbolicName"], ";"); ok && !strings.Contains(bundleSymbolicName, ";") {
+		symbolic += ";" + attrs
 	}
+	out := manifest.SetHeaders(data, map[string]string{"Bundle-SymbolicName": symbolic, "Bundle-Name": bundleName})
 
-	// Split lines
-	content := string(data)
-	lines := strings.Split(content, lineEnding)
-
-	var result []string
-	bundleNameFound := false
-	bundleSymbolicNameFound := false
-
-	for _, line := range lines {
-		trimmedLower := strings.ToLower(strings.TrimSpace(line))
-
-		if strings.HasPrefix(trimmedLower, "bundle-name:") {
-			result = append(result, fmt.Sprintf("Bundle-Name: %s", bundleName))
-			bundleNameFound = true
-		} else if strings.HasPrefix(trimmedLower, "bundle-symbolicname:") {
-			result = append(result, fmt.Sprintf("Bundle-SymbolicName: %s", bundleSymbolicName))
-			bundleSymbolicNameFound = true
-		} else {
-			result = append(result, line)
-		}
-	}
-
-	// Add Bundle-Name if not found
-	if !bundleNameFound {
-		result = append(result, fmt.Sprintf("Bundle-Name: %s", bundleName))
-	}
-
-	// Add Bundle-SymbolicName if not found
-	if !bundleSymbolicNameFound {
-		result = append(result, fmt.Sprintf("Bundle-SymbolicName: %s", bundleSymbolicName))
-	}
-
-	// Write to output path with original line endings and ensure final newline
-	finalContent := strings.Join(result, lineEnding)
-	if !strings.HasSuffix(finalContent, lineEnding) {
-		finalContent += lineEnding
-	}
-
-	// Create directory if needed
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
-
-	if err := os.WriteFile(outputPath, []byte(finalContent), 0644); err != nil {
+	if err := os.WriteFile(outputPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write MANIFEST.MF: %w", err)
 	}
-
 	return nil
 }
 

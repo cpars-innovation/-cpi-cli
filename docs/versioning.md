@@ -20,15 +20,49 @@ The mode is set per pipeline (or per branch) with `--versioning` or the environm
 
 | Mode | Upload | Deploy (designtime version lower than running) |
 |------|--------|-----------------------------------------------|
-| `manifest` | The designtime version becomes `Bundle-Version` of the repository. Upload fails without one. | `FAILED`: raise the version in the repository. Only `allowDowngrade` overrides it. |
+| `manifest` | Content first, then the designtime version is set to `Bundle-Version` of the repository (`SaveAsVersion` when it differs) and read back. Refused: no `Bundle-Version`; content that differs from the tenant's while `Bundle-Version` equals the tenant's designtime or running version (bump it). | `FAILED` (rule `guard`): raise the version in the repository. Only `allowDowngrade` overrides it. The orchestrator also refuses a designtime version other than the directory's `Bundle-Version`. |
 | `keep` | The tenant keeps its versions (as before). | Deployed: no guard. |
 | `tenant-bump` | For repositories without versions: every upload that changes content sets `max(designtime, runtime) + 1` (patch). | `FAILED` (cannot happen after a bump). |
 | not set | The tenant keeps its versions. | `FAILED` unless the designtime artifact was changed after the running deployment ([configure.md](configure.md#older-designtime-versions)). |
 
-Every artifact logs the version it got and why, on upload
-(`Version of X: 1.0.16 (manifest: Bundle-Version of the repository (tenant had 1.0.15))`,
-JSON `version`, `versionReason`, `versionSet`) and on deploy
-(`Deploying artifact X with version 1.0.16 (versioning manifest)`, JSON `versioning`, `rule`).
+Every artifact logs the version it got, the rule and the reason, on upload
+(`Version of X: 1.0.16 (rule manifest: manifest: Bundle-Version of the repository (tenant had 1.0.13))`,
+JSON `version`, `versionRule`, `versionReason`, `versionSet`) and on deploy
+(`X: DEPLOYED [rule: manifest: designtime 1.0.16 higher than running 1.0.15]`, JSON `versioning`,
+`rule`, `reason`).
+
+| Rule | Upload | Deploy |
+|------|--------|--------|
+| `manifest` | the repository's `Bundle-Version` | not lower than the running version |
+| `bump` | `max(designtime, runtime) + 1` | as `manifest` |
+| `keep` | the tenant's version | no guard |
+| `tenant` | no mode: the tenant's version | (no mode: `version`, `modified after deployment`, `allowDowngrade`) |
+| `guard` | refused (see the reason) | refused: lower than running, or not the repository's version |
+| `allowDowngrade` | | a lower version allowed explicitly |
+
+### Setting the version on the tenant
+
+The tenant ignores `Bundle-Version` of an uploaded manifest (verified on the ENBW test tenant:
+an upload with `1.0.0` left the designtime at `1.0.13`). cpictl therefore calls
+`IntegrationDesigntimeArtifactSaveAsVersion` after the content update and reads the version back;
+a tenant that reports another version fails the artifact. Not verified on a real tenant yet:
+
+- **Lower than the current designtime version** (designtime `1.0.20`, repository `1.0.16`): cpictl
+  warns (`Lowering the designtime version ...`) and tries. If the tenant refuses, or keeps its
+  version, the artifact fails with *raise Bundle-Version above 1.0.20*. Designtime numbers that
+  were assigned arbitrarily before can make this necessary once.
+- **Equal**: nothing is called.
+
+### Multi-deploy (orchestrator)
+
+One artifact directory deployed as several artifact IDs (`deploymentPrefix`, several entries with
+the same `artifactDir`): each final ID is uploaded from its own copy, whose manifest gets the
+final `Bundle-SymbolicName` (attributes such as `; singleton:=true` are kept) and `Bundle-Name`;
+`Bundle-Version` and all other headers stay. All variants therefore share the directory's version,
+and in `manifest` mode each variant deploys exactly that version.
+
+The mode can also be a top-level `versioning:` key in `cpictl.yaml` (like every flag), but for a
+repository that is merged between branches the pipeline variable is the right place.
 
 ### Per package or artifact
 
@@ -104,8 +138,8 @@ version that is lower than the running one then always means stale content, and
   public API offers for integration flows. For message mappings, value mappings and script
   collections, `manifest` and `tenant-bump` work only if the tenant takes the version from the
   uploaded manifest; otherwise the upload reports that the version cannot be set.
-- Whether the tenant takes `Bundle-Version` from an uploaded manifest by itself is not assumed:
-  cpictl reads the designtime version after the upload and sets it when it differs.
-- Content changes without a version bump in `manifest` mode: the upload warns
-  (`run 'cpictl version bump --changed'`) and, as before, undeploys the running artifact with
-  the same version so that the new content is deployed.
+- The tenant does not take `Bundle-Version` from an uploaded manifest (ENBW test tenant); cpictl
+  reads the designtime version after the upload and sets it when it differs.
+- Content changes without a version bump: in `manifest` mode the upload is refused (rule `guard`,
+  *raise Bundle-Version ...*); in the other modes a running artifact with the same version is
+  undeployed so that the new content is deployed, as before.

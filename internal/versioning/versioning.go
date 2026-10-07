@@ -28,6 +28,15 @@ const (
 	TenantBump Mode = "tenant-bump"
 )
 
+// Rules name what decided a version, in upload and deploy results and logs.
+const (
+	RuleManifest = "manifest" // the repository's Bundle-Version
+	RuleBump     = "bump"     // tenant-bump: max(designtime, runtime)+1
+	RuleKeep     = "keep"     // the tenant's version, no guard
+	RuleTenant   = "tenant"   // no mode: the tenant's version
+	RuleGuard    = "guard"    // refused
+)
+
 // Modes are the valid values.
 var Modes = []Mode{Manifest, Keep, TenantBump}
 

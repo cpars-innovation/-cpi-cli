@@ -61,8 +61,6 @@ func UploadArtifact(exe *httpclnt.HTTPExecuter, req UploadRequest) (*UploadResul
 	syncer := sync.New(exe)
 	syncer.Versioning = req.Versioning
 	outcome, err := syncer.UploadArtifact(req.ID, req.Name, req.Type, req.PackageID, req.Dir, workDir, "", nil)
-	if err != nil {
-		return nil, err
-	}
-	return &UploadResult{ID: req.ID, PackageID: req.PackageID, UploadOutcome: outcome}, nil
+	// the outcome (versionRule, version) is returned with the error as well
+	return &UploadResult{ID: req.ID, PackageID: req.PackageID, UploadOutcome: outcome}, err
 }

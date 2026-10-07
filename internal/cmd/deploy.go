@@ -117,6 +117,10 @@ func logResults(results []ops.Result) {
 		if r.Rule != "" {
 			event = event.Str("rule", r.Rule)
 			rule = " [rule: " + r.Rule + "]"
+			if r.Reason != "" {
+				event = event.Str("reason", r.Reason)
+				rule = " [rule: " + r.Rule + ": " + r.Reason + "]"
+			}
 		}
 		if r.Versioning != "" {
 			event = event.Str("versioning", r.Versioning)

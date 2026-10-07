@@ -50,6 +50,10 @@ type Artifact struct {
 	AllowDowngrade bool
 	// Versioning overrides Options.Versioning for this artifact.
 	Versioning versioning.Mode
+	// ExpectedVersion, when set, is the version the designtime artifact must
+	// have (the repository's Bundle-Version after a manifest upload); any
+	// other version is refused.
+	ExpectedVersion string
 	// ModifiedAt, when set, is the designtime artifact's last change as the
 	// caller saw it (configure reads it before writing parameters, which may
 	// count as a change); nil: read it from the tenant before the deployment.
@@ -70,7 +74,14 @@ const (
 	// RuleAllowDowngrade: allowed explicitly.
 	RuleAllowDowngrade = "allowDowngrade"
 	// RuleKeep: versioning keep, no downgrade guard.
-	RuleKeep = "versioning keep"
+	RuleKeep = versioning.RuleKeep
+	// RuleManifest: versioning manifest, the repository's version is
+	// deployed (not lower than the running one).
+	RuleManifest = versioning.RuleManifest
+	// RuleBump: versioning tenant-bump.
+	RuleBump = versioning.RuleBump
+	// RuleGuard: refused (a lower version, or not the repository's).
+	RuleGuard = versioning.RuleGuard
 )
 
 // Result is the structured outcome for one artifact.
@@ -89,6 +100,8 @@ type Result struct {
 	// running one (RuleVersion, RuleModifiedAfterDeployment,
 	// RuleAllowDowngrade); empty when nothing was running.
 	Rule string `json:"rule,omitempty"`
+	// Reason explains the rule (versions compared).
+	Reason string `json:"reason,omitempty"`
 	// Versioning is the versioning mode the artifact was deployed with.
 	Versioning string `json:"versioning,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -263,28 +276,12 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	r.Versioning = string(mode)
 	if before != nil {
 		r.RuntimeVersion = before.Version
-		r.Rule = RuleVersion
-		if before.Version != "" && CompareVersions(version, before.Version) < 0 {
-			var reason string
-			switch {
-			case mode == versioning.Keep:
-				r.Rule = RuleKeep
-			case opts.AllowDowngrade || a.AllowDowngrade:
-				r.Rule = RuleAllowDowngrade
-			case mode == versioning.Manifest || mode == versioning.TenantBump:
-				// the repository's version is the truth: no timestamp exception
-				return fail(r, fmt.Errorf("designtime version %s is lower than running %s (versioning %s; raise Bundle-Version in the repository, e.g. cpictl version bump, or set allowDowngrade: true on the artifact or package)",
-					version, before.Version, mode))
-			default:
-				r.Rule, reason = downgradeRule(tenant, a, before, opts)
-			}
-			if r.Rule == RuleVersion {
-				return fail(r, fmt.Errorf("designtime version %s is older than running %s%s (allow with allowDowngrade: true on the artifact or package in the configure file, --allow-downgrade, or allow_downgrade)",
-					version, before.Version, reason))
-			}
-			logger.Info().Str("rule", r.Rule).Msgf("Designtime version %s is older than running %s; deploying (%s%s)", version, before.Version, r.Rule, reason)
-		}
 	}
+	if err := decideVersion(tenant, a, before, version, mode, opts, &r); err != nil {
+		logger.Error().Str("rule", r.Rule).Msgf("%v: %v", a.ID, r.Reason)
+		return fail(r, err)
+	}
+	logger.Info().Str("rule", r.Rule).Msgf("Version %s of %v: rule %s (%s)", version, a.ID, r.Rule, r.Reason)
 	if opts.CompareVersions && before != nil && before.Status == "STARTED" && before.Version == version {
 		logger.Info().Msgf("Artifact %v with version %v already deployed. Skipping runtime deployment", a.ID, version)
 		r.Status = StatusSkipped
@@ -307,6 +304,77 @@ func versioningNote(mode versioning.Mode) string {
 		return ""
 	}
 	return " (versioning " + string(mode) + ")"
+}
+
+// decideVersion applies the versioning rule to the designtime version that
+// is about to be deployed; it sets r.Rule and r.Reason and returns an error
+// when the deployment is refused.
+func decideVersion(tenant Tenant, a Artifact, before *cpi.RuntimeArtifact, version string, mode versioning.Mode, opts Options, r *Result) error {
+	running := ""
+	if before != nil {
+		running = before.Version
+	}
+	cmp := 1
+	if running != "" {
+		cmp = CompareVersions(version, running)
+	}
+	relation := map[int]string{-1: "lower than", 0: "equal to", 1: "higher than"}[cmp]
+	if running == "" {
+		relation = "not running yet"
+	}
+	allowed := opts.AllowDowngrade || a.AllowDowngrade
+
+	// the repository's version must be what the upload set
+	if a.ExpectedVersion != "" && version != a.ExpectedVersion {
+		r.Rule, r.Reason = RuleGuard, fmt.Sprintf("designtime %s is not the repository's Bundle-Version %s", version, a.ExpectedVersion)
+		return fmt.Errorf("designtime version %s is not the repository's Bundle-Version %s (versioning %s): the upload did not set it", version, a.ExpectedVersion, mode)
+	}
+
+	switch mode {
+	case versioning.Keep:
+		r.Rule, r.Reason = RuleKeep, "versioning keep: no version guard"
+		if running != "" {
+			r.Reason += fmt.Sprintf(" (designtime %s, running %s)", version, running)
+		}
+		return nil
+	case versioning.Manifest, versioning.TenantBump:
+		r.Rule = RuleManifest
+		if mode == versioning.TenantBump {
+			r.Rule = RuleBump
+		}
+		if cmp < 0 {
+			if allowed {
+				r.Rule, r.Reason = RuleAllowDowngrade, fmt.Sprintf("designtime %s %s running %s, allowDowngrade", version, relation, running)
+				return nil
+			}
+			r.Rule, r.Reason = RuleGuard, fmt.Sprintf("designtime %s %s running %s", version, relation, running)
+			return fmt.Errorf("designtime version %s is lower than running %s (versioning %s; raise Bundle-Version in the repository, e.g. cpictl version bump, or set allowDowngrade: true on the artifact or package)",
+				version, running, mode)
+		}
+		if running == "" {
+			r.Reason = fmt.Sprintf("designtime %s, not running yet", version)
+		} else {
+			r.Reason = fmt.Sprintf("designtime %s %s running %s", version, relation, running)
+		}
+		return nil
+	}
+
+	// no versioning mode: the version guard with the timestamp exception
+	if before == nil {
+		return nil
+	}
+	r.Rule, r.Reason = RuleVersion, fmt.Sprintf("designtime %s %s running %s", version, relation, running)
+	if running == "" || cmp >= 0 {
+		return nil
+	}
+	var reason string
+	r.Rule, reason = downgradeRule(tenant, a, before, opts)
+	r.Reason += reason
+	if r.Rule == RuleVersion {
+		return fmt.Errorf("designtime version %s is older than running %s%s (allow with allowDowngrade: true on the artifact or package in the configure file, --allow-downgrade, or allow_downgrade)",
+			version, running, reason)
+	}
+	return nil
 }
 
 // downgradeRule decides about a designtime version that is older than the

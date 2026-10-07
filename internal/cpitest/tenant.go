@@ -40,6 +40,11 @@ type Artifact struct {
 	// SavedVersions records SaveAsVersion calls (the designtime version is
 	// set to each).
 	SavedVersions []string
+	// SaveAsVersionRejectsLower answers 400 to a version lower than the
+	// current designtime version; SaveAsVersionIgnored answers 200 without
+	// changing the version (the real tenant's behaviour is not known).
+	SaveAsVersionRejectsLower bool
+	SaveAsVersionIgnored      bool
 
 	// Runtime is what GET IntegrationRuntimeArtifacts returns before a deploy
 	// is triggered (nil: 404 not deployed).
@@ -1157,8 +1162,15 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			notFound(w)
 			return
 		}
-		a.DesignVersion = version
 		a.SavedVersions = append(a.SavedVersions, version)
+		if a.SaveAsVersionRejectsLower && compareVersions(version, a.DesignVersion) < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": map[string]any{"message": map[string]string{"value": "Version must be higher than the current version"}}})
+			return
+		}
+		if !a.SaveAsVersionIgnored {
+			a.DesignVersion = version
+		}
 		writeJSON(w, map[string]any{"d": map[string]string{"Id": id, "Version": version}})
 
 	case r.Method == http.MethodGet && reDesign.MatchString(path):
@@ -1249,4 +1261,25 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		notFound(w)
 	}
+}
+
+// compareVersions compares dotted numeric versions (-1, 0, 1).
+func compareVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < max(len(as), len(bs)); i++ {
+		x, y := 0, 0
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		switch {
+		case x < y:
+			return -1
+		case x > y:
+			return 1
+		}
+	}
+	return 0
 }

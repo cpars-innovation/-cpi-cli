@@ -20,6 +20,17 @@ All notable changes to cpictl. Coming from FlashPipe? See
   - Export (`sync --target git`, `snapshot`) keeps the repository's `Bundle-Version` (or takes a
     higher designtime version) instead of the download's (usually 1.0.0); `download` writes the
     designtime version. Content comparisons ignore `Bundle-Version`.
+  - `manifest` details: content that differs from the tenant's while `Bundle-Version` equals the
+    tenant's designtime or running version is refused before anything is written (bump it); the
+    version set with SaveAsVersion is read back; a lower target version is attempted with a
+    warning and a refusal is reported with the version to exceed; the orchestrator deploys only
+    the directory's `Bundle-Version` (rule `guard` otherwise).
+  - Rules in upload and deploy results and logs: `manifest`, `bump`, `keep`, `tenant`, `guard`
+    (plus `version`, `modified after deployment`, `allowDowngrade` without a mode), with a reason.
+- Orchestrator multi-deploy: rewriting `Bundle-SymbolicName` for a final artifact ID keeps its
+  attributes (`; singleton:=true` was dropped) and removes continuation lines of the old
+  `Bundle-Name`; values are wrapped at 72 bytes.
+- MCP `upload_artifact` returns the result (version, rule) together with an error.
 
 - Deploy (`deploy`, `configure`, `orchestrator`, MCP `deploy`): a designtime version older than
   the running one is deployed when the designtime artifact was changed after the running version

@@ -489,3 +489,31 @@ func TestFindParametersFile_NotFound(t *testing.T) {
 	expected := filepath.Join(tempDir, "src", "main", "resources", "parameters.prop")
 	assert.Equal(t, expected, result)
 }
+
+// Multi-deploy copies: the symbolic name keeps its attributes, a wrapped old
+// name leaves nothing behind, other headers (Bundle-Version) stay.
+func TestUpdateManifestBundleNameKeepsAttributes(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "MANIFEST.MF")
+	out := filepath.Join(dir, "out", "MANIFEST.MF")
+	require.NoError(t, os.WriteFile(in, []byte("Manifest-Version: 1.0\r\nBundle-SymbolicName: Orders_In; singleton:=true\r\nBundle-Name: Orders inbound with a name long enough to wrap onto t\r\n he next line\r\nBundle-Version: 1.0.16\r\nSAP-BundleType: IntegrationFlow\r\n\r\n"), 0o644))
+
+	long := "DEV_Orders_In " + strings.Repeat("x", 80)
+	require.NoError(t, UpdateManifestBundleName(in, "DEV_Orders_In", long, out))
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	s := string(data)
+	assert.Contains(t, s, "Bundle-SymbolicName: DEV_Orders_In; singleton:=true\r\n")
+	assert.NotContains(t, s, "he next line", "continuation of the old name removed")
+	assert.Contains(t, s, "Bundle-Version: 1.0.16\r\n", "the version is shared by all variants")
+	assert.Contains(t, s, "SAP-BundleType: IntegrationFlow\r\n")
+	for _, line := range strings.Split(s, "\r\n") {
+		assert.LessOrEqual(t, len(line), 72, line)
+	}
+	assert.NotContains(t, strings.ReplaceAll(s, "\r\n", ""), "\n", "line endings kept")
+
+	// an explicit attribute in the new name is used as given
+	require.NoError(t, UpdateManifestBundleName(in, "X; singleton:=false", "X", out))
+	data, _ = os.ReadFile(out)
+	assert.Contains(t, string(data), "Bundle-SymbolicName: X; singleton:=false\r\n")
+}

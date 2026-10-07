@@ -23,6 +23,9 @@ type DeploymentTask struct {
 	AllowDowngrade bool
 	ModifiedAt     *time.Time
 	Versioning     versioning.Mode
+	// ExpectedVersion is the repository's Bundle-Version (versioning
+	// manifest): the deployment refuses any other designtime version.
+	ExpectedVersion string
 }
 
 // deployTasks deploys the tasks of configure and orchestrator through the
@@ -44,7 +47,7 @@ func deployTasks(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []Deploy
 			byPackage[t.PackageID] = g
 		}
 		a := ops.Artifact{ID: t.ArtifactID, Type: mapArtifactTypeForSync(t.ArtifactType), PackageID: t.PackageID,
-			AllowDowngrade: t.AllowDowngrade, ModifiedAt: t.ModifiedAt, Versioning: t.Versioning}
+			AllowDowngrade: t.AllowDowngrade, ModifiedAt: t.ModifiedAt, Versioning: t.Versioning, ExpectedVersion: t.ExpectedVersion}
 		if t.Force || !compareVersions {
 			g.forced = append(g.forced, a)
 		} else {

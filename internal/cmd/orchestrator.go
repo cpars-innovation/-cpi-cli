@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	artifactsync "github.com/cpars-innovation/cpicli/internal/sync"
@@ -456,7 +457,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 
 		// Collect deployment tasks (will be executed in phase 2)
 		if pkg.Deploy && mode != ModeUpdateOnly {
-			tasks := collectDeploymentTasks(&pkg, finalPackageID, config.DeploymentPrefix,
+			tasks := collectDeploymentTasks(&pkg, packageDir, finalPackageID, config.DeploymentPrefix,
 				artifactFilter, stats, versionMode)
 			deploymentTasks = append(deploymentTasks, tasks...)
 		}
@@ -666,7 +667,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	return nil
 }
 
-func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
+func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, prefix string,
 	artifactFilter []string, stats *ProcessingStats, versionMode versioning.Mode) []DeploymentTask {
 
 	var tasks []DeploymentTask
@@ -707,12 +708,27 @@ func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
 			stats.FailedArtifactDeploys[artifact.Id] = true
 			continue
 		}
+		// manifest: every variant of the artifact directory deploys exactly
+		// its Bundle-Version
+		expected := ""
+		if mode == versioning.Manifest {
+			v, err := manifest.Version(filepath.Join(packageDir, artifact.ArtifactDir))
+			if err != nil || v == "" {
+				log.Error().Msgf("Skipping deployment of %s: versioning manifest needs Bundle-Version in %s", finalArtifactID, filepath.Join(packageDir, artifact.ArtifactDir, "META-INF", "MANIFEST.MF"))
+				stats.ArtifactsDeployedFailed++
+				stats.DeployFailures++
+				stats.FailedArtifactDeploys[artifact.Id] = true
+				continue
+			}
+			expected = v
+		}
 		tasks = append(tasks, DeploymentTask{
-			ArtifactID:   finalArtifactID,
-			ArtifactType: artifactType,
-			PackageID:    finalPackageID,
-			DisplayName:  artifact.DisplayName,
-			Versioning:   mode,
+			ArtifactID:      finalArtifactID,
+			ArtifactType:    artifactType,
+			PackageID:       finalPackageID,
+			DisplayName:     artifact.DisplayName,
+			Versioning:      mode,
+			ExpectedVersion: expected,
 		})
 	}
 
