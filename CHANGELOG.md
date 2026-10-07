@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `orchestrator`: compares existing artifacts with the snapshot state (`.cpi/snapshot-state.json`,
+  written by `snapshot` earlier in the pipeline) instead of downloading each one again. Artifacts
+  the state does not cover, or that changed on the tenant since the snapshot, are downloaded as
+  before. `--snapshot-state` picks the file (`off`: always download), `--verify-download`
+  downloads anyway. New statistics: `comparedWithSnapshot`, `downloadedForComparison`,
+  `artifactsChanged`, `artifactsUnchanged`. `snapshot` records the tenant host and a content
+  hash per artifact for that.
+
 - Every command and the MCP server retry tenant reads (GET) answered with 429 or 502-504 up to
   three times with backoff (before: `snapshot` only). `--read-retries` (`CPICTL_READ_RETRIES`)
   sets the count, `0` turns it off. Writes are never retried.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	gosync "sync"
 	"time"
 
@@ -19,9 +20,13 @@ import (
 // tenant and wrote locally, so that an incremental snapshot can skip the
 // download of artifacts that did not change.
 type SnapshotState struct {
-	mu        gosync.Mutex
-	Format    int                      `json:"format"`
+	mu     gosync.Mutex
+	Format int `json:"format"`
+	// Tenant is the host the snapshot was taken from: the state is used as
+	// an upload baseline only for the same tenant.
+	Tenant    string                   `json:"tenant,omitempty"`
 	Artifacts map[string]ArtifactState `json:"artifacts"` // key "<package>/<artifact>"
+	byID      map[string]ArtifactState
 }
 
 // ArtifactState is the signature of one artifact.
@@ -38,6 +43,10 @@ type ArtifactState struct {
 	// (META-INF and src/main/resources): a changed or missing local copy is
 	// downloaded again.
 	ContentHash string `json:"contentHash"`
+	// UploadHash is the file.UploadHash of the tenant's content as
+	// downloaded (no Bundle-Version): an upload whose content has the same
+	// hash would change nothing (see Synchroniser.Baseline).
+	UploadHash string `json:"uploadHash,omitempty"`
 }
 
 // LoadSnapshotState reads the state file; a missing file is an empty state.
@@ -84,6 +93,34 @@ func (st *SnapshotState) set(key string, a ArtifactState) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.Artifacts[key] = a
+	st.byID = nil
+}
+
+// Artifact returns the state of an artifact by its ID (unique on a tenant,
+// whatever the package).
+func (st *SnapshotState) Artifact(id string) (ArtifactState, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.byID == nil {
+		st.byID = make(map[string]ArtifactState, len(st.Artifacts))
+		for key, a := range st.Artifacts {
+			_, artifactID, _ := strings.Cut(key, "/")
+			st.byID[artifactID] = a
+		}
+	}
+	a, ok := st.byID[id]
+	return a, ok
+}
+
+func uploadHash(dir, artifactType string) string {
+	if _, err := os.Stat(filepath.Join(dir, "META-INF", "MANIFEST.MF")); err != nil {
+		return ""
+	}
+	h, err := file.UploadHash(os.DirFS(dir), artifactType)
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // tenantSignature is what the tenant says about an artifact without a

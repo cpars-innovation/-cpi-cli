@@ -129,6 +129,13 @@ func runSnapshot(cmd *cobra.Command) error {
 	}
 
 	serviceDetails := serviceDetails(cmd)
+	if tenant := cpi.TenantID(serviceDetails.Host); state.Tenant != tenant {
+		if state.Tenant != "" && len(state.Artifacts) > 0 {
+			log.Warn().Msgf("Snapshot state %s belongs to tenant %s, not %s: starting a new state", stateFile, state.Tenant, tenant)
+			state.Artifacts = map[string]sync.ArtifactState{}
+		}
+		state.Tenant = tenant
+	}
 	res, snapErr := getTenantSnapshot(serviceDetails, artifactsBaseDir, workDir, draftHandling, syncPackageLevelDetails, includedIds, excludedIds,
 		snapshotOptions{incremental: incremental, parallel: parallel, state: state})
 	if res != nil {

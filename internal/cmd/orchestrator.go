@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/manifest"
 	"github.com/cpars-innovation/cpicli/internal/models"
@@ -33,16 +34,23 @@ const (
 
 // ProcessingStats tracks processing statistics
 type ProcessingStats struct {
-	PackagesUpdated           int             `json:"packagesUpdated"`
-	PackagesDeployed          int             `json:"packagesDeployed"`
-	PackagesFailed            int             `json:"packagesFailed"`
-	PackagesFiltered          int             `json:"packagesFiltered"`
-	ArtifactsTotal            int             `json:"artifactsTotal"`
-	ArtifactsDeployedSuccess  int             `json:"artifactsDeployedSuccess"`
-	ArtifactsDeployedFailed   int             `json:"artifactsDeployedFailed"`
-	ArtifactsFiltered         int             `json:"artifactsFiltered"`
-	UpdateFailures            int             `json:"updateFailures"`
-	DeployFailures            int             `json:"deployFailures"`
+	PackagesUpdated          int `json:"packagesUpdated"`
+	PackagesDeployed         int `json:"packagesDeployed"`
+	PackagesFailed           int `json:"packagesFailed"`
+	PackagesFiltered         int `json:"packagesFiltered"`
+	ArtifactsTotal           int `json:"artifactsTotal"`
+	ArtifactsDeployedSuccess int `json:"artifactsDeployedSuccess"`
+	ArtifactsDeployedFailed  int `json:"artifactsDeployedFailed"`
+	ArtifactsFiltered        int `json:"artifactsFiltered"`
+	UpdateFailures           int `json:"updateFailures"`
+	DeployFailures           int `json:"deployFailures"`
+	// ArtifactsChanged were created or updated, ArtifactsUnchanged had the
+	// tenant's content already. Existing artifacts were compared with the
+	// snapshot state (ComparedWithSnapshot) or downloaded (DownloadedForComparison).
+	ArtifactsChanged          int             `json:"artifactsChanged"`
+	ArtifactsUnchanged        int             `json:"artifactsUnchanged"`
+	ComparedWithSnapshot      int             `json:"comparedWithSnapshot"`
+	DownloadedForComparison   int             `json:"downloadedForComparison"`
 	SuccessfulPackageUpdates  map[string]bool `json:"successfulPackageUpdates"`
 	SuccessfulArtifactUpdates map[string]bool `json:"successfulArtifactUpdates"`
 	SuccessfulArtifactDeploys map[string]bool `json:"successfulArtifactDeploys"`
@@ -208,6 +216,8 @@ Configuration:
 	orchestratorCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: orchestrator.deployRetries, default: 5)")
 	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)")
 	addVersioningFlag(orchestratorCmd)
+	orchestratorCmd.Flags().String("snapshot-state", "", "Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; \"off\": always download)")
+	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
 
 	return orchestratorCmd
@@ -304,6 +314,14 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		log.Debug().Msg("  Auth Method: Basic Auth")
 	}
 
+	upload := uploadOptions{versionMode: versionMode}
+	if mode != ModeDeployOnly {
+		if upload.baseline, err = loadBaseline(cmd, packagesDir, serviceDetails.Host); err != nil {
+			return err
+		}
+		upload.verifyDownload = config.GetBoolWithFallback(cmd, "verify-download", "orchestrator.verifyDownload")
+	}
+
 	// Collect all deployment tasks (will be executed in phase 2)
 	var deploymentTasks []DeploymentTask
 
@@ -321,7 +339,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		}
 
 		tasks, err := processPackages(mergedConfig, false, mode, packagesDir, workDir,
-			packageFilter, artifactFilter, &stats, serviceDetails, versionMode)
+			packageFilter, artifactFilter, &stats, serviceDetails, upload)
 		if err != nil {
 			return err
 		}
@@ -340,7 +358,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 			log.Info().Msgf("Deployment Prefix: %s", configFile.Config.DeploymentPrefix)
 
 			tasks, err := processPackages(configFile.Config, true, mode, packagesDir, workDir,
-				packageFilter, artifactFilter, &stats, serviceDetails, versionMode)
+				packageFilter, artifactFilter, &stats, serviceDetails, upload)
 			if err != nil {
 				log.Error().Msgf("Failed to process config %s: %v", configFile.FileName, err)
 				continue
@@ -382,7 +400,8 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 func processPackages(config *models.DeployConfig, applyPrefix bool, mode OperationMode,
 	packagesDir, workDir string, packageFilter, artifactFilter []string,
-	stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, versionMode versioning.Mode) ([]DeploymentTask, error) {
+	stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, upload uploadOptions) ([]DeploymentTask, error) {
+	versionMode := upload.versionMode
 
 	var deploymentTasks []DeploymentTask
 
@@ -449,7 +468,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 		// Process artifacts for update
 		if pkg.Sync && mode != ModeDeployOnly {
 			if err := updateArtifacts(&pkg, packageDir, finalPackageID, finalPackageName,
-				config.DeploymentPrefix, workDir, artifactFilter, stats, serviceDetails, versionMode); err != nil {
+				config.DeploymentPrefix, workDir, artifactFilter, stats, serviceDetails, upload); err != nil {
 				log.Error().Msgf("Failed to update artifacts for package %s: %v", pkg.ID, err)
 				stats.UpdateFailures++
 			}
@@ -526,7 +545,8 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 }
 
 func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPackageName, prefix, workDir string,
-	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, versionMode versioning.Mode) error {
+	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, upload uploadOptions) error {
+	versionMode := upload.versionMode
 
 	updatedCount := 0
 	log.Info().Msg("Updating artifacts...")
@@ -540,6 +560,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 
 	exe := cpi.InitHTTPExecuter(serviceDetails)
 	synchroniser := artifactsync.New(exe)
+	synchroniser.Baseline, synchroniser.VerifyDownload = upload.baseline, upload.verifyDownload
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
@@ -644,8 +665,22 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 		mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
 		if err == nil {
 			synchroniser.Versioning = mode
-			err = synchroniser.SingleArtifactToTenant(finalArtifactID, finalArtifactName, artifactType,
+			var outcome artifactsync.UploadOutcome
+			outcome, err = synchroniser.UploadArtifact(finalArtifactID, finalArtifactName, artifactType,
 				finalPackageID, tempArtifactDir, workDir, "", nil)
+			switch outcome.Compared {
+			case "snapshot":
+				stats.ComparedWithSnapshot++
+			case "download":
+				stats.DownloadedForComparison++
+			}
+			if err == nil {
+				if outcome.Action == "UNCHANGED" {
+					stats.ArtifactsUnchanged++
+				} else {
+					stats.ArtifactsChanged++
+				}
+			}
 		}
 
 		if err != nil {
@@ -778,6 +813,60 @@ type orchestratorResult struct {
 	Deployments []ops.Result     `json:"deployments"`
 }
 
+// uploadOptions are the settings of the update phase.
+type uploadOptions struct {
+	versionMode versioning.Mode
+	// baseline is the snapshot state of the target tenant (nil: download
+	// every existing artifact for the comparison).
+	baseline       *artifactsync.SnapshotState
+	verifyDownload bool
+}
+
+// loadBaseline reads the snapshot state used instead of downloads: the
+// --snapshot-state file, else .cpi/snapshot-state.json in the current
+// directory or a parent of packagesDir. A state of another tenant is not used.
+func loadBaseline(cmd *cobra.Command, packagesDir, host string) (*artifactsync.SnapshotState, error) {
+	path := config.GetStringWithFallback(cmd, "snapshot-state", "orchestrator.snapshotState")
+	if path == "off" {
+		return nil, nil
+	}
+	explicit := path != ""
+	if !explicit {
+		candidates := []string{filepath.Join(".cpi", "snapshot-state.json")}
+		if abs, err := filepath.Abs(packagesDir); err == nil {
+			for dir := abs; ; dir = filepath.Dir(dir) {
+				candidates = append(candidates, filepath.Join(dir, ".cpi", "snapshot-state.json"))
+				if filepath.Dir(dir) == dir {
+					break
+				}
+			}
+		}
+		for _, c := range candidates {
+			if deploy.FileExists(c) {
+				path = c
+				break
+			}
+		}
+		if path == "" {
+			log.Info().Msg("No snapshot state found: existing artifacts are downloaded for the comparison (run snapshot first to skip that)")
+			return nil, nil
+		}
+	}
+	if explicit && !deploy.FileExists(path) {
+		return nil, output.Usagef("--snapshot-state %s does not exist", path)
+	}
+	state, err := artifactsync.LoadSnapshotState(path)
+	if err != nil {
+		return nil, output.Usagef("cannot read the snapshot state %s: %v", path, err)
+	}
+	if tenant := cpi.TenantID(host); state.Tenant != tenant {
+		log.Warn().Msgf("Snapshot state %s is of tenant %q, not %s: existing artifacts are downloaded for the comparison", path, state.Tenant, tenant)
+		return nil, nil
+	}
+	log.Info().Msgf("Comparing with the snapshot state %s (%d artifacts) instead of downloading", path, len(state.Artifacts))
+	return state, nil
+}
+
 // mapArtifactTypeForSync maps artifact types for synchroniser (NewDesigntimeArtifact)
 func mapArtifactTypeForSync(artifactType string) string {
 	switch strings.ToLower(artifactType) {
@@ -828,7 +917,10 @@ func printSummary(stats *ProcessingStats) {
 	log.Info().Msgf("Packages Filtered:  %d", stats.PackagesFiltered)
 	log.Info().Msg("───────────────────────────────────────────────────────────────────────")
 	log.Info().Msgf("Artifacts Total:         %d", stats.ArtifactsTotal)
-	log.Info().Msgf("Artifacts Updated:       %d", len(stats.SuccessfulArtifactUpdates))
+	log.Info().Msgf("Artifacts Updated:       %d (%d changed, %d unchanged)", len(stats.SuccessfulArtifactUpdates), stats.ArtifactsChanged, stats.ArtifactsUnchanged)
+	if stats.ComparedWithSnapshot+stats.DownloadedForComparison > 0 {
+		log.Info().Msgf("Compared:                %d with the snapshot, %d downloaded", stats.ComparedWithSnapshot, stats.DownloadedForComparison)
+	}
 	log.Info().Msgf("Artifacts Deployed OK:   %d", stats.ArtifactsDeployedSuccess)
 	log.Info().Msgf("Artifacts Deployed Fail: %d", stats.ArtifactsDeployedFailed)
 	log.Info().Msgf("Artifacts Filtered:      %d", stats.ArtifactsFiltered)

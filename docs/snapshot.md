@@ -27,6 +27,10 @@ read, is always downloaded. The signatures are kept in `.cpi/snapshot-state.json
 repository (`--state-file` to move it); commit it with the snapshot so that the next run, also in
 CI, can compare. Every run (full or incremental) refreshes it.
 
+The state also records the tenant's host and, per artifact, a hash of the tenant's content.
+The [orchestrator](orchestrator.md#comparison-without-downloads) uses it in the same pipeline to
+decide which artifacts need an upload without downloading them again.
+
 Recommended: `--incremental` for frequent runs (e.g. hourly) and a full run regularly (e.g.
 nightly) as the safety net, in case the tenant changes something none of the signals sees.
 Deleting the state file makes the next incremental run a full one.

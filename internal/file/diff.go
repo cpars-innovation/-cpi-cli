@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -121,6 +122,25 @@ func DiffFile(firstFile string, secondFile string) bool {
 // value_mapping.xml, normalized as in DiffDirectories / DiffFile. Equal hashes
 // mean upload would report UNCHANGED.
 func ContentHash(fsys fs.FS) (string, error) {
+	return contentHash(fsys, false)
+}
+
+// UploadHash covers what an upload compares (cpi CompareContent): like
+// ContentHash, but without the Bundle-Version header of
+// META-INF/MANIFEST.MF (the version is set separately, see the versioning
+// modes); for value mappings only META-INF and value_mapping.xml.
+func UploadHash(fsys fs.FS, artifactType string) (string, error) {
+	if artifactType == "ValueMapping" {
+		return hashOf(fsys, true, []string{"META-INF"}, []string{"value_mapping.xml"})
+	}
+	return contentHash(fsys, true)
+}
+
+func contentHash(fsys fs.FS, skipVersion bool) (string, error) {
+	return hashOf(fsys, skipVersion, []string{"META-INF", "src/main/resources"}, []string{"metainfo.prop", "value_mapping.xml"})
+}
+
+func hashOf(fsys fs.FS, skipVersion bool, dirs, files []string) (string, error) {
 	h := sha256.New()
 	add := func(name string, lines []string) {
 		h.Write([]byte(name))
@@ -131,7 +151,7 @@ func ContentHash(fsys fs.FS) (string, error) {
 		}
 		h.Write([]byte{0})
 	}
-	for _, dir := range []string{"META-INF", "src/main/resources"} {
+	for _, dir := range dirs {
 		if _, err := fs.Stat(fsys, dir); err != nil {
 			continue
 		}
@@ -145,10 +165,14 @@ func ContentHash(fsys fs.FS) (string, error) {
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			add(dir+"/"+n, tree[n])
+			lines := tree[n]
+			if skipVersion && dir == "META-INF" && n == "MANIFEST.MF" {
+				lines = slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "Bundle-Version:") })
+			}
+			add(dir+"/"+n, lines)
 		}
 	}
-	for _, f := range []string{"metainfo.prop", "value_mapping.xml"} {
+	for _, f := range files {
 		if data, err := fs.ReadFile(fsys, f); err == nil {
 			add(f, normalizeLines(bytes.TrimSpace(data), "#"))
 		}

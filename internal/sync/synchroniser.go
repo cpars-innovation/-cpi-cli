@@ -40,8 +40,15 @@ type Synchroniser struct {
 	// ArtifactSlots limits the artifacts exported at the same time across
 	// all packages (snapshot); nil exports one after another.
 	ArtifactSlots chan struct{}
-	skipped       atomic.Int64
-	downloaded    atomic.Int64
+	// Baseline, when set, is the snapshot state of the target tenant: an
+	// upload compares the local content with the content the snapshot saw
+	// instead of downloading the artifact again, as long as the tenant's
+	// version and ModifiedAt are still the snapshot's. Artifacts the state
+	// does not cover are downloaded. VerifyDownload always downloads.
+	Baseline       *SnapshotState
+	VerifyDownload bool
+	skipped        atomic.Int64
+	downloaded     atomic.Int64
 }
 
 // Downloaded returns the number of artifacts downloaded by exports.
@@ -231,6 +238,11 @@ func (s *Synchroniser) artifactToGit(packageId, workDir, artifactsDir, draftHand
 		} else if prev, ok := s.State.get(stateKey); s.Incremental && ok && unchangedSince(prev, sig, gitArtifactPath) {
 			log.Info().Str("artifact", artifact.Id).Msgf("🏆 %v unchanged since the last snapshot (version %v, modified %v, configuration, local copy): skipped",
 				artifact.Id, sig.Version, sig.ModifiedAt.Format(time.RFC3339))
+			if prev.UploadHash == "" && len(scriptCollectionMap) == 0 {
+				// state of an older cpictl: the local copy equals the tenant's content
+				prev.UploadHash = uploadHash(gitArtifactPath, artifact.ArtifactType)
+				s.State.set(stateKey, prev)
+			}
 			s.skipped.Add(1)
 			return nil
 		}
@@ -252,6 +264,11 @@ func (s *Synchroniser) artifactToGit(packageId, workDir, artifactsDir, draftHand
 		return err
 	}
 	log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
+	if s.State != nil && len(scriptCollectionMap) == 0 {
+		// the tenant's content as is (a script collection mapping changes the
+		// local copy, so it cannot serve as an upload baseline)
+		sig.UploadHash = uploadHash(downloadedArtifactPath, artifact.ArtifactType)
+	}
 
 	// The download's Bundle-Version is not the designtime version (often
 	// 1.0.0): keep the repository's version, or take the tenant's when it
@@ -470,6 +487,11 @@ type UploadOutcome struct {
 	// VersionRule is the rule that chose the version: manifest, bump, keep,
 	// tenant (no mode) or guard (refused).
 	VersionRule string `json:"versionRule,omitempty"`
+	// Compared says how an existing artifact was compared: "snapshot" (the
+	// baseline, no download) or "download".
+	Compared string `json:"compared,omitempty"`
+	// CompareReason explains a download when a baseline was given.
+	CompareReason string `json:"compareReason,omitempty"`
 }
 
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
@@ -521,18 +543,8 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 		log.Info().Msg("🏆 Designtime artifact created successfully")
 	} else {
 		log.Info().Msg("Checking if designtime artifact needs to be updated")
-		designtimeBefore, _, _, err = dt.Get(artifactId, "active")
-		if err != nil {
-			return outcome, err
-		}
-
-		zipFile := fmt.Sprintf("%v/%v.zip", workDir, artifactId)
-		err = dt.Download(zipFile, artifactId)
-		if err != nil {
-			return outcome, err
-		}
-
-		changesFound, err := compareArtifactContents(workDir, zipFile, artifactDir, repoVersion, scriptMap, dt)
+		var changesFound bool
+		designtimeBefore, changesFound, err = s.compareWithTenant(artifactId, artifactType, artifactDir, workDir, repoVersion, scriptMap, dt, &outcome)
 		if err != nil {
 			return outcome, err
 		}
@@ -743,6 +755,66 @@ func updateArtifact(artifactId string, artifactName string, packageId string, ar
 		return err
 	}
 	return nil
+}
+
+// compareWithTenant reports the designtime version and whether the local
+// content differs from the tenant's: against the Baseline when it covers the
+// artifact and the tenant did not change since, else by downloading it.
+func (s *Synchroniser) compareWithTenant(artifactId, artifactType, artifactDir, workDir, repoVersion string, scriptMap []string,
+	dt cpi.DesigntimeArtifact, outcome *UploadOutcome) (designtime string, changed bool, err error) {
+	reason := ""
+	switch {
+	case s.Baseline == nil:
+	case s.VerifyDownload:
+		reason = "--verify-download"
+	case len(scriptMap) > 0:
+		reason = "script collection mapping"
+	default:
+		info, exists, err := cpi.GetDesigntimeInfo(s.exe, artifactType, artifactId, "active")
+		if err != nil {
+			return "", false, err
+		}
+		base, ok := s.Baseline.Artifact(artifactId)
+		switch {
+		case !exists:
+			reason = "not found on the tenant"
+		case !ok || base.UploadHash == "":
+			reason = "not in the snapshot state"
+		case info.ModifiedAt.IsZero() || base.ModifiedAt.IsZero():
+			reason = "the tenant reports no modification time"
+		case base.Version != info.Version || !base.ModifiedAt.Equal(info.ModifiedAt.UTC()):
+			reason = fmt.Sprintf("changed on the tenant since the snapshot (version %v, modified %v; snapshot %v, %v)",
+				info.Version, info.ModifiedAt.UTC().Format(time.RFC3339), base.Version, base.ModifiedAt.Format(time.RFC3339))
+		default:
+			if artifactType == "Integration" {
+				if err := file.UpdateBPMN(artifactDir, scriptMap); err != nil {
+					return "", false, err
+				}
+			}
+			local, err := file.UploadHash(os.DirFS(artifactDir), artifactType)
+			if err != nil {
+				return "", false, err
+			}
+			outcome.Compared = "snapshot"
+			changed = local != base.UploadHash
+			log.Info().Str("artifact", artifactId).Msgf("Compared with the snapshot (tenant unchanged since: version %v, modified %v): content %v",
+				info.Version, base.ModifiedAt.Format(time.RFC3339), map[bool]string{true: "changed", false: "unchanged"}[changed])
+			return info.Version, changed, nil
+		}
+		log.Info().Str("artifact", artifactId).Msgf("Downloading %v for the comparison: %v", artifactId, reason)
+	}
+
+	outcome.Compared, outcome.CompareReason = "download", reason
+	designtime, _, _, err = dt.Get(artifactId, "active")
+	if err != nil {
+		return "", false, err
+	}
+	zipFile := fmt.Sprintf("%v/%v.zip", workDir, artifactId)
+	if err := dt.Download(zipFile, artifactId); err != nil {
+		return "", false, err
+	}
+	changed, err = compareArtifactContents(workDir, zipFile, artifactDir, repoVersion, scriptMap, dt)
+	return designtime, changed, err
 }
 
 // compareArtifactContents compares the local directory with the downloaded

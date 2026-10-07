@@ -75,6 +75,8 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--deploy-retries` | `5` | Status checks per artifact |
 | `--deploy-delay` | `15` | Seconds between status checks |
 | `--keep-temp` | `false` | Keep the temporary working directory |
+| `--snapshot-state` | `.cpi/snapshot-state.json` (current directory, else above `--packages-dir`) | Snapshot state to compare with instead of downloading; `off` always downloads |
+| `--verify-download` | `false` | Download every existing artifact for the comparison anyway |
 
 All of these can be set in the global config file under `orchestrator:` (camelCase keys, e.g.
 `packagesDir`, `deployConfig`, `parallelDeployments`, `mode: update-only`).
@@ -86,7 +88,8 @@ All of these can be set in the global config file under `orchestrator:` (camelCa
 1. The package is created or updated (ID, name, description, short text).
 2. Each artifact with `sync: true` is copied to a temporary directory; `MANIFEST.MF` gets the
    final ID and name (`Bundle-SymbolicName`, `Bundle-Name`), `configOverrides` are merged into
-   `parameters.prop`, and the artifact is created or updated on the tenant if its content differs.
+   `parameters.prop`, and the artifact is created or updated on the tenant if its content differs
+   ([comparison](#comparison-without-downloads)).
    If the content changed but the version did not, the running artifact is undeployed so that
    phase 2 deploys the new content.
 
@@ -96,6 +99,39 @@ artifact whose runtime version already equals the designtime version is skipped.
 
 With `--output json` the result contains the statistics and one deployment result per
 artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
+
+### Comparison without downloads
+
+To know whether an existing artifact needs an upload, its content is compared with the tenant's.
+When the pipeline ran `snapshot` before, the orchestrator compares with what the snapshot saw
+instead of downloading every artifact again:
+
+```
+snapshot (incremental)  ->  copy the managed parts into the snapshot  ->  orchestrator
+writes .cpi/snapshot-state.json      (scripts, mappings, ...)             compares with the state
+```
+
+Per artifact, one small call reads the designtime version and `ModifiedAt`. When both are still
+what the snapshot recorded, the local content (after the manifest and parameter changes above) is
+hashed and compared with the hash of the tenant's content in the state: equal means unchanged,
+no download and no upload. The hash covers what the download comparison covers (`META-INF`,
+`src/main/resources`, `metainfo.prop`; value mappings: `META-INF` and `value_mapping.xml`),
+without `parameters.prop` (parameters are written separately) and without `Bundle-Version`
+(set by the [versioning mode](versioning.md)).
+
+The artifact is downloaded and compared as before when:
+
+- it is not in the state (new on the tenant, not in the snapshot, older state without hashes),
+- the tenant changed it since the snapshot (version or `ModifiedAt` differ, e.g. a Web UI edit),
+- the tenant reports no `ModifiedAt`,
+- the state is of another tenant (it records the host), or `--snapshot-state off`,
+- `--verify-download` is set.
+
+The summary and the JSON statistics report `comparedWithSnapshot`, `downloadedForComparison`,
+`artifactsChanged` and `artifactsUnchanged`. Not verified on a real tenant yet: that every Web UI
+edit changes `ModifiedAt` (check once on a development tenant: run `snapshot --incremental`, edit
+a flow in the Web UI, run it again; the flow must be downloaded, not skipped). Until then, `--verify-download` in a
+nightly run is a cheap safety net.
 
 ### Config sources
 

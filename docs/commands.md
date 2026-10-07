@@ -1277,8 +1277,10 @@ Configuration:
       --package-filter string      Comma-separated list of packages to include (config: orchestrator.packageFilter)
   -d, --packages-dir string        Directory containing packages (config: orchestrator.packagesDir)
       --parallel-deployments int   Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)
+      --snapshot-state string      Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; "off": always download)
       --update                     Update and deploy artifacts
       --update-only                Only update artifacts, don't deploy
+      --verify-download            Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)
       --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 

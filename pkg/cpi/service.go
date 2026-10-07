@@ -41,6 +41,16 @@ func InitHTTPExecuter(serviceDetails *ServiceDetails) *httpclnt.HTTPExecuter {
 	return exe.RetryReads(ReadRetries, ReadBackoff)
 }
 
+// TenantID identifies a tenant by its host (and port when not 443), e.g. in
+// state files.
+func TenantID(hostFlag string) string {
+	_, host, port := ParseHost(hostFlag)
+	if port != 443 {
+		return host + ":" + strconv.Itoa(port)
+	}
+	return host
+}
+
 // ParseHost splits a host flag value into scheme, host and port. The value is
 // normally a bare host name (https on port 443 is used); an explicit
 // "https://" prefix and a ":port" suffix are accepted. Plain http is only
