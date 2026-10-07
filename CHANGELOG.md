@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.2.2
+
 - Versioning for promotion (`dev -> test -> prod`, same content = same version), see
   [docs/versioning.md](docs/versioning.md):
   - `--versioning manifest|keep|tenant-bump` (env `CPICTL_VERSIONING`) on `update artifact`,
