@@ -114,6 +114,14 @@ cpictl deploy --pending                                            # 6. deploys 
   the reasons first.
 - The file records the tenant: it cannot be deployed to another one.
 
+### Job summary
+
+In GitHub Actions `orchestrator`, `configure`, `deploy`, `undeploy` and `snapshot` append a
+markdown summary to `$GITHUB_STEP_SUMMARY` (shown on the run's page): counts, the plan, and one
+row per deployment with status, version, rule and error, failures first. Parameter values are
+not shown (only artifact, key and change). `--summary FILE` writes it to a file instead (e.g. for
+Azure Pipelines: `echo "##vso[task.uploadsummary]$PWD/summary.md"`), `--summary off` disables it.
+
 ## Exit codes in scripts
 
 ```bash

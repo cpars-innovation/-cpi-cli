@@ -98,7 +98,7 @@ func runDeploy(cmd *cobra.Command) error {
 			items = append(items, PlanItem{Artifact: p.ID, Designtime: p.Designtime, Running: p.Running, RuntimeStatus: p.RuntimeStatus,
 				Deploy: p.Deploy, Reason: p.Reason, Error: p.Error})
 		}
-		output.SetResult(cmd.Context(), map[string]any{"plan": items})
+		output.SetResult(cmd.Context(), planResult{Plan: items})
 		if perr := logPlan(items); perr != nil {
 			return perr
 		}
@@ -153,7 +153,7 @@ func runPendingDeploy(cmd *cobra.Command, exe *httpclnt.HTTPExecuter, serviceDet
 	if planOnly {
 		collector := &planCollector{index: map[string]int{}}
 		planDeployments(tasks, collector, serviceDetails)
-		output.SetResult(cmd.Context(), map[string]any{"plan": collector.items})
+		output.SetResult(cmd.Context(), planResult{Plan: collector.items})
 		return logPlan(collector.items)
 	}
 	results := deployTasks(cmd.Context(), exe, tasks, true, maxChecks, delaySeconds, parallel)

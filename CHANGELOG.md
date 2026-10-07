@@ -5,6 +5,10 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Job summary: `orchestrator`, `configure`, `deploy`, `undeploy` and `snapshot` append a markdown
+  summary (counts, plan, deployments with errors first) to `$GITHUB_STEP_SUMMARY`, or to
+  `--summary FILE`; `--summary off` disables it. See [docs/ci.md](docs/ci.md#job-summary).
+
 - `cpictl doctor` (MCP: `doctor`): checks configuration, connection and authentication, and per
   API area whether the credentials can use it (403: missing role, 404: not offered). Read only.
 

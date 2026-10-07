@@ -35,11 +35,22 @@ type cliRun struct {
 // isolated HOME so that no cpictl.yaml and no tenant env vars are used.
 func runMain(t *testing.T, args ...string) cliRun {
 	t.Helper()
+	return runMainWith(t, nil, args...)
+}
+
+// runMainWith is runMain with a hook that runs after the environment was
+// isolated.
+func runMainWith(t *testing.T, after func(), args ...string) cliRun {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GITHUB_STEP_SUMMARY", "") // never the real job summary of a CI run
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "CPICTL_") || strings.HasPrefix(kv, "FLASHPIPE_") {
 			t.Setenv(strings.SplitN(kv, "=", 2)[0], "")
 		}
+	}
+	if after != nil {
+		after()
 	}
 	viper.Reset()
 	t.Cleanup(viper.Reset)

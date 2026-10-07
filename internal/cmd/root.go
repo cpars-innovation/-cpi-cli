@@ -70,6 +70,7 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 	rootCmd.PersistentFlags().String("oauth-path", "/oauth/token", "Path for OAuth token server")
 
 	rootCmd.PersistentFlags().Int("read-retries", cpi.ReadRetries, "Retries of a tenant read (GET) answered with 429, 502, 503 or 504, with backoff 2s, 4s, 8s ... (0: none). Writes are never retried")
+	rootCmd.PersistentFlags().String("summary", "", "Append a markdown job summary of orchestrator, configure, deploy, undeploy and snapshot to this file (default: $GITHUB_STEP_SUMMARY when set; \"off\": none)")
 	rootCmd.PersistentFlags().Bool("debug", false, "Show debug logs")
 	rootCmd.PersistentFlags().String("output", output.FormatText, "Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines")
 
@@ -201,6 +202,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 		if cmd.Annotations[annotationNoStats] != "true" {
 			stats.Record(commandName(cmd), stats.SourceCLI, code, elapsed)
 		}
+		writeSummary(cmd, output.Result(ctx), code, elapsed)
 	}
 
 	// --help/--version and commands without RunE produce no result document
