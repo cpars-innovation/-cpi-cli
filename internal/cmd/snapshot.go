@@ -80,7 +80,7 @@ Configuration:
 	snapshotCmd.Flags().Bool("git-skip-commit", false, "Skip committing changes to Git repository (config: snapshot.gitSkipCommit)")
 	snapshotCmd.Flags().Bool("sync-package-details", true, "Sync details of Integration Packages (config: snapshot.syncPackageDetails)")
 	snapshotCmd.Flags().Bool("incremental", false, "Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)")
-	snapshotCmd.Flags().Int("parallel", 4, "Packages processed at the same time (config: snapshot.parallel)")
+	snapshotCmd.Flags().Int("parallel", 8, "Artifacts downloaded at the same time, across all packages (config: snapshot.parallel)")
 	snapshotCmd.Flags().String("state-file", "", "State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)")
 
 	_ = snapshotCmd.MarkFlagRequired("dir-git-repo")
@@ -158,10 +158,12 @@ type snapshotOptions struct {
 
 // snapshotResult is the JSON result of snapshot.
 type snapshotResult struct {
-	Packages  int      `json:"packages"`
-	Succeeded int      `json:"succeeded"`
-	Skipped   int64    `json:"artifactsSkipped"`
-	Failed    []string `json:"failed,omitempty"`
+	Packages   int      `json:"packages"`
+	Succeeded  int      `json:"succeeded"`
+	Downloaded int64    `json:"artifactsDownloaded"`
+	Skipped    int64    `json:"artifactsSkipped"`
+	Seconds    float64  `json:"seconds"`
+	Failed     []string `json:"failed,omitempty"`
 }
 
 func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool,
@@ -194,6 +196,10 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 	log.Info().Msgf("Processing %d packages (%s, %d in parallel)", len(packages), mode, opts.parallel)
 	synchroniser := sync.New(exe)
 	synchroniser.State, synchroniser.Incremental = opts.state, opts.incremental
+	// the artifacts of all packages share the download slots, so one large
+	// package does not run alone at the end
+	synchroniser.ArtifactSlots = make(chan struct{}, opts.parallel)
+	started := time.Now()
 
 	res := &snapshotResult{}
 	var mu gosync.Mutex
@@ -237,11 +243,13 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 		}()
 	}
 	wg.Wait()
-	res.Skipped = synchroniser.Skipped()
+	res.Skipped, res.Downloaded = synchroniser.Skipped(), synchroniser.Downloaded()
+	res.Seconds = time.Since(started).Round(100 * time.Millisecond).Seconds()
 	sort.Strings(res.Failed)
 
 	log.Info().Msg("---------------------------------------------------------------------------------")
-	log.Info().Msgf("🏆 Snapshot: %d package(s) done, %d failed, %d artifact(s) unchanged and skipped", res.Succeeded, len(res.Failed), res.Skipped)
+	log.Info().Msgf("🏆 Snapshot: %d package(s) done, %d failed; %d artifact(s) downloaded, %d unchanged and skipped; %.1fs (%d in parallel)",
+		res.Succeeded, len(res.Failed), res.Downloaded, res.Skipped, res.Seconds, opts.parallel)
 	if len(res.Failed) > 0 {
 		err := fmt.Errorf("%d of %d package(s) failed: %s", len(res.Failed), res.Packages, strings.Join(res.Failed, "; "))
 		if res.Succeeded > 0 {

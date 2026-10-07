@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `snapshot`: `--parallel` (default now 8) limits the artifacts downloaded at the same time across
+  all packages instead of the packages: the artifacts of a large package are downloaded in
+  parallel too, so it no longer runs alone at the end. A failing artifact does not stop the rest
+  of its package. The result reports `artifactsDownloaded`, `artifactsSkipped` and `seconds`.
+
 ## 0.2.3
 
 - `snapshot`: `--incremental` skips the download of artifacts whose designtime version,

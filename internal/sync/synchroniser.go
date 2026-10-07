@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
+	gosync "sync"
 	"sync/atomic"
 	"time"
 
@@ -35,8 +37,15 @@ type Synchroniser struct {
 	// downloaded.
 	State       *SnapshotState
 	Incremental bool
-	skipped     atomic.Int64
+	// ArtifactSlots limits the artifacts exported at the same time across
+	// all packages (snapshot); nil exports one after another.
+	ArtifactSlots chan struct{}
+	skipped       atomic.Int64
+	downloaded    atomic.Int64
 }
+
+// Downloaded returns the number of artifacts downloaded by exports.
+func (s *Synchroniser) Downloaded() int64 { return s.downloaded.Load() }
 
 // Skipped returns the number of artifacts an incremental export skipped.
 func (s *Synchroniser) Skipped() int64 { return s.skipped.Load() }
@@ -141,115 +150,38 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 		return err
 	}
 
-	// Process through the artifacts
+	// Process the artifacts: with ArtifactSlots, concurrently (the slots are
+	// shared by all packages of a snapshot); otherwise one after another
+	var wg gosync.WaitGroup
+	var mu gosync.Mutex
+	var failed []string
 	for _, artifact := range filtered {
-		log.Info().Msg("---------------------------------------------------------------------------------")
-		log.Info().Msgf("📢 Begin processing for artifact %v", artifact.Id)
-		// Check if artifact is in draft version
-		if artifact.IsDraft {
-			switch draftHandling {
-			case "SKIP":
-				log.Warn().Msgf("Artifact %v is in draft version, and will be skipped", artifact.Id)
-				continue
-			case "ADD":
-				log.Info().Msgf("Artifact %v is in draft version, and will be added", artifact.Id)
-			case "ERROR":
-				return fmt.Errorf("Artifact %v is in draft version. Save Version in Web UI first!", artifact.Id)
+		run := func() {
+			if err := s.artifactToGit(packageId, workDir, artifactsDir, draftHandling, dirNamingType, scriptCollectionMap, artifact); err != nil {
+				mu.Lock()
+				failed = append(failed, fmt.Sprintf("%s: %v", artifact.Id, err))
+				mu.Unlock()
 			}
 		}
-		var directoryName string
-		if dirNamingType == "NAME" {
-			directoryName = artifact.Name
-		} else {
-			directoryName = artifact.Id
-		}
-		gitArtifactPath := fmt.Sprintf("%v/%v", artifactsDir, directoryName)
-
-		// incremental snapshot: skip the download when nothing changed
-		stateKey := packageId + "/" + artifact.Id
-		var sig ArtifactState
-		var sigErr error
-		if s.State != nil {
-			if sig, sigErr = tenantSignature(s.exe, artifact); sigErr != nil {
-				log.Warn().Msgf("Cannot read the configuration of %v (%v): downloading it", artifact.Id, sigErr)
-			} else if prev, ok := s.State.get(stateKey); s.Incremental && ok && unchangedSince(prev, sig, gitArtifactPath) {
-				log.Info().Str("artifact", artifact.Id).Msgf("🏆 %v unchanged since the last snapshot (version %v, modified %v, configuration, local copy): skipped",
-					artifact.Id, sig.Version, sig.ModifiedAt.Format(time.RFC3339))
-				s.skipped.Add(1)
-				continue
+		if s.ArtifactSlots == nil {
+			run()
+			if len(failed) > 0 {
+				return errors.New(failed[0])
 			}
+			continue
 		}
-
-		// Download artifact content
-		dt := cpi.NewDesigntimeArtifact(artifact.ArtifactType, s.exe)
-		targetDownloadFile := fmt.Sprintf("%v/download/%v.zip", workDir, artifact.Id)
-		err = dt.Download(targetDownloadFile, artifact.Id)
-		if err != nil {
-			return err
-		}
-		// Unzip artifact contents
-		log.Debug().Msgf("Target artifact directory name - %v", directoryName)
-		downloadedArtifactPath := fmt.Sprintf("%v/download/%v", workDir, directoryName)
-		err = file.UnzipSource(targetDownloadFile, downloadedArtifactPath)
-		if err != nil {
-			return err
-		}
-		log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
-
-		// The download's Bundle-Version is not the designtime version (often
-		// 1.0.0): keep the repository's version, or take the tenant's when it
-		// is higher (a version saved in the Web UI).
-		repoVersion, _ := manifest.Version(gitArtifactPath)
-		exportVersion := versioning.Max(repoVersion, artifact.Version)
-		if exportVersion != "" {
-			if err := manifest.SetVersion(downloadedArtifactPath, exportVersion); err != nil {
-				return err
-			}
-			log.Info().Str("artifact", artifact.Id).Msgf("Bundle-Version %v (repository %v, tenant designtime %v)", exportVersion, orNone(repoVersion), orNone(artifact.Version))
-		}
-		if file.Exists(fmt.Sprintf("%v/META-INF/MANIFEST.MF", gitArtifactPath)) {
-			// (1) If artifact already exists in Git, then compare and update
-			log.Info().Msg("Comparing content from tenant against Git")
-
-			// Diff artifact contents
-			dirDiffer, err := dt.CompareContent(downloadedArtifactPath, gitArtifactPath, scriptCollectionMap, "git")
-			if err != nil {
-				return err
-			}
-
-			if dirDiffer {
-				log.Info().Msg("🏆 Changes detected and will be updated to Git")
-				// Update the changes into the Git directory
-				err = dt.CopyContent(downloadedArtifactPath, gitArtifactPath)
-				if err != nil {
-					return err
-				}
-			} else {
-				log.Info().Msg("🏆 No changes detected. Update to Git not required")
-			}
-
-		} else { // (2) If artifact does not exist in Git, then add it
-			log.Info().Msgf("🏆 Artifact %v does not exist, and will be added to Git", artifact.Id)
-			// Update the script collection in IFlow BPMN2 XML before syncing to Git
-			if artifact.ArtifactType == "Integration" {
-				err = file.UpdateBPMN(downloadedArtifactPath, scriptCollectionMap)
-				if err != nil {
-					return err
-				}
-			}
-			err = file.ReplaceDir(downloadedArtifactPath, gitArtifactPath)
-			if err != nil {
-				return err
-			}
-		}
-
-		if s.State != nil {
-			if sigErr != nil {
-				sig.ModifiedAt = time.Time{} // incomplete signature: never skip next time
-			}
-			sig.ContentHash, _ = localContentHash(gitArtifactPath)
-			s.State.set(stateKey, sig)
-		}
+		s.ArtifactSlots <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-s.ArtifactSlots }()
+			run()
+		}()
+	}
+	wg.Wait()
+	if len(failed) > 0 {
+		sort.Strings(failed)
+		return fmt.Errorf("%d artifact(s) failed: %s", len(failed), strings.Join(failed, "; "))
 	}
 
 	// Clean up working directory
@@ -260,6 +192,121 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 
 	log.Info().Msg("---------------------------------------------------------------------------------")
 	log.Info().Msgf("🏆 Completed processing of artifacts in integration package %v", packageId)
+	return nil
+}
+
+// artifactToGit downloads one artifact (unless an incremental snapshot finds
+// it unchanged) and writes it into the Git directory when it differs.
+func (s *Synchroniser) artifactToGit(packageId, workDir, artifactsDir, draftHandling, dirNamingType string, scriptCollectionMap []string, artifact *cpi.ArtifactDetails) error {
+	var err error
+	log.Info().Msg("---------------------------------------------------------------------------------")
+	log.Info().Msgf("📢 Begin processing for artifact %v", artifact.Id)
+	// Check if artifact is in draft version
+	if artifact.IsDraft {
+		switch draftHandling {
+		case "SKIP":
+			log.Warn().Msgf("Artifact %v is in draft version, and will be skipped", artifact.Id)
+			return nil
+		case "ADD":
+			log.Info().Msgf("Artifact %v is in draft version, and will be added", artifact.Id)
+		case "ERROR":
+			return fmt.Errorf("Artifact %v is in draft version. Save Version in Web UI first!", artifact.Id)
+		}
+	}
+	var directoryName string
+	if dirNamingType == "NAME" {
+		directoryName = artifact.Name
+	} else {
+		directoryName = artifact.Id
+	}
+	gitArtifactPath := fmt.Sprintf("%v/%v", artifactsDir, directoryName)
+
+	// incremental snapshot: skip the download when nothing changed
+	stateKey := packageId + "/" + artifact.Id
+	var sig ArtifactState
+	var sigErr error
+	if s.State != nil {
+		if sig, sigErr = tenantSignature(s.exe, artifact); sigErr != nil {
+			log.Warn().Msgf("Cannot read the configuration of %v (%v): downloading it", artifact.Id, sigErr)
+		} else if prev, ok := s.State.get(stateKey); s.Incremental && ok && unchangedSince(prev, sig, gitArtifactPath) {
+			log.Info().Str("artifact", artifact.Id).Msgf("🏆 %v unchanged since the last snapshot (version %v, modified %v, configuration, local copy): skipped",
+				artifact.Id, sig.Version, sig.ModifiedAt.Format(time.RFC3339))
+			s.skipped.Add(1)
+			return nil
+		}
+	}
+
+	// Download artifact content
+	dt := cpi.NewDesigntimeArtifact(artifact.ArtifactType, s.exe)
+	targetDownloadFile := fmt.Sprintf("%v/download/%v.zip", workDir, artifact.Id)
+	err = dt.Download(targetDownloadFile, artifact.Id)
+	if err != nil {
+		return err
+	}
+	s.downloaded.Add(1)
+	// Unzip artifact contents
+	log.Debug().Msgf("Target artifact directory name - %v", directoryName)
+	downloadedArtifactPath := fmt.Sprintf("%v/download/%v", workDir, directoryName)
+	err = file.UnzipSource(targetDownloadFile, downloadedArtifactPath)
+	if err != nil {
+		return err
+	}
+	log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
+
+	// The download's Bundle-Version is not the designtime version (often
+	// 1.0.0): keep the repository's version, or take the tenant's when it
+	// is higher (a version saved in the Web UI).
+	repoVersion, _ := manifest.Version(gitArtifactPath)
+	exportVersion := versioning.Max(repoVersion, artifact.Version)
+	if exportVersion != "" {
+		if err := manifest.SetVersion(downloadedArtifactPath, exportVersion); err != nil {
+			return err
+		}
+		log.Info().Str("artifact", artifact.Id).Msgf("Bundle-Version %v (repository %v, tenant designtime %v)", exportVersion, orNone(repoVersion), orNone(artifact.Version))
+	}
+	if file.Exists(fmt.Sprintf("%v/META-INF/MANIFEST.MF", gitArtifactPath)) {
+		// (1) If artifact already exists in Git, then compare and update
+		log.Info().Msg("Comparing content from tenant against Git")
+
+		// Diff artifact contents
+		dirDiffer, err := dt.CompareContent(downloadedArtifactPath, gitArtifactPath, scriptCollectionMap, "git")
+		if err != nil {
+			return err
+		}
+
+		if dirDiffer {
+			log.Info().Msg("🏆 Changes detected and will be updated to Git")
+			// Update the changes into the Git directory
+			err = dt.CopyContent(downloadedArtifactPath, gitArtifactPath)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Info().Msg("🏆 No changes detected. Update to Git not required")
+		}
+
+	} else { // (2) If artifact does not exist in Git, then add it
+		log.Info().Msgf("🏆 Artifact %v does not exist, and will be added to Git", artifact.Id)
+		// Update the script collection in IFlow BPMN2 XML before syncing to Git
+		if artifact.ArtifactType == "Integration" {
+			err = file.UpdateBPMN(downloadedArtifactPath, scriptCollectionMap)
+			if err != nil {
+				return err
+			}
+		}
+		err = file.ReplaceDir(downloadedArtifactPath, gitArtifactPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	if s.State != nil {
+		if sigErr != nil {
+			sig.ModifiedAt = time.Time{} // incomplete signature: never skip next time
+		}
+		sig.ContentHash, _ = localContentHash(gitArtifactPath)
+		s.State.set(stateKey, sig)
+	}
 	return nil
 }
 

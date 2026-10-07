@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,4 +95,31 @@ func TestSnapshotIncrementalAndParallel(t *testing.T) {
 	assert.Equal(t, 7, r.code, r.stderr)
 	assert.Equal(t, 4, value("A1"), "PkgA still processed")
 	assert.Contains(t, r.stdout, `"failed"`)
+}
+
+// One large package must not run alone: artifacts of all packages share the
+// download slots.
+func TestSnapshotParallelArtifacts(t *testing.T) {
+	arts := map[string]*cpitest.Artifact{}
+	for i := 0; i < 24; i++ { // one large package
+		id := fmt.Sprintf("Big%02d", i)
+		arts[id] = &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.0", Package: "Big", Name: id, Zip: flowZip(t, id, "v1")}
+	}
+	for i := 0; i < 4; i++ { // a few small ones
+		id := fmt.Sprintf("Small%d", i)
+		arts[id] = &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.0", Package: fmt.Sprintf("S%d", i), Name: id, Zip: flowZip(t, id, "v1")}
+	}
+	mock := cpitest.NewTenant(t, arts)
+	mock.Packages = []cpitest.Package{{ID: "Big"}, {ID: "S0"}, {ID: "S1"}, {ID: "S2"}, {ID: "S3"}}
+	mock.DownloadLatency = 100 * time.Millisecond
+
+	started := time.Now()
+	r := runMain(t, append([]string{"snapshot", "--dir-git-repo", t.TempDir(), "--dir-work", t.TempDir(), "--git-skip-commit",
+		"--sync-package-details=false", "--parallel", "8", "--output", "json"}, basicAuth(mock)...)...)
+	elapsed := time.Since(started)
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Contains(t, r.stdout, `"artifactsDownloaded": 28`)
+	assert.Equal(t, int64(8), mock.PeakDownloads(), "8 downloads at a time, also within the large package")
+	// sequential: 28 x 100ms = 2.8s; per package in parallel the large package alone takes 2.4s
+	assert.Less(t, elapsed, 1500*time.Millisecond)
 }

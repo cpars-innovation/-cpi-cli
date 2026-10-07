@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,6 +191,12 @@ type Tenant struct {
 	LastMessageLogQuery string
 	mplQueries          int
 
+	// DownloadLatency delays every artifact download ($value), outside the
+	// mock's lock; PeakDownloads reports how many overlapped at most.
+	DownloadLatency time.Duration
+	inFlight        atomic.Int64
+	peakInFlight    atomic.Int64
+
 	// PDStrings and PDBinaries are the Partner Directory parameters, keyed
 	// "<pid>/<id>".
 	PDStrings  map[string]string
@@ -272,6 +279,10 @@ func (m *Tenant) CSRFFetches() int {
 	}
 	return n
 }
+
+// PeakDownloads is the highest number of concurrent downloads seen (with
+// DownloadLatency).
+func (m *Tenant) PeakDownloads() int64 { return m.peakInFlight.Load() }
 
 // Requests returns "METHOD path" for every request received.
 func (m *Tenant) Requests() []string {
@@ -652,6 +663,19 @@ func notFound(w http.ResponseWriter) {
 }
 
 func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
+	// simulated download time, outside the lock so that parallel
+	// downloads overlap as on a real tenant
+	if m.DownloadLatency > 0 && strings.HasSuffix(r.URL.Path, "/$value") {
+		n := m.inFlight.Add(1)
+		for {
+			peak := m.peakInFlight.Load()
+			if n <= peak || m.peakInFlight.CompareAndSwap(peak, n) {
+				break
+			}
+		}
+		time.Sleep(m.DownloadLatency)
+		m.inFlight.Add(-1)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	path := r.URL.Path

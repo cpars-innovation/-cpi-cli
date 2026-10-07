@@ -1772,7 +1772,7 @@ Configuration:
       --git-commit-user string    User used in commit (config: snapshot.gitCommitUser) (default "github-actions[bot]")
       --git-skip-commit           Skip committing changes to Git repository (config: snapshot.gitSkipCommit)
       --incremental               Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)
-      --parallel int              Packages processed at the same time (config: snapshot.parallel) (default 4)
+      --parallel int              Artifacts downloaded at the same time, across all packages (config: snapshot.parallel) (default 8)
       --state-file string         State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)
       --sync-package-details      Sync details of Integration Packages (config: snapshot.syncPackageDetails) (default true)
 ```

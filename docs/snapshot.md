@@ -31,17 +31,23 @@ Recommended: `--incremental` for frequent runs (e.g. hourly) and a full run regu
 nightly) as the safety net, in case the tenant changes something none of the signals sees.
 Deleting the state file makes the next incremental run a full one.
 
-## Parallel packages and failures
+## Parallel downloads and failures
 
-Packages are processed `--parallel` at a time (default 4); artifacts within a package one after
-another. Reads that the tenant throttles (`429`) or that hit a gateway error (`502`-`504`) are
+Up to `--parallel` artifacts (default 8) are downloaded at the same time, across all packages: a
+package with many flows does not run alone at the end. For large tenants (hundreds of flows) try
+`--parallel 16`; if the tenant answers `429` often, lower it. The summary line and the JSON result
+show how many artifacts were downloaded or skipped and how long it took
+(`artifactsDownloaded`, `artifactsSkipped`, `seconds`). Reads that the tenant throttles (`429`) or that hit a gateway error (`502`-`504`) are
 retried up to three times with backoff (`Retry-After` is honoured). A package that fails does not
 stop the others: the snapshot of the other packages is written, the state saved and committed,
 and the run ends with exit code 7 (partial) and the failed packages in the result:
 
 ```json
-{"packages": 42, "succeeded": 41, "artifactsSkipped": 380, "failed": ["Legacy: ..."]}
+{"packages": 130, "succeeded": 129, "artifactsDownloaded": 41, "artifactsSkipped": 759, "seconds": 74.2, "failed": ["Legacy: ..."]}
 ```
+
+A failing artifact no longer stops the other artifacts of its package either; the package is
+reported as failed with the artifacts that failed.
 
 All settings can also be set in the config file under `snapshot` (`incremental`, `parallel`,
 `stateFile`, ...), see [commands.md](commands.md#snapshot).
