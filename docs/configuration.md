@@ -167,8 +167,14 @@ Without these settings the API credentials are used (works when they also carry
 | Flag | Description |
 |------|-------------|
 | `--config` | Config file (default `$HOME/cpictl.yaml`) |
+| `--profile` | Profile `~/.cpictl/<name>.yaml` ([profiles](#profiles-switching-tenants)) |
 | `--output text\|json` | Result format, see [README](../README.md#output-and-exit-codes) |
+| `--read-retries` | Retries of tenant reads answered with 429 or 502-504 (default 3, `0`: none); writes are never retried |
+| `--summary` | Job summary file for `orchestrator`, `configure`, `deploy`, `undeploy`, `snapshot` (default `$GITHUB_STEP_SUMMARY` when set, `off`: none), see [ci.md](ci.md#job-summary) |
 | `--debug` | Debug logging: request URLs and response errors; request bodies are never logged (they can contain secrets) |
+
+Every command ends with the time it took (`⏱ ... in 12.3s`); `cpictl doctor` checks the whole
+setup, `cpictl stats` shows local usage statistics.
 
 ## Config file example
 

@@ -9,7 +9,7 @@ combines three things:
 | **Roles**: how to plan, build, test and review a flow (skills, reviewer agent) | this repository (`plugin/`) | cpicli releases |
 | **Conventions**: how *your* tenant builds flows (naming, error handling, logging, scripts, tests) | your content repository (`.cpi/`) | your team |
 
-Codex, Cursor or Gemini CLI: the MCP server and the skills work there too, see [agents.md](agents.md).
+Cursor, OpenCode, Codex or Gemini CLI: the MCP server and the skills work there too, see [agents.md](agents.md).
 
 The roles are generic and the same for everybody. Everything that differs between tenants is
 data in `.cpi/` of the repository that holds your integration content. The skills read it in

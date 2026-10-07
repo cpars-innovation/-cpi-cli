@@ -1749,6 +1749,8 @@ with --user, into your home directory, in the folder the agent reads:
   agents, codex   .agents/skills   (Codex; Cursor and others read it too)
   cursor          .cursor/skills
   gemini          .gemini/skills
+  opencode        .opencode/skills (--user: ~/.config/opencode/skills; OpenCode
+                  also reads .agents/skills and .claude/skills)
   claude          .claude/skills   (Claude Code without the plugin)
 
 Existing cpi-* skills there are replaced; other skills are kept. The
@@ -1761,7 +1763,7 @@ them. Run it again after updating cpictl.
 **Flags:**
 
 ```
-      --agent string   Agent whose skill folder to use: agents, claude, codex, cursor, gemini (default "agents")
+      --agent string   Agent whose skill folder to use: agents, claude, codex, cursor, gemini, opencode (default "agents")
       --user           Install into your home directory instead of a repository
 ```
 
@@ -1771,6 +1773,7 @@ them. Run it again after updating cpictl.
   cpictl skills install --agent codex
   cpictl skills install --agent cursor ../content-repo
   cpictl skills install --agent gemini --user
+  cpictl skills install --agent opencode
 ```
 
 ## skills list

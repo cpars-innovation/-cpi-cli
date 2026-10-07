@@ -16,6 +16,9 @@ cpictl status --artifact-ids OrderIntake --output json
 - **Deployments you can trust.** `deploy` follows the tenant's build/deploy task and waits
   for the *new* runtime artifact. A redeploy is never reported as done while the previous
   version is still running.
+- **Fast pipelines for large tenants.** Incremental, parallel snapshots; the orchestrator
+  compares with the snapshot instead of downloading every artifact again; `--plan` shows what
+  would be uploaded and deployed, and every artifact is deployed at most once per run.
 - **Safe defaults.** Partner Directory full sync never deletes a partner's parameters when its
   local files cannot be read; destructive MCP tools need explicit confirmation; secrets are
   never taken from flags, never returned and never logged.
@@ -39,6 +42,7 @@ Download a binary for your platform from the
 ```bash
 go install github.com/cpars-innovation/cpicli/cmd/cpictl@latest   # or @v0.1.0
 cpictl --version
+cpictl doctor          # after the configuration below: connection, authentication, roles
 ```
 
 The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`), which must be on your `PATH`.
@@ -202,6 +206,21 @@ cpictl undeploy --artifact-ids OrderIntake
 For many packages at once, use [`orchestrator`](docs/orchestrator.md) (update + deploy from a
 directory tree) or [`configure`](docs/configure.md) (parameters from YAML per environment).
 
+### In a pipeline
+
+```bash
+cpictl snapshot --incremental --dir-git-repo . --git-skip-commit   # tenant -> repository (unchanged artifacts skipped)
+./copy-managed-parts.sh                                            # your parts over the snapshot
+cpictl orchestrator -d . -c deploy/ --plan                         # optional: what would happen, and why
+cpictl orchestrator -d . -c deploy/ --defer-deploy                 # uploads only what changed, no second download
+cpictl configure -c config/dev.yml --defer-deploy                  # writes only changed parameters
+cpictl deploy --pending                                            # deploys each artifact once
+```
+
+Reads, uploads and parameter reads run 8 at a time, throttled reads are retried, and in GitHub
+Actions every step adds a summary table to the run page. Details:
+[docs/ci.md](docs/ci.md#pipeline-snapshot-update-configure-deploy-once).
+
 ## Commands
 
 | Area | Commands |
@@ -316,19 +335,21 @@ as `.mcp.json` in the root of the integration content repository
 - `--root .` confines local paths of tool calls to the repository. Use the full path of `cpictl`
   if Claude Code does not find it on the `PATH`.
 - Without profiles, pass the `CPICTL_*` variables in `env` instead
-  ([example](docs/examples/claude-code.mcp.json)); other clients (Claude Desktop, Cursor, ...):
-  [docs/examples/mcp.json](docs/examples/mcp.json). Ad hoc in Claude Code:
+  ([example](docs/examples/claude-code.mcp.json)); Cursor, OpenCode, Codex, Gemini CLI:
+  [docs/agents.md](docs/agents.md); other clients: [docs/examples/mcp.json](docs/examples/mcp.json). Ad hoc in Claude Code:
   `claude mcp add cpi -- cpictl mcp --root . --profile dev`.
 
 Limit what agents may do per server with `--read-only`, `--tools list_*,get_*` or
 `--disable-tools undeploy,pd_deploy` ([details](docs/mcp.md#limiting-tools)).
 Full example with a read-only QA tenant: [docs/examples/claude-code.mcp.json](docs/examples/claude-code.mcp.json);
-for other clients (Claude Desktop, Cursor, ...): [docs/examples/mcp.json](docs/examples/mcp.json).
+for Cursor and OpenCode see [below](#codex-cursor-opencode-gemini-cli-and-other-agents), for
+other clients (Claude Desktop, ...): [docs/examples/mcp.json](docs/examples/mcp.json).
 The runtime credentials are only needed for `send_test_message`
 ([configuration.md](docs/configuration.md#runtime-endpoints-test-messages)).
 
-Tools cover the whole loop: `create_package`, `download_artifact`, `upload_artifact`,
-`validate_artifact`, `check_guidelines`, `deploy`, `send_test_message`, `get_runtime_status`,
+Tools cover the whole loop: `doctor`, `create_package`, `download_artifact`, `drift`,
+`upload_artifact` / `upload_artifacts` (`dry_run`), `validate_artifact`, `check_guidelines`,
+`deploy` (`dry_run`: what would be deployed and why), `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
 `get_message_store_entry`, parameters, resources, `discover_tenant`, `graph_search`, `graph_neighbors`,
 `graph_path`, `list_credentials`,
@@ -358,29 +379,63 @@ read-only reviewer agent:
 
 Then run the `cpi-discover` skill once per repository. See [docs/plugin.md](docs/plugin.md).
 
-### Codex, Cursor, Gemini CLI and other agents
+### Codex, Cursor, OpenCode, Gemini CLI and other agents
 
 The MCP server works in any MCP client, and the skills are plain `SKILL.md` folders. Configure the
-server with a profile (Codex: `.codex/config.toml`, Cursor: `.cursor/mcp.json`, Gemini CLI:
-`.gemini/settings.json`) and copy the skills into the content repository:
+server with a profile and copy the skills into the content repository:
 
-```bash
-codex mcp add cpi-dev -- cpictl mcp --root . --profile dev --mode develop
-scripts/install-skills.sh --agent codex /path/to/content-repo   # or cursor, gemini; --user for ~
+| Agent | MCP configuration | Example | Skills |
+|-------|-------------------|---------|--------|
+| Cursor | `.cursor/mcp.json` (or `~/.cursor/mcp.json`) | [cursor-mcp.json](docs/examples/agents/cursor-mcp.json), [with env](docs/examples/agents/cursor-mcp-env.json) | `cpictl skills install --agent cursor` |
+| OpenCode | `opencode.json` (or `~/.config/opencode/opencode.json`) | [opencode.json](docs/examples/agents/opencode.json), [with env](docs/examples/agents/opencode-env.json) | `cpictl skills install --agent opencode` |
+| Codex | `.codex/config.toml` | [codex-config.toml](docs/examples/agents/codex-config.toml) | `cpictl skills install --agent codex` |
+| Gemini CLI | `.gemini/settings.json` | [gemini-settings.json](docs/examples/agents/gemini-settings.json) | `cpictl skills install --agent gemini` |
+
+Cursor (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "type": "stdio",
+      "command": "cpictl",
+      "args": ["mcp", "--root", "${workspaceFolder}", "--profile", "dev", "--mode", "develop"]
+    }
+  }
+}
 ```
 
-Setup per agent, examples and what differs from the Claude Code plugin: [docs/agents.md](docs/agents.md).
+OpenCode (`opencode.json` in the repository root):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cpi-dev": {
+      "type": "local",
+      "command": ["cpictl", "mcp", "--root", ".", "--profile", "dev", "--mode", "develop"],
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}
+```
+
+Then ask the agent to *"use the doctor tool of cpi-dev"* to check the connection. All four read
+`AGENTS.md` ([example](docs/examples/agents/AGENTS.md)) for project rules. Setup per agent (read-only
+QA server, environment variables instead of profiles, tool approval) and what differs from the
+Claude Code plugin: [docs/agents.md](docs/agents.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| [Configuration](docs/configuration.md) | Connection, config file, environment variables, OAuth client |
+| [Configuration](docs/configuration.md) | Connection, config file, environment variables, OAuth client, [all defaults](docs/configuration.md#defaults) |
 | [Command reference](docs/commands.md) | All commands and flags |
 | [MCP server](docs/mcp.md) | Agent setup, tools, result format, safety |
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
-| [Other agents](docs/agents.md) | Codex, Cursor, Gemini CLI: MCP setup, skills, AGENTS.md |
-| [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Other agents](docs/agents.md) | Cursor, OpenCode, Codex, Gemini CLI: MCP setup, skills, AGENTS.md |
+| [Orchestrator](docs/orchestrator.md) | Update + deploy many packages: `--plan`, comparison with the snapshot, `--defer-deploy`, `--parallel`, `config-generate` |
 | [Snapshot](docs/snapshot.md) | Tenant backup to Git: `--incremental` (version, ModifiedAt, configuration and content hashes), `--parallel` |
 | [Versioning](docs/versioning.md) | Versions in the repository (`Bundle-Version`), `--versioning manifest\|keep\|tenant-bump`, `version bump --changed` |
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
@@ -390,7 +445,7 @@ Setup per agent, examples and what differs from the Claude Code plugin: [docs/ag
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
 | [Security material](docs/security.md) | Credentials, `credentials apply`, keystore and certificate expiry |
 | [Partner Directory](docs/partner-directory.md) | `pd-snapshot`, `pd-deploy`, full sync |
-| [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, scripting with exit codes |
+| [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, the snapshot -> update -> configure -> deploy-once pipeline, job summary, exit codes |
 | [Examples](docs/examples) | Ready-to-copy configuration files |
 | [Coming from FlashPipe](docs/migrating-from-flashpipe.md) | What changed and how to migrate |
 

@@ -110,11 +110,18 @@ func Names() []string {
 // Targets are the skill folders of the agents, relative to a repository or
 // the home directory.
 var Targets = map[string]string{
-	"agents": ".agents/skills", // Codex, Cursor and others reading the shared location
-	"codex":  ".agents/skills",
-	"cursor": ".cursor/skills",
-	"gemini": ".gemini/skills",
-	"claude": ".claude/skills", // Claude Code without the plugin
+	"agents":   ".agents/skills", // Codex, Cursor and others reading the shared location
+	"codex":    ".agents/skills",
+	"cursor":   ".cursor/skills",
+	"gemini":   ".gemini/skills",
+	"opencode": ".opencode/skills",
+	"claude":   ".claude/skills", // Claude Code without the plugin
+}
+
+// UserTargets are the folders below the home directory (--user) where they
+// differ from Targets.
+var UserTargets = map[string]string{
+	"opencode": ".config/opencode/skills",
 }
 
 // AgentNames lists the keys of Targets.
@@ -137,11 +144,15 @@ var reAllowedTools = regexp.MustCompile(`(?m)^allowed-tools:.*\n`)
 
 // Install writes all skills into base/<agent folder>, replacing existing
 // cpi skills there and keeping other skills. The allowed-tools line is
-// removed: it names the tools as the Claude Code plugin sees them.
-func Install(agent, base string) (*InstallResult, error) {
+// removed: it names the tools as the Claude Code plugin sees them. user:
+// base is the home directory (UserTargets apply).
+func Install(agent, base string, user bool) (*InstallResult, error) {
 	rel, ok := Targets[agent]
 	if !ok {
 		return nil, output.Usagef("unknown agent %q (%s)", agent, strings.Join(AgentNames(), ", "))
+	}
+	if u, ok := UserTargets[agent]; ok && user {
+		rel = u
 	}
 	dir := filepath.Join(base, filepath.FromSlash(rel))
 	res := &InstallResult{Dir: dir}

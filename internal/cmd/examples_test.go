@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -76,7 +77,7 @@ func TestDocsExamples(t *testing.T) {
 	})
 
 	for _, name := range []string{"mcp.json", "claude-code.mcp.json", "profiles.mcp.json",
-		"agents/cursor-mcp.json", "agents/gemini-settings.json", "agents/codex-config.toml"} {
+		"agents/cursor-mcp.json", "agents/cursor-mcp-env.json", "agents/gemini-settings.json", "agents/codex-config.toml"} {
 		t.Run(name, func(t *testing.T) {
 			var cfg struct {
 				MCPServers map[string]mcpServerExample `json:"mcpServers"`
@@ -113,10 +114,59 @@ func TestDocsExamples(t *testing.T) {
 				}
 				for k, v := range server.Env {
 					assert.True(t, strings.HasPrefix(k, "CPICTL_"), "%s: %s", id, k)
-					if name == "claude-code.mcp.json" {
+					switch name {
+					case "claude-code.mcp.json":
 						// a committed project file must not contain values, only references
 						assert.Regexp(t, `^\$\{[A-Z0-9_]+\}$`, v, "%s: %s", id, k)
+					case "agents/cursor-mcp-env.json":
+						assert.Regexp(t, `^\$\{env:[A-Z0-9_]+\}$`, v, "%s: %s", id, k)
 					}
+				}
+			}
+		})
+	}
+
+	// OpenCode: "mcp" with type local and the command as one array
+	for _, name := range []string{"agents/opencode.json", "agents/opencode-env.json"} {
+		t.Run(name, func(t *testing.T) {
+			var cfg struct {
+				Schema string `json:"$schema"`
+				MCP    map[string]struct {
+					Type        string            `json:"type"`
+					Command     []string          `json:"command"`
+					Enabled     bool              `json:"enabled"`
+					Timeout     int               `json:"timeout"`
+					Environment map[string]string `json:"environment"`
+				} `json:"mcp"`
+			}
+			data, err := os.ReadFile(filepath.Join(examplesDir, name))
+			require.NoError(t, err)
+			dec := json.NewDecoder(bytes.NewReader(data))
+			dec.DisallowUnknownFields()
+			require.NoError(t, dec.Decode(&cfg))
+			assert.Equal(t, "https://opencode.ai/config.json", cfg.Schema)
+			require.Contains(t, cfg.MCP, "cpi-dev")
+			root := NewCLI("test")
+			mcpCmd, _, err := root.Find([]string{"mcp"})
+			require.NoError(t, err)
+			for id, server := range cfg.MCP {
+				assert.Equal(t, "local", server.Type, id)
+				assert.True(t, server.Enabled, id)
+				require.GreaterOrEqual(t, len(server.Command), 2, id)
+				assert.Equal(t, []string{"cpictl", "mcp"}, server.Command[:2], id)
+				for _, arg := range server.Command[2:] {
+					if flag, ok := strings.CutPrefix(arg, "--"); ok {
+						assert.True(t, mcpCmd.Flags().Lookup(flag) != nil || root.PersistentFlags().Lookup(flag) != nil, "%s: unknown flag %s", id, arg)
+					}
+				}
+				if slices.Contains(server.Command, "--profile") {
+					assert.Empty(t, server.Environment, id)
+				} else {
+					assert.Contains(t, server.Environment, "CPICTL_TMN_HOST", id)
+				}
+				for k, v := range server.Environment {
+					assert.True(t, strings.HasPrefix(k, "CPICTL_"), "%s: %s", id, k)
+					assert.Regexp(t, `^\{env:[A-Z0-9_]+\}$`, v, "%s: %s", id, k)
 				}
 			}
 		})

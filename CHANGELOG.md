@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- OpenCode: MCP setup (`opencode.json`) and `cpictl skills install --agent opencode`
+  (`.opencode/skills`, `--user`: `~/.config/opencode/skills`). Cursor setup expanded (global
+  file, `${env:...}`, tool approval). Examples with profiles and with environment variables in
+  [docs/examples/agents](docs/examples/agents); see [docs/agents.md](docs/agents.md).
+
 - Defaults unified: deployment status every 10 s, up to 30 checks (5 minutes) for `deploy`
   (before 30 s x 10), `orchestrator` and `configure` (before 15 s x 5, which timed out slow
   deployments after 75 s); 5 deployments at the same time per package (before 3). All defaults

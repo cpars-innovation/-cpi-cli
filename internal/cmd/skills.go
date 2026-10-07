@@ -75,12 +75,14 @@ with --user, into your home directory, in the folder the agent reads:
   agents, codex   .agents/skills   (Codex; Cursor and others read it too)
   cursor          .cursor/skills
   gemini          .gemini/skills
+  opencode        .opencode/skills (--user: ~/.config/opencode/skills; OpenCode
+                  also reads .agents/skills and .claude/skills)
   claude          .claude/skills   (Claude Code without the plugin)
 
 Existing cpi-* skills there are replaced; other skills are kept. The
 allowed-tools line is removed, it names tools as the Claude Code plugin sees
 them. Run it again after updating cpictl.`,
-		Example:      "  cpictl skills install --agent codex\n  cpictl skills install --agent cursor ../content-repo\n  cpictl skills install --agent gemini --user",
+		Example:      "  cpictl skills install --agent codex\n  cpictl skills install --agent cursor ../content-repo\n  cpictl skills install --agent gemini --user\n  cpictl skills install --agent opencode",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		Annotations:  map[string]string{annotationOffline: "true"},
@@ -103,7 +105,7 @@ them. Run it again after updating cpictl.`,
 			} else if info, err := os.Stat(base); err != nil || !info.IsDir() {
 				return output.Usagef("%s is not a directory", base)
 			}
-			res, err := skills.Install(agent, base)
+			res, err := skills.Install(agent, base, user)
 			if err != nil {
 				return err
 			}

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "cpi-dev": {
+      "type": "stdio",
+      "command": "cpictl",
+      "args": ["mcp", "--root", "${workspaceFolder}", "--mode", "develop"],
+      "env": {
+        "CPICTL_TMN_HOST": "${env:CPI_DEV_TMN_HOST}",
+        "CPICTL_OAUTH_HOST": "${env:CPI_DEV_OAUTH_HOST}",
+        "CPICTL_OAUTH_CLIENTID": "${env:CPI_DEV_OAUTH_CLIENTID}",
+        "CPICTL_OAUTH_CLIENTSECRET": "${env:CPI_DEV_OAUTH_CLIENTSECRET}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTID": "${env:CPI_DEV_RUNTIME_OAUTH_CLIENTID}",
+        "CPICTL_RUNTIME_OAUTH_CLIENTSECRET": "${env:CPI_DEV_RUNTIME_OAUTH_CLIENTSECRET}"
+      }
+    }
+  }
+}

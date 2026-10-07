@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cpi-dev": {
+      "type": "local",
+      "command": ["cpictl", "mcp", "--root", ".", "--profile", "dev", "--mode", "develop"],
+      "enabled": true,
+      "timeout": 15000
+    },
+    "cpi-qa": {
+      "type": "local",
+      "command": ["cpictl", "mcp", "--root", ".", "--profile", "qa", "--read-only"],
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}

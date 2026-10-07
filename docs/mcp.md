@@ -23,7 +23,14 @@ claude mcp add cpi \
   -- /path/to/bin/cpictl mcp --root /path/to/integration-repo
 ```
 
-### Other clients (Claude Desktop, Cursor, ...)
+### Cursor, OpenCode, Codex, Gemini CLI
+
+Each has its own configuration file; ready-to-copy examples (with profiles or with environment
+variables) and the skill setup are in [agents.md](agents.md):
+[Cursor](agents.md#cursor) (`.cursor/mcp.json`), [OpenCode](agents.md#opencode) (`opencode.json`),
+[Codex](agents.md#codex), [Gemini CLI](agents.md#gemini-cli).
+
+### Other clients (Claude Desktop, ...)
 
 See [examples/mcp.json](examples/mcp.json):
 

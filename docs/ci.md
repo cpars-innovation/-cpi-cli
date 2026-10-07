@@ -2,7 +2,7 @@
 
 cpictl is a single static binary. In a pipeline: build or download it, provide the tenant
 credentials as secret environment variables, run commands, and use the
-[exit codes](../README.md#exit-codes) and `--output json` results.
+[exit codes](../README.md#output-and-exit-codes) and `--output json` results.
 
 ## GitHub Actions
 
@@ -33,6 +33,12 @@ jobs:
           go-version-file: .cpicli/go.mod
       - run: make -C .cpicli build && echo "$PWD/.cpicli/bin" >> "$GITHUB_PATH"
 
+      - name: Check connection and roles
+        run: cpictl doctor
+
+      - name: Plan
+        run: cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-config.yml --plan
+
       - name: Update and deploy
         run: cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-config.yml --output json > result.json
 
@@ -40,6 +46,10 @@ jobs:
         if: failure()
         run: jq '.result.deployments[] | select(.status != "DEPLOYED" and .status != "SKIPPED")' result.json
 ```
+
+`doctor` fails the job early (exit code 3 or 4) when the credentials or the connection are
+wrong. The plan, the update and the deployments each add a table to the run page
+([job summary](#job-summary)).
 
 ## Azure Pipelines
 

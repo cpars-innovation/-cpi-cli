@@ -1,4 +1,4 @@
-# Codex, Cursor, Gemini CLI and other agents
+# Codex, Cursor, OpenCode, Gemini CLI and other agents
 
 The Claude Code plugin ([plugin.md](plugin.md)) has three parts. Two of them work in any agent:
 
@@ -20,7 +20,7 @@ Install `cpictl` and create one profile per tenant, as for the CLI
 go install github.com/cpars-innovation/cpicli/cmd/cpictl@latest   # or a release binary
 mkdir -p ~/.cpictl && cp docs/examples/profiles/dev.yaml ~/.cpictl/dev.yaml   # then edit it
 chmod 600 ~/.cpictl/dev.yaml
-cpictl --profile dev packages list        # check the connection
+cpictl --profile dev doctor               # connection, authentication, roles per API area
 ```
 
 The MCP configurations below name only the profile, so they contain no credentials and can be
@@ -56,18 +56,112 @@ so that `--root .` is the repository, or put the absolute path in `--root` (alwa
 
 ### Cursor
 
-`.cursor/mcp.json` in the content repository ([example](examples/agents/cursor-mcp.json)):
+`.cursor/mcp.json` in the content repository, or `~/.cursor/mcp.json` for all projects
+([example](examples/agents/cursor-mcp.json)):
 
 ```json
 {
   "mcpServers": {
     "cpi-dev": {
+      "type": "stdio",
       "command": "cpictl",
       "args": ["mcp", "--root", "${workspaceFolder}", "--profile", "dev", "--mode", "develop"]
+    },
+    "cpi-qa": {
+      "type": "stdio",
+      "command": "cpictl",
+      "args": ["mcp", "--root", "${workspaceFolder}", "--profile", "qa", "--read-only"]
     }
   }
 }
 ```
+
+1. Save the file and open *Cursor Settings → MCP* (Tools & MCP): `cpi-dev` and `cpi-qa` appear
+   with their tools; enable them there if Cursor lists them as disabled.
+2. In the chat (Agent mode) ask *"Use the doctor tool of cpi-dev"*. It reports the connection and
+   which API areas the credentials can use.
+3. Cursor asks before each tool call. Allow the read tools (`list_*`, `get_*`, `drift`,
+   `help`, `doctor`) permanently if you like; keep `deploy`, `undeploy`, `upload_artifact(s)`
+   and `send_test_message` on approval.
+
+`${workspaceFolder}` is the folder that contains `.cursor/mcp.json`. In the global
+`~/.cursor/mcp.json` there is no project folder: put the absolute repository path into `--root`.
+
+Without profiles, pass the connection from your environment with `${env:NAME}`
+([example](examples/agents/cursor-mcp-env.json)); `envFile` (e.g. `"${workspaceFolder}/.env"`,
+not committed) works too:
+
+```json
+"cpi-dev": {
+  "type": "stdio",
+  "command": "cpictl",
+  "args": ["mcp", "--root", "${workspaceFolder}", "--mode", "develop"],
+  "env": {
+    "CPICTL_TMN_HOST": "${env:CPI_DEV_TMN_HOST}",
+    "CPICTL_OAUTH_HOST": "${env:CPI_DEV_OAUTH_HOST}",
+    "CPICTL_OAUTH_CLIENTID": "${env:CPI_DEV_OAUTH_CLIENTID}",
+    "CPICTL_OAUTH_CLIENTSECRET": "${env:CPI_DEV_OAUTH_CLIENTSECRET}"
+  }
+}
+```
+
+Skills: `cpictl skills install --agent cursor` (`.cursor/skills`; Cursor also reads
+`.agents/skills`). Project instructions: `AGENTS.md` ([section 4](#4-project-instructions)).
+
+### OpenCode
+
+`opencode.json` in the root of the content repository, or `~/.config/opencode/opencode.json` for
+all projects ([example](examples/agents/opencode.json)):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cpi-dev": {
+      "type": "local",
+      "command": ["cpictl", "mcp", "--root", ".", "--profile", "dev", "--mode", "develop"],
+      "enabled": true,
+      "timeout": 15000
+    },
+    "cpi-qa": {
+      "type": "local",
+      "command": ["cpictl", "mcp", "--root", ".", "--profile", "qa", "--read-only"],
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}
+```
+
+- `command` is one array: the program and its arguments. Start OpenCode in the repository root so
+  that `--root .` is the repository (or use the absolute path, always in the global file).
+- `timeout` is how long OpenCode waits for the server's tool list (milliseconds, default 5000).
+  The first start of a server reads the profile and fetches an OAuth token; 15 s leaves room.
+- OpenCode names the tools `<server>_<tool>`, e.g. `cpi-dev_deploy`. To switch a server off
+  without deleting it, set `"enabled": false`, or disable its tools with
+  `"tools": {"cpi-qa_*": false}` and enable them per agent in `agent.<name>.tools`.
+- Check: run `opencode mcp list`, or ask *"use the doctor tool of cpi-dev"* in a session.
+
+Without profiles, OpenCode substitutes `{env:NAME}` ([example](examples/agents/opencode-env.json)):
+
+```json
+"cpi-dev": {
+  "type": "local",
+  "command": ["cpictl", "mcp", "--root", ".", "--mode", "develop"],
+  "enabled": true,
+  "environment": {
+    "CPICTL_TMN_HOST": "{env:CPI_DEV_TMN_HOST}",
+    "CPICTL_OAUTH_HOST": "{env:CPI_DEV_OAUTH_HOST}",
+    "CPICTL_OAUTH_CLIENTID": "{env:CPI_DEV_OAUTH_CLIENTID}",
+    "CPICTL_OAUTH_CLIENTSECRET": "{env:CPI_DEV_OAUTH_CLIENTSECRET}"
+  }
+}
+```
+
+Skills: `cpictl skills install --agent opencode` (`.opencode/skills`; `--user`:
+`~/.config/opencode/skills`). OpenCode also reads `.agents/skills` and `.claude/skills`, so skills
+installed for Codex or Claude Code work as well. Project instructions: OpenCode reads `AGENTS.md`
+(falls back to `CLAUDE.md`); [section 4](#4-project-instructions).
 
 ### Gemini CLI
 
@@ -105,14 +199,16 @@ cpictl skills list                      # what is there
 cpictl skills install --agent codex     # .agents/skills
 cpictl skills install --agent cursor    # .cursor/skills
 cpictl skills install --agent gemini    # .gemini/skills
+cpictl skills install --agent opencode  # .opencode/skills
 cpictl skills show cpi-build            # read one
 ```
 
 | `--agent` | Folder | Read by |
 |-----------|--------|---------|
-| `agents`, `codex` (default) | `.agents/skills` | Codex, Cursor, other agents following the shared location |
+| `agents`, `codex` (default) | `.agents/skills` | Codex, Cursor, OpenCode, other agents following the shared location |
 | `cursor` | `.cursor/skills` | Cursor |
 | `gemini` | `.gemini/skills` | Gemini CLI |
+| `opencode` | `.opencode/skills` (`--user`: `~/.config/opencode/skills`) | OpenCode |
 | `claude` | `.claude/skills` | Claude Code without the plugin |
 
 `--user` installs into your home directory instead (`~/.agents/skills`, ...), for all
@@ -130,7 +226,7 @@ Then, in the content repository, ask the agent to run `cpi-discover` once: it wr
 
 ## 4. Project instructions
 
-Agents load a project instruction file in every session: Codex and Cursor read `AGENTS.md`,
+Agents load a project instruction file in every session: Codex, Cursor and OpenCode read `AGENTS.md`,
 Gemini CLI reads `GEMINI.md` (or `AGENTS.md` when `context.fileName` names it). Point it at the
 conventions and the skills and state which tenant may be changed
 ([example AGENTS.md](examples/agents/AGENTS.md)). Keep it short; the details belong in

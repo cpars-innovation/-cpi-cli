@@ -1,10 +1,12 @@
 {
   "mcpServers": {
     "cpi-dev": {
+      "type": "stdio",
       "command": "cpictl",
       "args": ["mcp", "--root", "${workspaceFolder}", "--profile", "dev", "--mode", "develop"]
     },
     "cpi-qa": {
+      "type": "stdio",
       "command": "cpictl",
       "args": ["mcp", "--root", "${workspaceFolder}", "--profile", "qa", "--read-only"]
     }

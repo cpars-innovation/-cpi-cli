@@ -4,19 +4,20 @@
 # format. Claude Code users install the plugin instead (docs/plugin.md).
 # Without a checkout, 'cpictl skills install' does the same from the binary.
 #
-#   scripts/install-skills.sh [--agent agents|codex|cursor|gemini] [--user] [REPO]
+#   scripts/install-skills.sh [--agent agents|codex|cursor|gemini|opencode] [--user] [REPO]
 #
 #   --agent  where the agent looks for skills (default: agents)
 #              agents, codex  .agents/skills   (Codex; Cursor reads it too)
 #              cursor         .cursor/skills
 #              gemini         .gemini/skills
+#              opencode       .opencode/skills (--user: ~/.config/opencode/skills)
 #   --user   install for the current user (~/.agents/skills, ...) instead of
 #            into the content repository REPO (default: current directory)
 #
 # Existing cpi-* skills in the target are replaced; other skills are kept.
 set -euo pipefail
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 agent=agents
 user=false
@@ -35,7 +36,8 @@ case "$agent" in
   agents|codex) dir=.agents/skills ;;
   cursor) dir=.cursor/skills ;;
   gemini) dir=.gemini/skills ;;
-  *) echo "unknown agent $agent (agents, codex, cursor, gemini)" >&2; exit 2 ;;
+  opencode) dir=.opencode/skills; $user && dir=.config/opencode/skills ;;
+  *) echo "unknown agent $agent (agents, codex, cursor, gemini, opencode)" >&2; exit 2 ;;
 esac
 
 if $user; then

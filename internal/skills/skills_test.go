@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +49,7 @@ func TestInstall(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0o755))
 	require.NoError(t, os.WriteFile(stale, []byte("old"), 0o644))
 
-	res, err := Install("codex", base)
+	res, err := Install("codex", base, false)
 	require.NoError(t, err)
 	assert.Equal(t, Names(), res.Skills)
 	data, err := os.ReadFile(filepath.Join(base, ".agents", "skills", "cpi-discover", "SKILL.md"))
@@ -59,6 +60,27 @@ func TestInstall(t *testing.T) {
 	assert.FileExists(t, other, "other skills are kept")
 	assert.NoFileExists(t, stale, "cpi skills are replaced")
 
-	_, err = Install("vim", base)
+	_, err = Install("vim", base, false)
 	assert.Error(t, err)
+
+	// OpenCode: .opencode/skills in a repository, ~/.config/opencode/skills for the user
+	res, err = Install("opencode", base, false)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(base, ".opencode", "skills"), res.Dir)
+	res, err = Install("opencode", base, true)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(base, ".config", "opencode", "skills"), res.Dir)
+	assert.FileExists(t, filepath.Join(res.Dir, "cpi-build", "SKILL.md"))
+}
+
+// Agent Skills rules (OpenCode enforces them): lowercase names matching the
+// folder, descriptions of 1 to 1024 characters.
+func TestSkillsFollowTheAgentSkillsFormat(t *testing.T) {
+	name := regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	for _, s := range List() {
+		assert.Regexp(t, name, s.Name)
+		assert.LessOrEqual(t, len(s.Name), 64, s.Name)
+		assert.NotEmpty(t, s.Description, s.Name)
+		assert.LessOrEqual(t, len(s.Description), 1024, s.Name)
+	}
 }
