@@ -122,7 +122,9 @@ type Envelope struct {
 	OK       bool   `json:"ok"`
 	ExitCode int    `json:"exitCode"`
 	Error    string `json:"error,omitempty"`
-	Result   any    `json:"result"`
+	// DurationMs is the time the command took, in milliseconds.
+	DurationMs int64 `json:"durationMs"`
+	Result     any   `json:"result"`
 }
 
 // WriteEnvelope writes env as one JSON document.

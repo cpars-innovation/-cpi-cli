@@ -5,6 +5,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Every command logs the time it took at the end (`⏱ snapshot finished in 4m12s`, JSON log field
+  `durationMs`); the `--output json` envelope has a new field `durationMs`.
+
 - `snapshot`: `--parallel` (default now 8) limits the artifacts downloaded at the same time across
   all packages instead of the packages: the artifacts of a large package are downloaded in
   parallel too, so it no longer runs alone at the end. A failing artifact does not stop the rest

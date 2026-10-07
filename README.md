@@ -234,6 +234,7 @@ With `--output json` stdout receives exactly one JSON document and stderr receiv
   "ok": false,
   "exitCode": 7,
   "error": "1 of 2 artifact(s) failed - Billing: FAILED (designtime artifact Billing does not exist)",
+  "durationMs": 48210,
   "result": {
     "results": [
       {"id": "OrderIntake", "type": "Integration", "taskId": "...", "status": "DEPLOYED", "version": "1.0.2"},
@@ -242,6 +243,9 @@ With `--output json` stdout receives exactly one JSON document and stderr receiv
   }
 }
 ```
+
+Every command ends with the time it took, on stderr (`⏱ deploy failed in 48.2s`, JSON log field
+`durationMs`) and in the envelope (`durationMs`). `--help` and `--version` print none.
 
 Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPLOYED`,
 `NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.

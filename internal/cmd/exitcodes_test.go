@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -240,7 +241,29 @@ func TestDeployJSONResultGolden(t *testing.T) {
 	res := runMain(t, append([]string{"deploy", "--artifact-ids", "A,B,C", "--delay-length", "0", "--max-check-limit", "2",
 		"--output", "json"}, basicAuth(m)...)...)
 	assert.Equal(t, 7, res.code)
-	goldenCompare(t, "TestDeployJSONResult.golden", []byte(res.stdout))
+	assert.Regexp(t, `"durationMs": \d+,`, res.stdout)
+	stdout := regexp.MustCompile(`"durationMs": \d+`).ReplaceAllString(res.stdout, `"durationMs": 0`)
+	goldenCompare(t, "TestDeployJSONResult.golden", []byte(stdout))
+}
+
+// Every command logs how long it took; --output json also puts it in the envelope.
+func TestCommandTimer(t *testing.T) {
+	m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+	res := runMain(t, append([]string{"deploy", "--artifact-ids", "A", "--delay-length", "0"}, basicAuth(m)...)...)
+	assert.Regexp(t, `⏱ deploy failed in \d+(\.\d+)?(ms|s)`, res.stderr)
+
+	res = runMain(t, "skills", "list")
+	assert.Equal(t, 0, res.code)
+	assert.Contains(t, res.stderr, "⏱ skills list finished in")
+
+	res = runMain(t, "--help")
+	assert.NotContains(t, res.stderr, "⏱", "help is no command run")
+}
+
+func TestFormatElapsed(t *testing.T) {
+	assert.Equal(t, "350ms", formatElapsed(350*time.Millisecond+200*time.Microsecond))
+	assert.Equal(t, "12.3s", formatElapsed(12340*time.Millisecond))
+	assert.Equal(t, "4m5s", formatElapsed(4*time.Minute+5200*time.Millisecond))
 }
 
 // In text mode stdout stays empty (logs go to stderr) and the exit code

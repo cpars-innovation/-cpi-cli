@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
@@ -132,6 +133,7 @@ func Execute(version, buildTime string) {
 // Run executes the CLI and returns the exit code (see internal/exitcode).
 // Results go to stdout, logs to stderr.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, buildTime string) int {
+	begin := time.Now()
 	rootCmd := NewCLI(version)
 	rootCmd.SetVersionTemplate(fmt.Sprintf("cpictl version {{.Version}} (built %s)\n", buildTime))
 	rootCmd.SetArgs(args)
@@ -174,10 +176,20 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 		log.Error().Int("exitCode", code).Msg(logger.GetErrorDetails(err))
 	}
 
+	// Every command that ran reports how long it took (not --help/--version)
+	elapsed := time.Since(begin)
+	if started {
+		ev := log.Info()
+		if err != nil {
+			ev = log.Warn()
+		}
+		ev.Int64("durationMs", elapsed.Milliseconds()).Msgf("⏱ %s %s in %s", commandName(cmd), finishedVerb(err), formatElapsed(elapsed))
+	}
+
 	// --help/--version and commands without RunE produce no result document
 	ownsStdout := cmd != nil && cmd.Annotations[annotationNoEnvelope] == "true" && started
 	if format == output.FormatJSON && (started || err != nil) && !ownsStdout {
-		env := output.Envelope{Command: commandName(cmd), OK: code == exitcode.OK, ExitCode: code, Result: output.Result(ctx)}
+		env := output.Envelope{Command: commandName(cmd), OK: code == exitcode.OK, ExitCode: code, DurationMs: elapsed.Milliseconds(), Result: output.Result(ctx)}
 		if err != nil {
 			env.Error = err.Error()
 		}
@@ -186,6 +198,25 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 		}
 	}
 	return code
+}
+
+func finishedVerb(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "finished"
+}
+
+// formatElapsed prints 350ms, 12.3s or 4m5s.
+func formatElapsed(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return d.Round(time.Millisecond).String()
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		return d.Round(time.Second).String()
+	}
 }
 
 func walkCommands(c *cobra.Command, fn func(*cobra.Command)) {
