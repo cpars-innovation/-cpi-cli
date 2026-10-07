@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ServiceDetails struct {
@@ -21,6 +22,14 @@ type ServiceDetails struct {
 	OauthClientSecret string
 }
 
+// ReadRetries and ReadBackoff apply to every executer created by
+// InitHTTPExecuter: GET and HEAD requests answered with 429, 502, 503 or 504
+// are retried (see httpclnt.RetryReads). Writes are never retried.
+var (
+	ReadRetries = 3
+	ReadBackoff = 2 * time.Second
+)
+
 func InitHTTPExecuter(serviceDetails *ServiceDetails) *httpclnt.HTTPExecuter {
 	scheme, host, port := ParseHost(serviceDetails.Host)
 	oauthHost := serviceDetails.OauthHost
@@ -28,7 +37,8 @@ func InitHTTPExecuter(serviceDetails *ServiceDetails) *httpclnt.HTTPExecuter {
 		// The token server shares scheme and port with the tenant host
 		_, oauthHost, _ = ParseHost(oauthHost)
 	}
-	return httpclnt.New(oauthHost, serviceDetails.OauthPath, serviceDetails.OauthClientId, serviceDetails.OauthClientSecret, serviceDetails.Userid, serviceDetails.Password, host, scheme, port, true)
+	exe := httpclnt.New(oauthHost, serviceDetails.OauthPath, serviceDetails.OauthClientId, serviceDetails.OauthClientSecret, serviceDetails.Userid, serviceDetails.Password, host, scheme, port, true)
+	return exe.RetryReads(ReadRetries, ReadBackoff)
 }
 
 // ParseHost splits a host flag value into scheme, host and port. The value is

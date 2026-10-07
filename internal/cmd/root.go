@@ -17,6 +17,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/logger"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -42,7 +43,16 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// You can bind cobra and viper in a few locations, but PersistencePreRunE on the root command works well
-			return initializeConfig(cmd)
+			if err := initializeConfig(cmd); err != nil {
+				return err
+			}
+			if n, err := cmd.Flags().GetInt("read-retries"); err == nil {
+				if n < 0 {
+					return output.Usagef("--read-retries must not be negative")
+				}
+				cpi.ReadRetries = n
+			}
+			return nil
 		},
 	}
 
@@ -58,6 +68,7 @@ Exit codes: 0 ok, 2 usage, 3 auth, 4 tenant HTTP error, 5 failed, 6 timeout,
 	rootCmd.PersistentFlags().String("oauth-clientsecret", "", "Client Secret for using OAuth")
 	rootCmd.PersistentFlags().String("oauth-path", "/oauth/token", "Path for OAuth token server")
 
+	rootCmd.PersistentFlags().Int("read-retries", cpi.ReadRetries, "Retries of a tenant read (GET) answered with 429, 502, 503 or 504, with backoff 2s, 4s, 8s ... (0: none). Writes are never retried")
 	rootCmd.PersistentFlags().Bool("debug", false, "Show debug logs")
 	rootCmd.PersistentFlags().String("output", output.FormatText, "Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines")
 

@@ -247,6 +247,10 @@ With `--output json` stdout receives exactly one JSON document and stderr receiv
 Every command ends with the time it took, on stderr (`⏱ deploy failed in 48.2s`, JSON log field
 `durationMs`) and in the envelope (`durationMs`). `--help` and `--version` print none.
 
+Tenant reads (GET) answered with `429`, `502`, `503` or `504` are retried up to three times with
+backoff 2s, 4s, 8s (`Retry-After` is honoured, at most 30 s); `--read-retries 0` turns it off.
+Writes are never retried.
+
 Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPLOYED`,
 `NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.
 

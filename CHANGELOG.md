@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Every command and the MCP server retry tenant reads (GET) answered with 429 or 502-504 up to
+  three times with backoff (before: `snapshot` only). `--read-retries` (`CPICTL_READ_RETRIES`)
+  sets the count, `0` turns it off. Writes are never retried.
+- MCP: every tool result has `durationMs`; the server log has one line per finished call.
+
 ## 0.2.4
 
 - Every command logs the time it took at the end (`⏱ snapshot finished in 4m12s`, JSON log field

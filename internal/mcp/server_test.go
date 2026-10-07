@@ -145,6 +145,7 @@ func TestDeployAndStatusTools(t *testing.T) {
 	assert.True(t, res.IsError)
 	assert.Equal(t, "partial", res.StructuredContent.ErrorCategory)
 	assert.Equal(t, 7, res.StructuredContent.ExitCode)
+	assert.Contains(t, res.Content[0].Text, `"durationMs":`, "every result reports its duration")
 	results := res.StructuredContent.Result.(map[string]any)["results"].([]any)
 	assert.Equal(t, "DEPLOYED", results[0].(map[string]any)["status"])
 	assert.Equal(t, "FAILED", results[1].(map[string]any)["status"])

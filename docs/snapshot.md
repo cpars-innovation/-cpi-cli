@@ -38,7 +38,7 @@ package with many flows does not run alone at the end. For large tenants (hundre
 `--parallel 16`; if the tenant answers `429` often, lower it. The summary line and the JSON result
 show how many artifacts were downloaded or skipped and how long it took
 (`artifactsDownloaded`, `artifactsSkipped`, `seconds`). Reads that the tenant throttles (`429`) or that hit a gateway error (`502`-`504`) are
-retried up to three times with backoff (`Retry-After` is honoured). A package that fails does not
+retried up to three times with backoff (`Retry-After` is honoured; `--read-retries`, for every command). A package that fails does not
 stop the others: the snapshot of the other packages is written, the state saved and committed,
 and the run ends with exit code 7 (partial) and the failed packages in the result:
 

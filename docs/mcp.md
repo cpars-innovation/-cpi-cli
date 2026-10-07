@@ -236,6 +236,7 @@ Every tool call returns the same structure, both as `structuredContent` and as J
   "errorCategory": "failed",
   "exitCode": 5,
   "error": "1 of 1 artifact(s) failed - MyIFlow: FAILED (artifact MyIFlow deployment unsuccessful, ended with status ERROR. Error message = ...)",
+  "durationMs": 61234,
   "result": {
     "results": [
       {"id": "MyIFlow", "type": "Integration", "taskId": "...", "status": "FAILED", "version": "1.0.3", "error": "..."}

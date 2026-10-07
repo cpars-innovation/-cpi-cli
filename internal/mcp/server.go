@@ -12,6 +12,7 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -196,7 +197,9 @@ type ToolResult struct {
 	ErrorCategory string `json:"errorCategory,omitempty"`
 	ExitCode      int    `json:"exitCode"`
 	Error         string `json:"error,omitempty"`
-	Result        any    `json:"result"`
+	// DurationMs is the time the tool call took, in milliseconds.
+	DurationMs int64 `json:"durationMs"`
+	Result     any   `json:"result"`
 }
 
 // Category returns the error category name of an exit code.
@@ -250,12 +253,16 @@ func (s *Server) callTool(ctx context.Context, id json.RawMessage, params json.R
 	}()
 
 	log.Info().Str("tool", p.Name).Msg("Tool call started")
+	begin := time.Now()
 	value, err := safeCall(callCtx, s.tools[idx], p.Arguments)
+	elapsed := time.Since(begin)
 	code := output.ExitCode(err)
-	res := ToolResult{OK: err == nil, ExitCode: code, ErrorCategory: Category(code), Result: value}
+	res := ToolResult{OK: err == nil, ExitCode: code, ErrorCategory: Category(code), DurationMs: elapsed.Milliseconds(), Result: value}
 	if err != nil {
 		res.Error = err.Error()
-		log.Warn().Str("tool", p.Name).Int("exitCode", code).Msg(err.Error())
+		log.Warn().Str("tool", p.Name).Int("exitCode", code).Int64("durationMs", res.DurationMs).Msg(err.Error())
+	} else {
+		log.Info().Str("tool", p.Name).Int64("durationMs", res.DurationMs).Msg("Tool call finished")
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

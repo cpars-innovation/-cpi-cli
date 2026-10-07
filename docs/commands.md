@@ -107,6 +107,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
       --oauth-path string           Path for OAuth token server (default "/oauth/token")
       --output string               Output format: text or json. With json the result is written to stdout as one JSON document and logs are written to stderr as JSON lines (default "text")
       --profile string              Profile to use: $HOME/.cpictl/<name>.yaml (default: $CPICTL_PROFILE, else the one chosen with 'cpictl profile use')
+      --read-retries int            Retries of a tenant read (GET) answered with 429, 502, 503 or 504, with backoff 2s, 4s, 8s ... (0: none). Writes are never retried (default 3)
       --tmn-host string             Tenant host of Cloud Integration (or API portal host for API Management)
       --tmn-password string         Password for Basic Auth
       --tmn-userid string           User ID for Basic Auth

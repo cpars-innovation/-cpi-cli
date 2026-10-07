@@ -173,7 +173,7 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 
 	// Initialise HTTP executer; many parallel reads: retry when the tenant
 	// throttles (429) or a gateway fails
-	exe := cpi.InitHTTPExecuter(serviceDetails).RetryReads(3, 2*time.Second)
+	exe := cpi.InitHTTPExecuter(serviceDetails)
 
 	// Get packages from the tenant - details of all packages are returned in this single call,
 	// so no additional call per package is needed
