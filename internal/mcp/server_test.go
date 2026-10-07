@@ -111,7 +111,7 @@ func TestProtocol(t *testing.T) {
 		names = append(names, tool.Name)
 		assert.Equal(t, "object", tool.InputSchema["type"], tool.Name)
 	}
-	assert.Equal(t, []string{"list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
+	assert.Equal(t, []string{"doctor", "list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
 		"get_message_steps", "get_message_attachment", "get_message_store_entry", "set_log_level", "get_message_trace", "get_trace_message", "get_trace_tree",
 		"list_runtime_artifacts", "list_service_endpoints",
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions",

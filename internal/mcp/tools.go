@@ -23,7 +23,7 @@ import (
 // Instructions is sent to the client on initialize.
 const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant. Unsure which tool or
 skill fits a task? Call help (overview, or a topic: a tool, a skill and its instructions, a CLI
-command).
+command). Auth or 403 errors: doctor shows which API areas the credentials can use.
 
 Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
 (existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses);
@@ -176,6 +176,20 @@ func withCached(res map[string]any, cached bool) map[string]any {
 func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints ops.EndpointExecuterFunc, reverter *LogLevelReverter, cache *readCache) []Tool {
 
 	return []Tool{
+		{
+			Name: "doctor", Title: "Check the connection and roles",
+			Description: "Check this server's tenant connection and which API areas its credentials can use: designtime, runtime, message logs, security material, keystore, Partner Directory, data stores, log files. " +
+				"Per area ok, forbidden (403: the credentials lack the role) or missing (404: not offered by the tenant), and which tools need it. Use it when calls fail with auth or 403 errors. Only reads.",
+			InputSchema: object(nil),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				if err := decode(raw, &struct{}{}); err != nil {
+					return nil, err
+				}
+				res := ops.Doctor(ctx, cfg.Exe)
+				return res, res.Err
+			},
+		},
 		{
 			Name: "list_packages", Title: "List integration packages",
 			Description: "List all integration packages (ID, name, version). Start here to find where artifacts live, then list_artifacts. To add a package use create_package.",

@@ -219,7 +219,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
 | Security | `credentials` (list, set-user, set-oauth2, set-secure-param, apply, delete), `keystore` (list, export-cert, import-cert) |
 | AI agents | `mcp`, `skills` (list, show, install) |
-| Local | `profile`, `stats` (usage statistics, kept on this machine only) |
+| Setup and local | `doctor` (connection and roles), `profile`, `stats` (usage statistics, kept on this machine only) |
 
 All commands and flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
 
@@ -251,6 +251,16 @@ Every command ends with the time it took, on stderr (`⏱ deploy failed in 48.2s
 Tenant reads (GET) answered with `429`, `502`, `503` or `504` are retried up to three times with
 backoff 2s, 4s, 8s (`Retry-After` is honoured, at most 30 s); `--read-retries 0` turns it off.
 Writes are never retried.
+
+### Checking the setup
+
+`cpictl doctor` checks the configuration (config file or profile, host, authentication, runtime
+credentials, git, snapshot state and pending deployments in `.cpi`) and then the tenant: the
+connection, and with one small read per API area which areas the credentials can use
+(designtime, runtime, message logs, security material, keystore, Partner Directory, data stores,
+log files). `403` means the OAuth client or user lacks the role for that area, `404` that the
+tenant does not offer the API. Nothing is changed; exit code 3 for authentication problems, 4
+without a connection. MCP: the `doctor` tool.
 
 ### Usage statistics
 

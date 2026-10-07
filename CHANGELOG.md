@@ -5,6 +5,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl doctor` (MCP: `doctor`): checks configuration, connection and authentication, and per
+  API area whether the credentials can use it (403: missing role, 404: not offered). Read only.
+
 - MCP: `upload_artifacts` uploads several artifacts in one call (8 at a time); `get_parameters`
   takes `artifact_ids`. `list_packages` and `list_artifacts` results are reused for
   `--cache-ttl` seconds (default 60, `cached: true`; `refresh: true` re-reads); every tool that

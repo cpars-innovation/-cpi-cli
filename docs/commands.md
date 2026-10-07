@@ -24,6 +24,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`datastore list`](#datastore-list) | List data stores with their number of entries |
 | [`deploy`](#deploy) | Deploy designtime artifacts and wait for the result |
 | [`discover`](#discover) | Inventory existing integration flows to derive conventions |
+| [`doctor`](#doctor) | Check the setup: configuration, connection and which API areas the credentials can use |
 | [`download`](#download) | Download a designtime artifact and extract it into a directory |
 | [`drift`](#drift) | Compare local artifacts with their designtime and runtime state on the tenant |
 | [`endpoints`](#endpoints) | List the URLs of deployed integration flows |
@@ -552,6 +553,29 @@ and which systems they call. --graph=false skips it.
   cpictl discover --package-ids SalesOrders,Finance
   cpictl discover --dir ./content   # local repository from 'sync' or 'snapshot', offline
 ```
+
+## doctor
+
+Check the setup: configuration, connection and which API areas the credentials can use
+
+```
+Check the setup and report what works:
+
+  local   config file / profile, tenant host, authentication method, runtime
+          credentials for test messages, git, snapshot state and pending
+          deployments in .cpi, usage statistics
+  tenant  connection and authentication, then one small read (GET, $top=1) per
+          API area: designtime, runtime, message logs, security material,
+          keystore, Partner Directory, data stores, log files. 403 means the
+          credentials lack the role for that area, 404 that the tenant does not
+          offer the API.
+
+Nothing is changed. Exit code 3 when authentication fails, 4 without a
+connection, 2 without a tenant host; otherwise 0, also when optional areas are
+forbidden (see the result).
+```
+
+**Usage:** `cpictl doctor`
 
 ## download
 

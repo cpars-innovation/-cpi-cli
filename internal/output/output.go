@@ -74,6 +74,23 @@ func Failed(err error) error {
 // ExitCoder is implemented by errors that know their exit code.
 type ExitCoder interface{ ExitCode() int }
 
+type codedError struct {
+	err  error
+	code int
+}
+
+func (e *codedError) Error() string { return e.err.Error() }
+func (e *codedError) Unwrap() error { return e.err }
+func (e *codedError) ExitCode() int { return e.code }
+
+// WithExitCode wraps err with an explicit exit code (nil stays nil).
+func WithExitCode(err error, code int) error {
+	if err == nil {
+		return nil
+	}
+	return &codedError{err: err, code: code}
+}
+
 // ExitCode classifies err into the exit code contract.
 func ExitCode(err error) int {
 	if err == nil {

@@ -150,6 +150,7 @@ read roles.
 | Tool | Changes | Purpose |
 |------|---------|---------|
 | `help` | | What this server offers: tools after mode and filters, the cpi skills (with their instructions), the CLI commands, and which tools and skill fit common tasks. `topic` for one tool, skill, skill file or command. Always available. See [Finding your way](#finding-your-way) |
+| `doctor` | | Connection and roles: per API area ok / forbidden (403, missing role) / missing (404), and which tools need it. Same as `cpictl doctor` |
 | `list_packages` | | All integration packages (cached for `--cache-ttl`; `refresh: true` re-reads) |
 | `create_package` | designtime | Create a package if it does not exist (`CREATED` / `EXISTS`, never changes one) |
 | `list_artifacts` | | Designtime artifacts of a package (all four types; cached like `list_packages`) |

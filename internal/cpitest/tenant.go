@@ -234,6 +234,9 @@ type Tenant struct {
 	ForbidTraces bool
 	// StatusOverride, if non-zero, is returned for every API call (e.g. 401).
 	StatusOverride int
+	// ForbidPaths answers 403 for paths with one of these prefixes (an API
+	// area the credentials have no role for).
+	ForbidPaths []string
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
 	// requests need the token and session cookie from a "Fetch" request).
 	NoCSRF     bool
@@ -683,6 +686,12 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	m.requests = append(m.requests, r.Method+" "+path)
 
+	for _, prefix := range m.ForbidPaths {
+		if strings.HasPrefix(path, prefix) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+	}
 	if m.StatusOverride != 0 {
 		w.WriteHeader(m.StatusOverride)
 		return
