@@ -5,6 +5,12 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Parallel: `orchestrator --parallel` (default 8) uploads and compares artifacts at the same time
+  across all packages (packages are still created first); `configure --parallel` (8) reads the
+  parameters of all artifacts at the same time and writes the changes one after another;
+  `configure pull --parallel` (8) reads packages and artifacts in parallel; `drift --parallel`
+  (8, before: 4).
+
 - Deploy once per pipeline: `orchestrator --defer-deploy` and `configure --defer-deploy` add what
   needs a deployment (and why) to `.cpi/pending-deploy.json`; `cpictl deploy --pending` deploys
   each artifact once, with force when any step needs it, and keeps only failures in the file.

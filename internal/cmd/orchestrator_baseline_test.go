@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,4 +208,41 @@ func TestOrchestratorPlan(t *testing.T) {
 		"--artifact-filter", "Changed"}, basicAuth(mock)...)...)
 	assert.Equal(t, 5, r.code, r.stderr)
 	assert.Contains(t, r.stderr, "raise Bundle-Version")
+}
+
+// Uploads run --parallel at a time across all packages.
+func TestOrchestratorParallelUploads(t *testing.T) {
+	arts := map[string]*cpitest.Artifact{}
+	var cfg strings.Builder
+	cfg.WriteString("packages:\n")
+	repo := t.TempDir()
+	for p := 0; p < 4; p++ {
+		pkg := fmt.Sprintf("P%d", p)
+		fmt.Fprintf(&cfg, "  - integrationSuiteId: %s\n    packageDir: %s\n    artifacts:\n", pkg, pkg)
+		for i := 0; i < 4; i++ {
+			id := fmt.Sprintf("%s_F%d", pkg, i)
+			arts[id] = &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.0", Package: pkg, Name: id, Zip: namedFlowZip(t, id, "v1")}
+			fmt.Fprintf(&cfg, "      - {artifactId: %s, artifactDir: %s, type: IntegrationFlow}\n", id, id)
+			zipPath := filepath.Join(t.TempDir(), id+".zip")
+			require.NoError(t, os.WriteFile(zipPath, namedFlowZip(t, id, "v2"), 0o644))
+			require.NoError(t, file.UnzipSource(zipPath, filepath.Join(repo, pkg, id)))
+		}
+	}
+	mock := cpitest.NewTenant(t, arts)
+	mock.DownloadLatency = 100 * time.Millisecond
+	cfgPath := filepath.Join(t.TempDir(), "deploy.yml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg.String()), 0o644))
+
+	started := time.Now()
+	r := runMain(t, append([]string{"orchestrator", "--packages-dir", repo, "--deploy-config", cfgPath, "--update-only",
+		"--snapshot-state", "off", "--parallel", "8", "--output", "json"}, basicAuth(mock)...)...)
+	elapsed := time.Since(started)
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Contains(t, r.stdout, `"artifactsChanged": 16`)
+	for id, a := range mock.Artifacts {
+		assert.Equal(t, 1, a.Uploads, id)
+	}
+	assert.Equal(t, int64(8), mock.PeakDownloads(), "8 at a time across packages")
+	// sequential: 16 x 100ms = 1.6s
+	assert.Less(t, elapsed, 1200*time.Millisecond)
 }

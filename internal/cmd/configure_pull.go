@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"github.com/cpars-innovation/cpicli/internal/config"
+	"github.com/cpars-innovation/cpicli/internal/output"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
@@ -31,6 +34,7 @@ func NewConfigurePullCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&outputDir, "output-dir", "o", ".", "Directory for one YAML file per package")
 	cmd.Flags().StringSliceVar(&packageIDs, "package-ids", nil, "Package IDs to pull (default: all packages)")
+	cmd.Flags().Int("parallel", 8, "Tenant reads at the same time (config: configure.pull.parallel)")
 	return cmd
 }
 
@@ -54,38 +58,86 @@ func runConfigurePull(cmd *cobra.Command, outputDir string, packageIDs []string)
 	}
 	sort.Strings(packageIDs)
 
-	type output struct {
+	type pulledFile struct {
 		path string
 		data []byte
 	}
-	outputs := make([]output, 0, len(packageIDs))
 	for _, packageID := range packageIDs {
 		if packageID == "" || filepath.Base(packageID) != packageID || strings.ContainsAny(packageID, `<>:"/\|?*`) {
 			return fmt.Errorf("invalid package ID %q", packageID)
 		}
-		artifacts, err := packages.GetArtifactsData(packageID, "Integration")
-		if err != nil {
-			return fmt.Errorf("get artifacts for package %s: %w", packageID, err)
-		}
-		cfg, err := pulledConfigureConfig(packageID, artifacts, configuration.Get)
-		if err != nil {
-			return err
-		}
-		data, err := yaml.Marshal(cfg)
-		if err != nil {
-			return err
-		}
-		outputs = append(outputs, output{filepath.Join(outputDir, packageID+".yml"), data})
+	}
+	parallel := config.GetIntWithFallback(cmd, "parallel", "configure.pull.parallel")
+	if parallel < 1 {
+		return output.Usagef("--parallel must be at least 1")
+	}
+	// every tenant call takes one of the shared slots: packages and the
+	// artifacts of a large package are read in parallel
+	slots := make(chan struct{}, parallel)
+	call := func(f func()) {
+		slots <- struct{}{}
+		defer func() { <-slots }()
+		f()
+	}
+	outputs := make([]pulledFile, len(packageIDs))
+	errs := make([]error, len(packageIDs))
+	var wg sync.WaitGroup
+	for i, packageID := range packageIDs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var artifacts []*cpi.ArtifactDetails
+			var err error
+			call(func() { artifacts, err = packages.GetArtifactsData(packageID, "Integration") })
+			if err != nil {
+				errs[i] = fmt.Errorf("get artifacts for package %s: %w", packageID, err)
+				return
+			}
+			params := make(map[string]*cpi.ParametersData, len(artifacts))
+			paramErrs := make(map[string]error)
+			var mu sync.Mutex
+			var awg sync.WaitGroup
+			for _, a := range artifacts {
+				awg.Add(1)
+				go func() {
+					defer awg.Done()
+					var p *cpi.ParametersData
+					var err error
+					call(func() { p, err = configuration.Get(a.Id, "active") })
+					mu.Lock()
+					params[a.Id], paramErrs[a.Id] = p, err
+					mu.Unlock()
+				}()
+			}
+			awg.Wait()
+			cfg, err := pulledConfigureConfig(packageID, artifacts, func(id, _ string) (*cpi.ParametersData, error) {
+				return params[id], paramErrs[id]
+			})
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			data, err := yaml.Marshal(cfg)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			outputs[i] = pulledFile{filepath.Join(outputDir, packageID+".yml"), data}
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err
 	}
-	for _, output := range outputs {
-		if err := os.WriteFile(output.path, output.data, 0644); err != nil {
+	for _, f := range outputs {
+		if err := os.WriteFile(f.path, f.data, 0644); err != nil {
 			return err
 		}
-		log.Info().Msgf("Configuration written to %s", output.path)
+		log.Info().Msgf("Configuration written to %s", f.path)
 	}
 	return nil
 }

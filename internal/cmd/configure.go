@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -174,7 +176,7 @@ All flags can be set in the config file under 'configure'.`,
 				return err
 			}
 			return runConfigure(cmd, configPath, deploymentPrefix, packageFilter, artifactFilter,
-				configureMode{dryRun: dryRun, force: force, offline: offline, allowDowngrade: allowDowngrade, versioning: versionMode}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
+				configureMode{dryRun: dryRun, force: force, offline: offline, allowDowngrade: allowDowngrade, versioning: versionMode, parallel: config.GetIntWithFallback(cmd, "parallel", "configure.parallel")}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
 		},
 	}
 
@@ -186,6 +188,7 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be done without making changes, including which artifacts would be deployed and why (config: configure.dryRun)")
 	configureCmd.Flags().BoolVar(&dryRun, "plan", false, "Same as --dry-run")
 	addDeferFlags(configureCmd)
+	configureCmd.Flags().Int("parallel", 8, "Artifacts whose parameters are read at the same time (config: configure.parallel)")
 	configureCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: configure.deployRetries, default: 5)")
 	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)")
 	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
@@ -212,6 +215,8 @@ type configureMode struct {
 	// allowDowngrade is the default for artifacts and packages without
 	// allowDowngrade in the configure file.
 	allowDowngrade bool
+	// parallel is the number of parameter reads at the same time.
+	parallel int
 	// versioning is the default for artifacts and packages without
 	// versioning in the configure file.
 	versioning versioning.Mode
@@ -339,6 +344,53 @@ type configureResult struct {
 	Plan []PlanItem `json:"plan,omitempty"`
 }
 
+type diffResult struct {
+	diff []ops.ConfigDiffItem
+	err  error
+}
+
+// prefetchConfigDiffs reads the current parameters of every artifact that
+// will be compared, mode.parallel at a time; the sequential pass then only
+// writes. Keyed by the final artifact ID.
+func prefetchConfigDiffs(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig, packageFilter, artifactFilter []string,
+	mode configureMode) map[string]diffResult {
+	out := map[string]diffResult{}
+	if mode.force || mode.offline || mode.parallel <= 1 {
+		return out
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, mode.parallel)
+	for _, pkg := range cfg.Packages {
+		if len(packageFilter) > 0 && !shouldInclude(pkg.ID, packageFilter) {
+			continue
+		}
+		packageID := cfg.DeploymentPrefix + pkg.ID
+		for _, artifact := range pkg.Artifacts {
+			if len(artifactFilter) > 0 && !shouldInclude(artifact.ID, artifactFilter) {
+				continue
+			}
+			if len(artifact.Parameters) == 0 || !cpi.IsValidArtifactType(artifact.Type) || ops.CheckConfigurable(artifact.Type, artifact.Parameters) != nil {
+				continue
+			}
+			artifactID := cfg.DeploymentPrefix + artifact.ID
+			artifact := artifact
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				diff, err := ops.DiffArtifactConfig(exe, packageID, artifactID, artifact.Version, artifact.Parameters)
+				mu.Lock()
+				out[artifactID] = diffResult{diff, err}
+				mu.Unlock()
+			}()
+		}
+	}
+	wg.Wait()
+	return out
+}
+
 func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConfig,
 	packageFilter, artifactFilter []string, stats *ConfigureStats, mode configureMode,
 	batchSize int, disableBatch bool) ([]DeploymentTask, []ops.ConfigDiffItem, error) {
@@ -347,6 +399,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 	var deploymentTasks []DeploymentTask
 	var allDiff []ops.ConfigDiffItem
 	configuration := cpi.NewConfiguration(exe)
+	prefetched := prefetchConfigDiffs(exe, cfg, packageFilter, artifactFilter, mode)
 
 	for _, pkg := range cfg.Packages {
 		stats.PackagesProcessed++
@@ -439,7 +492,11 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 
 			parameters := artifact.Parameters
 			if !mode.force && !mode.offline {
-				diff, err := ops.DiffArtifactConfig(exe, packageID, artifactID, artifact.Version, artifact.Parameters)
+				r, ok := prefetched[artifactID]
+				if !ok {
+					r.diff, r.err = ops.DiffArtifactConfig(exe, packageID, artifactID, artifact.Version, artifact.Parameters)
+				}
+				diff, err := r.diff, r.err
 				if err != nil {
 					log.Error().Msgf("      ❌ Failed to read the current parameters: %v", err)
 					stats.ArtifactsFailed++

@@ -334,3 +334,29 @@ func TestConfigurePlanPredictsDeployments(t *testing.T) {
 	assert.True(t, plan["C"].Deploy)
 	assert.Contains(t, plan["C"].Reason, "designtime 1.0.1, running 1.0.0")
 }
+
+// configure pull writes one file per package with the tenant's values,
+// reading packages and artifacts in parallel.
+func TestConfigurePull(t *testing.T) {
+	arts := map[string]*cpitest.Artifact{}
+	for _, p := range []string{"P1", "P2", "P3"} {
+		for _, i := range []string{"a", "b", "c"} {
+			arts[p+i] = &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.0", Package: p, Name: p + i,
+				Parameters: map[string]string{"Host": p + i, "Port": "443"}}
+		}
+	}
+	mock := cpitest.NewTenant(t, arts)
+	mock.Packages = []cpitest.Package{{ID: "P1"}, {ID: "P2"}, {ID: "P3"}}
+	dir := t.TempDir()
+	r := runMain(t, append([]string{"configure", "pull", "--output-dir", dir, "--parallel", "4"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	for _, p := range []string{"P1", "P2", "P3"} {
+		data, err := os.ReadFile(filepath.Join(dir, p+".yml"))
+		require.NoError(t, err)
+		for _, i := range []string{"a", "b", "c"} {
+			assert.Contains(t, string(data), "value: "+p+i)
+		}
+	}
+	r = runMain(t, append([]string{"configure", "pull", "--output-dir", dir, "--parallel", "0"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code)
+}

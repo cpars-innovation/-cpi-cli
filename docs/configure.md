@@ -91,6 +91,7 @@ How it runs:
 | `--package-filter`, `--artifact-filter` | Comma-separated IDs (without prefix) to include |
 | `--dry-run`, `--plan` | Show what would be changed (compares with the tenant) and which artifacts would be deployed and why (`plan` in the JSON result); nothing is written |
 | `--offline` | With `--dry-run`: only the file, without tenant calls |
+| `--parallel` | Parameter reads at the same time (default 8); writes stay one after another. `configure pull` has the same flag |
 | `--defer-deploy` | Do not deploy: add the deployments to `.cpi/pending-deploy.json` (`--pending-file`) for one `cpictl deploy --pending` ([ci.md](ci.md#pipeline-snapshot-update-configure-deploy-once)) |
 | `--force` | Write every parameter and deploy every marked artifact, even without changes |
 | `--versioning` | `manifest`, `keep` or `tenant-bump` for artifacts and packages without `versioning` in the file; env `CPICTL_VERSIONING` ([versioning.md](versioning.md)) |

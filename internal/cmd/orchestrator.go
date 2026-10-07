@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/deploy"
@@ -223,6 +225,7 @@ Configuration:
 	addVersioningFlag(orchestratorCmd)
 	orchestratorCmd.Flags().String("snapshot-state", "", "Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; \"off\": always download)")
 	addDeferFlags(orchestratorCmd)
+	orchestratorCmd.Flags().Int("parallel", 8, "Artifacts uploaded at the same time, across all packages (config: orchestrator.parallel)")
 	orchestratorCmd.Flags().Bool("plan", false, "Only show what would be uploaded and deployed, and why; nothing is written to the tenant")
 	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
@@ -323,7 +326,11 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		log.Debug().Msg("  Auth Method: Basic Auth")
 	}
 
-	upload := uploadOptions{versionMode: versionMode}
+	parallel := config.GetIntWithFallback(cmd, "parallel", "orchestrator.parallel")
+	if parallel < 1 {
+		return output.Usagef("--parallel must be at least 1")
+	}
+	upload := uploadOptions{versionMode: versionMode, slots: make(chan struct{}, parallel), wg: &sync.WaitGroup{}, mu: &sync.Mutex{}}
 	if plan, _ := cmd.Flags().GetBool("plan"); plan {
 		upload.plan = &planCollector{index: map[string]int{}}
 		log.Info().Msg("PLAN: nothing is written to the tenant")
@@ -448,6 +455,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 	versionMode := upload.versionMode
 
 	var deploymentTasks []DeploymentTask
+	var collect []func()
 
 	// Phase 1: Update all packages and artifacts
 	if mode != ModeDeployOnly {
@@ -516,18 +524,28 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 			if err := updateArtifacts(&pkg, packageDir, finalPackageID, finalPackageName,
 				config.DeploymentPrefix, workDir, artifactFilter, stats, serviceDetails, upload); err != nil {
 				log.Error().Msgf("Failed to update artifacts for package %s: %v", pkg.ID, err)
+				upload.mu.Lock()
 				stats.UpdateFailures++
+				upload.mu.Unlock()
 			}
 		}
 
-		// Collect deployment tasks (will be executed in phase 2)
+		// Collect deployment tasks (will be executed in phase 2) once the
+		// uploads are done
 		if pkg.Deploy && mode != ModeUpdateOnly {
-			tasks := collectDeploymentTasks(&pkg, packageDir, finalPackageID, config.DeploymentPrefix,
-				artifactFilter, stats, versionMode)
-			deploymentTasks = append(deploymentTasks, tasks...)
+			pkg, packageDir, finalPackageID := pkg, packageDir, finalPackageID
+			collect = append(collect, func() {
+				tasks := collectDeploymentTasks(&pkg, packageDir, finalPackageID, config.DeploymentPrefix,
+					artifactFilter, stats, versionMode)
+				deploymentTasks = append(deploymentTasks, tasks...)
+			})
 		}
 	}
 
+	upload.wg.Wait()
+	for _, c := range collect {
+		c()
+	}
 	return deploymentTasks, nil
 }
 
@@ -594,7 +612,6 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, upload uploadOptions) error {
 	versionMode := upload.versionMode
 
-	updatedCount := 0
 	log.Info().Msg("Updating artifacts...")
 
 	if serviceDetails == nil {
@@ -605,18 +622,17 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	}
 
 	exe := cpi.InitHTTPExecuter(serviceDetails)
-	synchroniser := artifactsync.New(exe)
-	synchroniser.Baseline, synchroniser.VerifyDownload = upload.baseline, upload.verifyDownload
-	synchroniser.DryRun = upload.plan != nil
-	// a content change with the running version is deployed with force in
-	// phase 2 (or by deploy --pending) instead of undeploying it now
-	synchroniser.KeepRuntime = true
+	locked := func(f func()) {
+		upload.mu.Lock()
+		defer upload.mu.Unlock()
+		f()
+	}
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
 		if !shouldInclude(artifact.Id, artifactFilter) {
 			log.Debug().Msgf("Skipping artifact %s (filtered)", artifact.Id)
-			stats.ArtifactsFiltered++
+			locked(func() { stats.ArtifactsFiltered++ })
 			continue
 		}
 
@@ -625,7 +641,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 			continue
 		}
 
-		stats.ArtifactsTotal++
+		locked(func() { stats.ArtifactsTotal++ })
 
 		artifactDir := filepath.Join(packageDir, artifact.ArtifactDir)
 		if !deploy.DirExists(artifactDir) {
@@ -644,126 +660,153 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 			finalArtifactID = prefix + "_" + artifact.Id
 		}
 
-		log.Info().Msgf("  Updating: %s", finalArtifactID)
+		// Uploads run on the shared pool (--parallel), each in its own work
+		// directory with its own synchroniser
+		artifact := artifact
+		upload.wg.Add(1)
+		go func() {
+			defer upload.wg.Done()
+			upload.slots <- struct{}{}
+			defer func() { <-upload.slots }()
+			jobDir := filepath.Join(workDir, "jobs", finalArtifactID)
+			uploadOneArtifact(exe, pkg, &artifact, artifactDir, jobDir, finalPackageID, finalArtifactID, finalArtifactName,
+				versionMode, stats, upload, locked)
+		}()
+	}
+	return nil
+}
 
-		// Map artifact type for synchroniser (uses simple type names)
-		artifactType := mapArtifactTypeForSync(artifact.Type)
+// uploadOneArtifact prepares the artifact (final ID and name in the
+// manifest, configOverrides in parameters.prop) in jobDir and uploads it.
+func uploadOneArtifact(exe *httpclnt.HTTPExecuter, pkg *models.Package, artifact *models.Artifact, artifactDir, jobDir,
+	finalPackageID, finalArtifactID, finalArtifactName string, versionMode versioning.Mode,
+	stats *ProcessingStats, upload uploadOptions, locked func(func())) {
 
-		// Create temp directory for this artifact
-		tempArtifactDir := filepath.Join(workDir, artifact.Id)
-		if err := deploy.CopyDir(artifactDir, tempArtifactDir); err != nil {
-			log.Error().Msgf("Failed to copy artifact to temp: %v", err)
-			stats.FailedArtifactUpdates[artifact.Id] = true
-			continue
-		}
-
-		// Update MANIFEST.MF
-		manifestPath := filepath.Join(tempArtifactDir, "META-INF", "MANIFEST.MF")
-		modifiedManifestPath := filepath.Join(workDir, "modified", artifact.Id, "META-INF", "MANIFEST.MF")
-
-		if deploy.FileExists(manifestPath) {
-			if err := deploy.UpdateManifestBundleName(manifestPath, finalArtifactID, finalArtifactName, modifiedManifestPath); err != nil {
-				log.Warn().Msgf("Failed to update MANIFEST.MF: %v", err)
-			}
-		}
-
-		// Handle parameters.prop
-		var modifiedParamsPath string
-		paramsPath := deploy.FindParametersFile(tempArtifactDir)
-
-		if paramsPath != "" && deploy.FileExists(paramsPath) {
-			modifiedParamsPath = filepath.Join(workDir, "modified", artifact.Id, "parameters.prop")
-
-			if len(artifact.ConfigOverrides) > 0 {
-				if err := deploy.MergeParametersFile(paramsPath, artifact.ConfigOverrides, modifiedParamsPath); err != nil {
-					log.Warn().Msgf("Failed to merge parameters: %v", err)
-				} else {
-					log.Debug().Msgf("Applied %d config overrides", len(artifact.ConfigOverrides))
-				}
-			} else {
-				// No overrides, copy to modified location
-				data, err := os.ReadFile(paramsPath)
-				if err == nil {
-					os.MkdirAll(filepath.Dir(modifiedParamsPath), 0755)
-					os.WriteFile(modifiedParamsPath, data, 0644)
-				}
-			}
-		}
-
-		// Copy modified manifest to temp artifact dir for sync
-		if deploy.FileExists(modifiedManifestPath) {
-			targetManifestPath := filepath.Join(tempArtifactDir, "META-INF", "MANIFEST.MF")
-			data, err := os.ReadFile(modifiedManifestPath)
-			if err == nil {
-				os.WriteFile(targetManifestPath, data, 0644)
-			}
-		}
-
-		// Copy modified parameters if exists
-		if modifiedParamsPath != "" && deploy.FileExists(modifiedParamsPath) {
-			// Find the actual parameters location in the artifact
-			actualParamsPath := deploy.FindParametersFile(tempArtifactDir)
-			data, err := os.ReadFile(modifiedParamsPath)
-			if err == nil {
-				os.WriteFile(actualParamsPath, data, 0644)
-			}
-		}
-
-		// Call internal sync function
-		log.Debug().Msgf("Updating %s (type %s) in package %s", finalArtifactID, artifactType, finalPackageID)
-
-		mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
-		if err == nil {
-			synchroniser.Versioning = mode
-			var outcome artifactsync.UploadOutcome
-			outcome, err = synchroniser.UploadArtifact(finalArtifactID, finalArtifactName, artifactType,
-				finalPackageID, tempArtifactDir, workDir, "", nil)
-			switch outcome.Compared {
-			case "snapshot":
-				stats.ComparedWithSnapshot++
-			case "download":
-				stats.DownloadedForComparison++
-			}
-			if upload.plan != nil {
-				upload.plan.upsert(finalArtifactID, func(it *PlanItem) {
-					it.Package, it.Type = finalPackageID, artifactType
-					it.Upload = map[string]string{"CREATED": "create", "UPDATED": "update", "UNCHANGED": "unchanged"}[outcome.Action]
-					it.Compared, it.Designtime, it.VersionRule = outcome.Compared, outcome.Version, outcome.VersionRule
-					if err != nil {
-						it.Upload, it.Error = "fails", err.Error()
-					}
-				})
-			}
-			if err == nil {
-				if outcome.Action == "UNCHANGED" {
-					stats.ArtifactsUnchanged++
-				} else {
-					stats.ArtifactsChanged++
-					stats.changed[finalArtifactID] = true
-				}
-				if outcome.Redeploy {
-					stats.redeploy[finalArtifactID] = true
-				}
-			}
-		}
-
-		if err != nil {
-			log.Error().Msgf("Update failed for %s: %v", finalArtifactName, err)
+	log.Info().Msgf("  Updating: %s", finalArtifactID)
+	fail := func(err error) {
+		log.Error().Msgf("Update failed for %s: %v", finalArtifactName, err)
+		locked(func() {
 			stats.UpdateFailures++
 			stats.FailedArtifactUpdates[artifact.Id] = true
-			continue
+		})
+	}
+
+	// Map artifact type for synchroniser (uses simple type names)
+	artifactType := mapArtifactTypeForSync(artifact.Type)
+
+	// Create temp directory for this artifact
+	tempArtifactDir := filepath.Join(jobDir, "artifact")
+	if err := deploy.CopyDir(artifactDir, tempArtifactDir); err != nil {
+		log.Error().Msgf("Failed to copy artifact to temp: %v", err)
+		locked(func() { stats.FailedArtifactUpdates[artifact.Id] = true })
+		return
+	}
+
+	// Update MANIFEST.MF
+	manifestPath := filepath.Join(tempArtifactDir, "META-INF", "MANIFEST.MF")
+	modifiedManifestPath := filepath.Join(jobDir, "modified", "META-INF", "MANIFEST.MF")
+
+	if deploy.FileExists(manifestPath) {
+		if err := deploy.UpdateManifestBundleName(manifestPath, finalArtifactID, finalArtifactName, modifiedManifestPath); err != nil {
+			log.Warn().Msgf("Failed to update MANIFEST.MF: %v", err)
 		}
+	}
 
-		log.Info().Msg("    ✓ Updated successfully")
-		updatedCount++
+	// Handle parameters.prop
+	var modifiedParamsPath string
+	paramsPath := deploy.FindParametersFile(tempArtifactDir)
+
+	if paramsPath != "" && deploy.FileExists(paramsPath) {
+		modifiedParamsPath = filepath.Join(jobDir, "modified", "parameters.prop")
+
+		if len(artifact.ConfigOverrides) > 0 {
+			if err := deploy.MergeParametersFile(paramsPath, artifact.ConfigOverrides, modifiedParamsPath); err != nil {
+				log.Warn().Msgf("Failed to merge parameters: %v", err)
+			} else {
+				log.Debug().Msgf("Applied %d config overrides", len(artifact.ConfigOverrides))
+			}
+		} else {
+			// No overrides, copy to modified location
+			data, err := os.ReadFile(paramsPath)
+			if err == nil {
+				os.MkdirAll(filepath.Dir(modifiedParamsPath), 0755)
+				os.WriteFile(modifiedParamsPath, data, 0644)
+			}
+		}
+	}
+
+	// Copy modified manifest to temp artifact dir for sync
+	if deploy.FileExists(modifiedManifestPath) {
+		targetManifestPath := filepath.Join(tempArtifactDir, "META-INF", "MANIFEST.MF")
+		data, err := os.ReadFile(modifiedManifestPath)
+		if err == nil {
+			os.WriteFile(targetManifestPath, data, 0644)
+		}
+	}
+
+	// Copy modified parameters if exists
+	if modifiedParamsPath != "" && deploy.FileExists(modifiedParamsPath) {
+		// Find the actual parameters location in the artifact
+		actualParamsPath := deploy.FindParametersFile(tempArtifactDir)
+		data, err := os.ReadFile(modifiedParamsPath)
+		if err == nil {
+			os.WriteFile(actualParamsPath, data, 0644)
+		}
+	}
+
+	log.Debug().Msgf("Updating %s (type %s) in package %s", finalArtifactID, artifactType, finalPackageID)
+
+	mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
+	if err != nil {
+		fail(err)
+		return
+	}
+	synchroniser := artifactsync.New(exe)
+	synchroniser.Baseline, synchroniser.VerifyDownload = upload.baseline, upload.verifyDownload
+	synchroniser.DryRun = upload.plan != nil
+	// a content change with the running version is deployed with force in
+	// phase 2 (or by deploy --pending) instead of undeploying it now
+	synchroniser.KeepRuntime = true
+	synchroniser.Versioning = mode
+	outcome, err := synchroniser.UploadArtifact(finalArtifactID, finalArtifactName, artifactType,
+		finalPackageID, tempArtifactDir, jobDir, "", nil)
+
+	locked(func() {
+		switch outcome.Compared {
+		case "snapshot":
+			stats.ComparedWithSnapshot++
+		case "download":
+			stats.DownloadedForComparison++
+		}
+		if upload.plan != nil {
+			upload.plan.upsert(finalArtifactID, func(it *PlanItem) {
+				it.Package, it.Type = finalPackageID, artifactType
+				it.Upload = map[string]string{"CREATED": "create", "UPDATED": "update", "UNCHANGED": "unchanged"}[outcome.Action]
+				it.Compared, it.Designtime, it.VersionRule = outcome.Compared, outcome.Version, outcome.VersionRule
+				if err != nil {
+					it.Upload, it.Error = "fails", err.Error()
+				}
+			})
+		}
+		if err != nil {
+			return
+		}
+		if outcome.Action == "UNCHANGED" {
+			stats.ArtifactsUnchanged++
+		} else {
+			stats.ArtifactsChanged++
+			stats.changed[finalArtifactID] = true
+		}
+		if outcome.Redeploy {
+			stats.redeploy[finalArtifactID] = true
+		}
 		stats.SuccessfulArtifactUpdates[finalArtifactID] = true
+	})
+	if err != nil {
+		fail(err)
+		return
 	}
-
-	if updatedCount > 0 {
-		log.Info().Msgf("✓ Updated %d artifact(s) in package", updatedCount)
-	}
-
-	return nil
+	log.Info().Msgf("    ✓ %s: %s", finalArtifactID, strings.ToLower(outcome.Action))
 }
 
 func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, prefix string,
@@ -889,6 +932,11 @@ type uploadOptions struct {
 	verifyDownload bool
 	// plan collects what would be done (--plan); nil: do it.
 	plan *planCollector
+	// slots limits the uploads running at the same time (--parallel), wg
+	// waits for them, mu guards the statistics and the plan.
+	slots chan struct{}
+	wg    *sync.WaitGroup
+	mu    *sync.Mutex
 }
 
 // PlanItem is what the orchestrator would do with one artifact.

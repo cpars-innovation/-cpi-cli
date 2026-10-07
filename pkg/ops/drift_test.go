@@ -47,7 +47,7 @@ func TestDrift(t *testing.T) {
 		"Forked":   {Type: "Integration", DesignVersion: "1.0.0", Zip: zipFiles(t, flowFiles("Forked", "1.0.0", "theirs"))},
 	})
 
-	res, err := Drift(context.Background(), mock.Executer(), root, "Orders")
+	res, err := Drift(context.Background(), mock.Executer(), root, "Orders", 0)
 	require.NoError(t, err)
 	states := map[string]DriftItem{}
 	for _, it := range res.Items {
@@ -65,6 +65,6 @@ func TestDrift(t *testing.T) {
 	for _, r := range mock.Requests() {
 		assert.Regexp(t, `^GET `, r)
 	}
-	_, err = Drift(context.Background(), mock.Executer(), root, "Other")
+	_, err = Drift(context.Background(), mock.Executer(), root, "Other", 0)
 	assert.Equal(t, exitcode.Usage, output.ExitCode(err))
 }

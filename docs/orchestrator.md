@@ -71,6 +71,7 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--package-filter`, `--artifact-filter` | | Comma-separated IDs to include (IDs without prefix) |
 | `--config-pattern` | `*.y*ml` | File pattern when `--deploy-config` is a folder |
 | `--merge-configs` | `false` | Merge all config files into one run |
+| `--parallel` | `8` | Artifacts uploaded (compared) at the same time, across all packages |
 | `--parallel-deployments` | `3` | Concurrent deployments per package |
 | `--deploy-retries` | `5` | Status checks per artifact |
 | `--deploy-delay` | `15` | Seconds between status checks |

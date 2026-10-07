@@ -215,6 +215,7 @@ All flags can be set in the config file under 'configure'.
       --force                      Write all parameters and deploy all marked artifacts, even if the tenant already has the values
       --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
+      --parallel int               Artifacts whose parameters are read at the same time (config: configure.parallel) (default 8)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
       --pending-file string        Pending deployments file (default: .cpi/pending-deploy.json)
       --plan                       Same as --dry-run
@@ -257,6 +258,7 @@ Write current tenant parameter values into configure YAML files
 ```
   -o, --output-dir string     Directory for one YAML file per package (default ".")
       --package-ids strings   Package IDs to pull (default: all packages)
+      --parallel int          Tenant reads at the same time (config: configure.pull.parallel) (default 8)
 ```
 
 ## credentials
@@ -601,6 +603,7 @@ designtime version. The tenant is only read; every artifact is downloaded.
 ```
       --local-dir string    Local content directory (default ".")
       --package-id string   Only artifacts in this package folder
+      --parallel int        Artifacts compared at the same time (config: drift.parallel) (default 8)
 ```
 
 **Examples:**
@@ -1284,6 +1287,7 @@ Configuration:
       --merge-configs              Merge multiple configs into single deployment (config: orchestrator.mergeConfigs)
       --package-filter string      Comma-separated list of packages to include (config: orchestrator.packageFilter)
   -d, --packages-dir string        Directory containing packages (config: orchestrator.packagesDir)
+      --parallel int               Artifacts uploaded at the same time, across all packages (config: orchestrator.parallel) (default 8)
       --parallel-deployments int   Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)
       --pending-file string        Pending deployments file (default: .cpi/pending-deploy.json)
       --plan                       Only show what would be uploaded and deployed, and why; nothing is written to the tenant

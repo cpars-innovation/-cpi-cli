@@ -1174,7 +1174,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				return ops.Drift(ctx, cfg.Exe, dir, a.PackageID)
+				return ops.Drift(ctx, cfg.Exe, dir, a.PackageID, 0)
 			},
 		},
 		{

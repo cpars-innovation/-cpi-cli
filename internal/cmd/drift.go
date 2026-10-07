@@ -28,7 +28,8 @@ designtime version. The tenant is only read; every artifact is downloaded.`,
 		Example:      `  cpictl drift --local-dir ./content --package-id Orders`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := ops.Drift(cmd.Context(), tenantExecuter(cmd), config.GetString(cmd, "local-dir"), config.GetString(cmd, "package-id"))
+			res, err := ops.Drift(cmd.Context(), tenantExecuter(cmd), config.GetString(cmd, "local-dir"), config.GetString(cmd, "package-id"),
+				config.GetIntWithFallback(cmd, "parallel", "drift.parallel"))
 			if res != nil {
 				output.SetResult(cmd.Context(), res)
 				for _, it := range res.Items {
@@ -44,5 +45,6 @@ designtime version. The tenant is only read; every artifact is downloaded.`,
 	}
 	c.Flags().String("local-dir", ".", "Local content directory")
 	c.Flags().String("package-id", "", "Only artifacts in this package folder")
+	c.Flags().Int("parallel", 8, "Artifacts compared at the same time (config: drift.parallel)")
 	return c
 }

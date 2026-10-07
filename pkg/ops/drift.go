@@ -53,8 +53,12 @@ type DriftResult struct {
 // Drift compares the artifacts of a local content tree (optionally only one
 // package folder) with their designtime and runtime state: content (as
 // upload would compare it) and versions. Run it before upload_artifact so
-// that edits made on the tenant are not overwritten. The tenant is only read.
-func Drift(ctx context.Context, exe *httpclnt.HTTPExecuter, dir, packageID string) (*DriftResult, error) {
+// that edits made on the tenant are not overwritten. The tenant is only read;
+// parallel artifacts are compared at the same time (0: 8).
+func Drift(ctx context.Context, exe *httpclnt.HTTPExecuter, dir, packageID string, parallel int) (*DriftResult, error) {
+	if parallel <= 0 {
+		parallel = 8
+	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return nil, output.Usagef("%s is not a directory", dir)
 	}
@@ -71,7 +75,7 @@ func Drift(ctx context.Context, exe *httpclnt.HTTPExecuter, dir, packageID strin
 	}
 	rt := cpi.NewRuntime(exe)
 	items := make([]DriftItem, len(artifacts))
-	sem := make(chan struct{}, 4)
+	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i, a := range artifacts {
 		if ctx.Err() != nil {
