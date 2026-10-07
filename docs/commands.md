@@ -1198,6 +1198,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
 **Flags:**
 
 ```
+      --cache-ttl int                       Seconds list_packages and list_artifacts results are reused (0: no cache); any tool that changes the tenant clears them (default 60)
       --disable-tools strings               Do not offer these tools (names or patterns); wins over --tools
       --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
       --mode string                         Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)

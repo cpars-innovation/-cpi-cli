@@ -74,6 +74,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 				NewEndpointExecuter: endpointExecuter(cmd),
 				DenyFullSync:        mode == "develop",
 				Versioning:          versionMode,
+				CacheTTL:            time.Duration(config.GetInt(cmd, "cache-ttl")) * time.Second,
 			}))
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
@@ -99,6 +100,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 	addVersioningFlag(c)
 	c.Flags().Int("poll-interval", 10, "Default seconds between deploy/undeploy status checks")
 	c.Flags().Int("max-checks", 30, "Default maximum number of deploy/undeploy status checks")
+	c.Flags().Int("cache-ttl", 60, "Seconds list_packages and list_artifacts results are reused (0: no cache); any tool that changes the tenant clears them")
 	c.Flags().String("mode", "", "Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)")
 	c.Flags().Bool("read-only", false, "Offer only tools that do not change the tenant or trigger processing")
 	c.Flags().StringSlice("tools", nil, "Offer only these tools (names or patterns such as list_*)")

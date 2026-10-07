@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/output"
@@ -28,7 +29,7 @@ Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> downlo
 (existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses);
 before a pull request bump_versions changed=true raises Bundle-Version of changed artifacts
 -> edit the files locally -> create_package (new
-package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
+package) -> upload_artifact (upload_artifacts for several, in parallel) -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
 get_message_steps (failing step) and get_message_log / get_message_attachment /
 get_message_store_entry for payloads; for step-by-step payloads set_log_level TRACE, send again,
@@ -39,7 +40,8 @@ list_message_logs with since and wait_seconds after triggering them.
 Configuration: get_parameters / set_parameters, then deploy to activate; config_diff compares a
 configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
-Inspect: list_packages, list_artifacts, list_resources, get_resource (read without download).
+Inspect: list_packages, list_artifacts (cached briefly; refresh=true re-reads), list_resources,
+get_resource (read without download). get_parameters artifact_ids reads several flows at once.
 Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
 list_service_endpoints; runtime data: list_data_stores, list_data_store_entries,
 get_data_store_entry, delete_data_store_entry (confirm), list_variables, get_variable,
@@ -88,6 +90,9 @@ type Config struct {
 	// LogLevels reverts set_log_level changes; created by Tools when nil.
 	// Call RevertAll when the server stops.
 	LogLevels *LogLevelReverter
+	// CacheTTL keeps list_packages and list_artifacts results this long
+	// (0: no cache); any tool that changes the tenant clears the cache.
+	CacheTTL time.Duration
 }
 
 // Tools returns the CPI tool set.
@@ -108,41 +113,95 @@ func Tools(cfg Config) []Tool {
 		cfg.LogLevels = NewLogLevelReverter(cfg.Exe)
 	}
 	reverter := cfg.LogLevels
-	tools := slices.Concat(toolList(cfg, readOnly, tenant, endpoints, reverter), storeTools(cfg, readOnly), graphTools(cfg))
+	cache := newReadCache(cfg.CacheTTL)
+	tools := slices.Concat(toolList(cfg, readOnly, tenant, endpoints, reverter, cache), storeTools(cfg, readOnly), graphTools(cfg))
 	for i := range tools {
 		inner := tools[i].Handler
+		changesTenant := toolEffects[tools[i].Name] == EffectTenant
 		tools[i].Handler = func(ctx context.Context, raw json.RawMessage) (any, error) {
 			reverter.RunDue()
+			if changesTenant {
+				defer cache.clear()
+			}
 			return inner(ctx, raw)
 		}
 	}
 	return tools
 }
 
-func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints ops.EndpointExecuterFunc, reverter *LogLevelReverter) []Tool {
+// batchParallel is the number of items a batch tool processes at a time.
+const batchParallel = 8
+
+// forEachParallel calls fn(0..n-1), parallel at a time, and returns the
+// number of calls that failed.
+func forEachParallel(n, parallel int, fn func(i int) error) int {
+	var wg sync.WaitGroup
+	var failed atomic.Int64
+	slots := make(chan struct{}, parallel)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			if fn(i) != nil {
+				failed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	return int(failed.Load())
+}
+
+// batchErr is the error of a batch call: partial when some items failed,
+// failed when all did.
+func batchErr(failed, total int) error {
+	switch {
+	case failed == 0:
+		return nil
+	case failed == total:
+		return output.Failed(fmt.Errorf("all %d item(s) failed", total))
+	}
+	return output.Partial(fmt.Errorf("%d of %d item(s) failed", failed, total))
+}
+
+// withCached marks a result served from the read cache.
+func withCached(res map[string]any, cached bool) map[string]any {
+	if cached {
+		res["cached"] = true
+	}
+	return res
+}
+
+func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints ops.EndpointExecuterFunc, reverter *LogLevelReverter, cache *readCache) []Tool {
 
 	return []Tool{
 		{
 			Name: "list_packages", Title: "List integration packages",
 			Description: "List all integration packages (ID, name, version). Start here to find where artifacts live, then list_artifacts. To add a package use create_package.",
-			InputSchema: object(nil),
+			InputSchema: object(props{"refresh": boolean("Read the tenant even if the result of a recent call is cached")}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
-				if err := decode(raw, &struct{}{}); err != nil {
+				var a struct {
+					Refresh bool `json:"refresh"`
+				}
+				if err := decode(raw, &a); err != nil {
 					return nil, err
 				}
-				pkgs, err := ops.ListPackages(cfg.Exe)
-				return map[string]any{"packages": pkgs}, err
+				pkgs, cached, err := cache.get("packages", a.Refresh, func() (any, error) { return ops.ListPackages(cfg.Exe) })
+				return withCached(map[string]any{"packages": pkgs}, cached), err
 			},
 		},
 		{
 			Name: "list_artifacts", Title: "List artifacts of a package",
 			Description: "List the designtime artifacts of one package: integration flows, message mappings, script collections and value mappings, with version and draft flag. Use it to find artifact IDs; for what is running use list_runtime_artifacts.",
-			InputSchema: object(props{"package_id": str("Integration package ID")}, "package_id"),
+			InputSchema: object(props{"package_id": str("Integration package ID"),
+				"refresh": boolean("Read the tenant even if the result of a recent call is cached")}, "package_id"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
 					PackageID string `json:"package_id"`
+					Refresh   bool   `json:"refresh"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -150,8 +209,8 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if a.PackageID == "" {
 					return nil, output.Usagef("package_id is required")
 				}
-				arts, err := ops.ListArtifacts(cfg.Exe, a.PackageID)
-				return map[string]any{"packageId": a.PackageID, "artifacts": arts}, err
+				arts, cached, err := cache.get("artifacts/"+a.PackageID, a.Refresh, func() (any, error) { return ops.ListArtifacts(cfg.Exe, a.PackageID) })
+				return withCached(map[string]any{"packageId": a.PackageID, "artifacts": arts}, cached), err
 			},
 		},
 		{
@@ -752,22 +811,48 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		},
 		{
 			Name: "get_parameters", Title: "Get configuration parameters",
-			Description: "Externalised parameters ({{...}} placeholders in the model) of an integration flow with their current values. Change them with set_parameters; no upload needed.",
-			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "version": str(`Designtime version, default "active"`)}, "artifact_id"),
+			Description: "Externalised parameters ({{...}} placeholders in the model) of an integration flow with their current values. Change them with set_parameters; no upload needed. " +
+				"artifact_ids reads several flows in one call (in parallel), one entry per flow.",
+			InputSchema: object(props{"artifact_id": str("Integration flow ID"), "artifact_ids": strArray("Several integration flow IDs instead of artifact_id"),
+				"version": str(`Designtime version, default "active"`)}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
-					ArtifactID string `json:"artifact_id"`
-					Version    string `json:"version"`
+					ArtifactID  string   `json:"artifact_id"`
+					ArtifactIDs []string `json:"artifact_ids"`
+					Version     string   `json:"version"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
 				}
-				if a.ArtifactID == "" {
-					return nil, output.Usagef("artifact_id is required")
+				if (a.ArtifactID == "") == (len(a.ArtifactIDs) == 0) {
+					return nil, output.Usagef("give artifact_id or artifact_ids")
 				}
-				params, err := ops.GetConfiguration(cfg.Exe, a.ArtifactID, a.Version)
-				return map[string]any{"artifactId": a.ArtifactID, "parameters": params}, err
+				if a.ArtifactID != "" {
+					params, err := ops.GetConfiguration(cfg.Exe, a.ArtifactID, a.Version)
+					return map[string]any{"artifactId": a.ArtifactID, "parameters": params}, err
+				}
+				ids, err := requireIDs(a.ArtifactIDs)
+				if err != nil {
+					return nil, err
+				}
+				type entry struct {
+					ArtifactID string `json:"artifactId"`
+					Parameters any    `json:"parameters,omitempty"`
+					Error      string `json:"error,omitempty"`
+				}
+				entries := make([]entry, len(ids))
+				failed := forEachParallel(len(ids), batchParallel, func(i int) error {
+					params, err := ops.GetConfiguration(cfg.Exe, ids[i], a.Version)
+					entries[i] = entry{ArtifactID: ids[i]}
+					if err != nil {
+						entries[i].Error = err.Error()
+					} else {
+						entries[i].Parameters = params
+					}
+					return err
+				})
+				return map[string]any{"artifacts": entries}, batchErr(failed, len(ids))
 			},
 		},
 		{
@@ -848,6 +933,63 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, err
 				}
 				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning, DryRun: a.DryRun})
+			},
+		},
+		{
+			Name: "upload_artifacts", Title: "Upload several artifacts",
+			Description: "upload_artifact for several artifacts in one call (in parallel): one result per artifact (action CREATED, UPDATED or UNCHANGED, or error). The packages must exist. dry_run only compares. Does not deploy.",
+			InputSchema: object(props{
+				"artifacts": map[string]any{"type": "array", "description": "Artifacts to upload", "items": object(props{
+					"artifact_id": str("Artifact ID (must match Bundle-SymbolicName)"),
+					"name":        str("Display name, defaults to Bundle-Name of the manifest, else artifact_id"),
+					"type":        enum("Artifact type", cpi.ArtifactTypes...),
+					"package_id":  str("Integration package ID (must exist)"),
+					"dir":         str("Local artifact directory, relative to the server root"),
+				}, "artifact_id", "type", "package_id", "dir")},
+				"dry_run": boolean("Only compare with the tenant and report what the uploads would do; nothing is written"),
+			}, "artifacts"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Artifacts []struct {
+						ArtifactID string `json:"artifact_id"`
+						Name       string `json:"name"`
+						Type       string `json:"type"`
+						PackageID  string `json:"package_id"`
+						Dir        string `json:"dir"`
+					} `json:"artifacts"`
+					DryRun bool `json:"dry_run"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if len(a.Artifacts) == 0 {
+					return nil, output.Usagef("artifacts is required")
+				}
+				reqs := make([]ops.UploadRequest, len(a.Artifacts))
+				for i, it := range a.Artifacts {
+					dir, err := resolvePath(cfg.Root, it.Dir)
+					if err != nil {
+						return nil, err
+					}
+					reqs[i] = ops.UploadRequest{ID: it.ArtifactID, Name: it.Name, Type: it.Type, PackageID: it.PackageID, Dir: dir,
+						Versioning: cfg.Versioning, DryRun: a.DryRun}
+				}
+				type entry struct {
+					*ops.UploadResult
+					ID    string `json:"id"`
+					Error string `json:"error,omitempty"`
+				}
+				entries := make([]entry, len(reqs))
+				failed := forEachParallel(len(reqs), batchParallel, func(i int) error {
+					res, err := ops.UploadArtifact(cfg.Exe, reqs[i])
+					entries[i] = entry{UploadResult: res, ID: reqs[i].ID}
+					if err != nil {
+						entries[i].Error = err.Error()
+					}
+					return err
+				})
+				return map[string]any{"results": entries}, batchErr(failed, len(reqs))
 			},
 		},
 		{

@@ -116,7 +116,7 @@ func TestProtocol(t *testing.T) {
 		"list_runtime_artifacts", "list_service_endpoints",
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions",
 		"list_credentials", "list_keystore",
-		"get_parameters", "set_parameters", "create_package", "upload_artifact", "deploy", "send_test_message", "undeploy", "pd_deploy",
+		"get_parameters", "set_parameters", "create_package", "upload_artifact", "upload_artifacts", "deploy", "send_test_message", "undeploy", "pd_deploy",
 		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "discover_tenant",
 		"list_data_stores", "list_data_store_entries", "get_data_store_entry", "delete_data_store_entry", "list_variables", "get_variable",
 		"list_jms_queues", "get_jms_broker", "list_number_ranges", "list_log_files", "get_log_file", "list_idempotent_entries", "list_id_mappings", "graph_search", "graph_neighbors", "graph_path"}, names)
@@ -359,4 +359,95 @@ func TestDeployDryRun(t *testing.T) {
 	assert.Equal(t, true, plan[1].(map[string]any)["deploy"])
 	assert.Equal(t, "not deployed yet", plan[2].(map[string]any)["reason"])
 	assert.Equal(t, 0, mock.Count("POST "), "nothing triggered")
+}
+
+// list_packages / list_artifacts are cached; refresh and tenant changes
+// read again.
+func TestListCache(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.0", Package: "P", Name: "A"},
+	})
+	mock.Packages = []cpitest.Package{{ID: "P", Version: "1.0.0"}}
+	cfg := Config{Exe: mock.Executer(), Root: t.TempDir(), PollInterval: time.Millisecond, MaxChecks: 3, CacheTTL: time.Minute}
+	srv := NewServer("cpicli", "test", Instructions, Tools(cfg))
+	lists := func() int { return mock.Count("GET /api/v1/IntegrationPackages") }
+
+	// concurrent identical calls share one tenant request
+	resp := serve(t, srv, call(1, "list_packages", map[string]any{}), call(2, "list_packages", map[string]any{}))
+	assert.Equal(t, 1, lists())
+	cached := 0
+	for _, id := range []string{"1", "2"} {
+		if strings.Contains(toolResult(t, resp[id]).Content[0].Text, `"cached":true`) {
+			cached++
+		}
+	}
+	assert.Equal(t, 1, cached)
+
+	serve(t, srv, call(1, "list_packages", map[string]any{}))
+	assert.Equal(t, 1, lists(), "from the cache")
+	serve(t, srv, call(1, "list_packages", map[string]any{"refresh": true}))
+	assert.Equal(t, 2, lists(), "refresh reads again")
+
+	// a tenant-changing tool clears the cache
+	serve(t, srv, call(1, "create_package", map[string]any{"package_id": "Q"}))
+	before := lists()
+	serve(t, srv, call(1, "list_packages", map[string]any{}))
+	assert.Equal(t, before+1, lists())
+
+	// ttl 0: no cache
+	cfg.CacheTTL = 0
+	srv = NewServer("cpicli", "test", Instructions, Tools(cfg))
+	before = lists()
+	serve(t, srv, call(1, "list_packages", map[string]any{}))
+	serve(t, srv, call(1, "list_packages", map[string]any{}))
+	assert.Equal(t, before+2, lists())
+}
+
+// get_parameters artifact_ids reads several flows; one unknown flow makes the
+// call partial.
+func TestGetParametersBatch(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", DesignVersion: "1.0.0", Parameters: map[string]string{"Host": "a"}},
+		"B": {Type: "Integration", DesignVersion: "1.0.0", Parameters: map[string]string{"Host": "b"}},
+	})
+	resp := session(t, mock, t.TempDir(), call(1, "get_parameters", map[string]any{"artifact_ids": []string{"A", "B", "Nope"}}))
+	res := toolResult(t, resp["1"])
+	assert.Equal(t, "partial", res.StructuredContent.ErrorCategory)
+	text := res.Content[0].Text
+	assert.Contains(t, text, `"artifactId":"A"`)
+	assert.Contains(t, text, `"b"`)
+	assert.Contains(t, text, `"artifactId":"Nope","error"`)
+
+	resp = session(t, mock, t.TempDir(), call(1, "get_parameters", map[string]any{"artifact_id": "A", "artifact_ids": []string{"B"}}))
+	assert.Equal(t, "usage", toolResult(t, resp["1"]).StructuredContent.ErrorCategory)
+}
+
+// upload_artifacts uploads several artifacts; a bad item makes it partial.
+func TestUploadArtifactsBatch(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"A": {Type: "Integration", Package: "P"},
+		"B": {Type: "Integration", Package: "P"},
+	})
+	mock.Packages = []cpitest.Package{{ID: "P"}}
+	root := t.TempDir()
+	for _, id := range []string{"A", "B"} {
+		for name, content := range map[string]string{
+			"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\nBundle-SymbolicName: " + id + "\nBundle-Version: 1.0.0\n",
+			"src/main/resources/scenarioflows/integrationflow/" + id + ".iflw": "<bpmn2:definitions/>",
+		} {
+			p := filepath.Join(root, id, filepath.FromSlash(name))
+			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+			require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		}
+	}
+	item := func(id, dir string) map[string]any {
+		return map[string]any{"artifact_id": id, "type": "Integration", "package_id": "P", "dir": dir}
+	}
+	resp := session(t, mock, root, call(1, "upload_artifacts", map[string]any{"artifacts": []any{item("A", "A"), item("B", "B"), item("C", "missing")}}))
+	res := toolResult(t, resp["1"])
+	assert.Equal(t, "partial", res.StructuredContent.ErrorCategory, res.Content[0].Text)
+	assert.Equal(t, 1, mock.Artifacts["A"].Uploads)
+	assert.Equal(t, 1, mock.Artifacts["B"].Uploads)
+	assert.Contains(t, res.Content[0].Text, `"action":"CREATED"`)
+	assert.Contains(t, res.Content[0].Text, `"id":"C","error"`)
 }

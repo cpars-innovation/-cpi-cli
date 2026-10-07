@@ -45,7 +45,7 @@ var toolEffects = map[string]Effect{
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal, "copy_iflow": EffectLocal, "bump_versions": EffectLocal,
 
-	"create_package": EffectTenant, "upload_artifact": EffectTenant, "set_parameters": EffectTenant,
+	"create_package": EffectTenant, "upload_artifact": EffectTenant, "upload_artifacts": EffectTenant, "set_parameters": EffectTenant,
 	"deploy": EffectTenant, "undeploy": EffectTenant, "pd_deploy": EffectTenant,
 	"send_test_message": EffectTenant, "set_log_level": EffectTenant,
 }

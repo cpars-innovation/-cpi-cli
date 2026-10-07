@@ -96,6 +96,7 @@ server: [plugin.md](plugin.md).
 | `--root` | `.` | Local paths in tool arguments are resolved against this directory and may not leave it (symlinks are resolved) |
 | `--poll-interval` | `10` | Default seconds between deploy/undeploy status checks |
 | `--max-checks` | `30` | Default maximum number of status checks per artifact |
+| `--cache-ttl` | `60` | Seconds `list_packages` / `list_artifacts` results are reused (`0`: no cache). Every tool that changes the tenant clears the cache; results from the cache have `cached: true` |
 | `--read-only` | `false` | Offer only tools that do not change the tenant or trigger processing |
 | `--tools` | all | Offer only these tools: names or patterns, e.g. `list_*,get_*,validate_artifact` |
 | `--disable-tools` | none | Do not offer these tools (names or patterns); wins over `--tools` |
@@ -129,7 +130,7 @@ leaves a tool enabled by accident.
 |------------|-------|---------------|
 | read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `graph_*`, `loop_status`, runtime data tools | kept |
 | local files (inside `--root`) | `download_artifact`, `copy_iflow`, `bump_versions`, `discover_tenant`, `loop_start`, `loop_end` | kept |
-| tenant changes / processing | `create_package`, `upload_artifact`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
+| tenant changes / processing | `create_package`, `upload_artifact`, `upload_artifacts`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
 
 ```json
 "cpi-qa":   { "command": "cpictl", "args": ["mcp", "--root", ".", "--read-only"] },
@@ -149,18 +150,19 @@ read roles.
 | Tool | Changes | Purpose |
 |------|---------|---------|
 | `help` | | What this server offers: tools after mode and filters, the cpi skills (with their instructions), the CLI commands, and which tools and skill fit common tasks. `topic` for one tool, skill, skill file or command. Always available. See [Finding your way](#finding-your-way) |
-| `list_packages` | | All integration packages |
+| `list_packages` | | All integration packages (cached for `--cache-ttl`; `refresh: true` re-reads) |
 | `create_package` | designtime | Create a package if it does not exist (`CREATED` / `EXISTS`, never changes one) |
-| `list_artifacts` | | Designtime artifacts of a package (all four types) |
+| `list_artifacts` | | Designtime artifacts of a package (all four types; cached like `list_packages`) |
 | `list_resources` | | Scripts, mappings, schemas, ... of an integration flow |
 | `get_resource` | | Content of one resource (text inline, binary base64) |
 | `download_artifact` | local files | Extract an artifact into a directory inside `--root` (empty unless `overwrite`) |
 | `copy_iflow` | local files | Copy a flow (tenant or local) under a new ID, name, description and sender addresses; refuses unchanged sender addresses unless `keep_addresses`. See [new-flows.md](new-flows.md) |
 | `bump_versions` | local files | Raise `Bundle-Version` of changed artifacts (`changed: true`: since the Git commit that last set it) before a pull request. See [versioning.md](versioning.md) |
 | `upload_artifact` | designtime | Create or update an artifact from a local directory; `CREATED`, `UPDATED` or `UNCHANGED`. `dry_run`: only compare and report the action and version |
+| `upload_artifacts` | designtime | `upload_artifact` for several artifacts in one call, 8 at a time; one result per artifact; `dry_run` |
 | `validate_artifact` | | Tenant check of an integration flow (like *Check* in the Web UI); `PASSED` / `FAILED` with details |
 | `check_guidelines` | | Run the activated design guidelines and wait; violations with violated components |
-| `get_parameters` | | Externalised parameters of an integration flow |
+| `get_parameters` | | Externalised parameters of an integration flow; `artifact_ids` for several flows in one call (8 at a time) |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
 | `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT`, with `designtimeVersion` / `runtimeVersion`. Refuses a designtime version older than the running one unless the designtime artifact was changed after that deployment or `allow_downgrade`; `rule` says which rule decided. `dry_run`: per artifact `deploy` true/false and the reason, nothing triggered |
 | `send_test_message` | **triggers processing** | Send a message to the flow's endpoint (or via the test harness to a ProcessDirect address); HTTP status, response, message GUID; `wait_seconds` returns the final message log. See [testing.md](testing.md) |

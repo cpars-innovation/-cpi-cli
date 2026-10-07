@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- MCP: `upload_artifacts` uploads several artifacts in one call (8 at a time); `get_parameters`
+  takes `artifact_ids`. `list_packages` and `list_artifacts` results are reused for
+  `--cache-ttl` seconds (default 60, `cached: true`; `refresh: true` re-reads); every tool that
+  changes the tenant clears the cache.
+
 - Parallel: `orchestrator --parallel` (default 8) uploads and compares artifacts at the same time
   across all packages (packages are still created first); `configure --parallel` (8) reads the
   parameters of all artifacts at the same time and writes the changes one after another;
