@@ -82,6 +82,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`skills show`](#skills-show) | Print a skill's SKILL.md or one of its reference files |
 | [`snapshot`](#snapshot) | Save all integration packages of the tenant to a Git repository |
 | [`snapshot restore`](#snapshot-restore) | Create or update integration packages on the tenant from a Git repository |
+| [`stats`](#stats) | Show local usage statistics (which commands and MCP tools run, how often, how long) |
 | [`status`](#status) | Show runtime status, version and errors of artifacts |
 | [`sync`](#sync) | Synchronise the artifacts of a package between tenant and Git |
 | [`sync apiproduct`](#sync-apiproduct) | Synchronise API Management products between tenant and Git |
@@ -1796,6 +1797,37 @@ Configuration:
 
 ```
       --versioning string   Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
+```
+
+## stats
+
+Show local usage statistics (which commands and MCP tools run, how often, how long)
+
+```
+Show local usage statistics: runs, failures and durations per command and MCP tool.
+
+Every command and MCP tool call appends one line (name, source cli/mcp, exit code,
+duration, time) to $HOME/.cpictl/stats.jsonl. No arguments, hosts or artifact names
+are recorded, and nothing is sent anywhere. The file is compacted to its newest half
+when it reaches 1 MiB. CPICTL_STATS=off turns recording off; --reset deletes the file.
+```
+
+**Usage:** `cpictl stats [flags]`
+
+**Flags:**
+
+```
+      --reset           Delete the statistics file
+      --since string    Only runs in this period, e.g. 24h or 7d
+      --source string   Only cli or mcp
+```
+
+**Examples:**
+
+```
+  cpictl stats
+  cpictl stats --since 7d --source mcp
+  cpictl stats --reset
 ```
 
 ## status

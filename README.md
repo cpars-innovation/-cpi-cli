@@ -219,6 +219,7 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
 | Security | `credentials` (list, set-user, set-oauth2, set-secure-param, apply, delete), `keystore` (list, export-cert, import-cert) |
 | AI agents | `mcp`, `skills` (list, show, install) |
+| Local | `profile`, `stats` (usage statistics, kept on this machine only) |
 
 All commands and flags: [docs/commands.md](docs/commands.md) (generated from the CLI).
 
@@ -250,6 +251,15 @@ Every command ends with the time it took, on stderr (`⏱ deploy failed in 48.2s
 Tenant reads (GET) answered with `429`, `502`, `503` or `504` are retried up to three times with
 backoff 2s, 4s, 8s (`Retry-After` is honoured, at most 30 s); `--read-retries 0` turns it off.
 Writes are never retried.
+
+### Usage statistics
+
+Every command and MCP tool call appends one line to `~/.cpictl/stats.jsonl`: name, source
+(`cli`/`mcp`), exit code, duration and time. No arguments, hosts, artifact names or results are
+recorded, and nothing is sent anywhere. The file is compacted to its newest half at 1 MiB, so it
+stays small. `cpictl stats` (`--since 7d`, `--source mcp`) shows runs, failures and median /
+p95 / max duration per command; `cpictl stats --reset` deletes the file; `CPICTL_STATS=off`
+stops recording (e.g. on CI runners).
 
 Artifact statuses: `DEPLOYED`, `SKIPPED` (same version already running), `UNDEPLOYED`,
 `NOT_DEPLOYED`, `FAILED`, `TIMEOUT`.

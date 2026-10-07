@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/stats"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -327,4 +328,17 @@ func TestSecurityToolsAreReadOnlyAndSecretFree(t *testing.T) {
 	for _, r := range mock.Requests() {
 		assert.True(t, strings.HasPrefix(r, "GET "), "security tools only read: %s", r)
 	}
+}
+
+// Tool calls are recorded in the local usage statistics (source mcp).
+func TestToolCallsAreRecorded(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "stats.jsonl")
+	t.Setenv("CPICTL_STATS_FILE", file)
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+	session(t, mock, t.TempDir(), call(1, "list_packages", map[string]any{}))
+	entries, err := stats.Read(file, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "list_packages", entries[0].Command)
+	assert.Equal(t, stats.SourceMCP, entries[0].Source)
 }

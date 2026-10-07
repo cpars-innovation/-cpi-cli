@@ -8,6 +8,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 - Every command and the MCP server retry tenant reads (GET) answered with 429 or 502-504 up to
   three times with backoff (before: `snapshot` only). `--read-retries` (`CPICTL_READ_RETRIES`)
   sets the count, `0` turns it off. Writes are never retried.
+- `cpictl stats`: local usage statistics. Every command and MCP tool call appends name, source,
+  exit code, duration and time to `~/.cpictl/stats.jsonl` (no arguments, hosts or names; nothing
+  is sent anywhere; compacted at 1 MiB; `CPICTL_STATS=off` disables it).
 - MCP: every tool result has `durationMs`; the server log has one line per finished call.
 
 ## 0.2.4

@@ -49,7 +49,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
     "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
             "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}`,
 		SilenceUsage: true,
-		Annotations:  map[string]string{annotationNoEnvelope: "true"},
+		Annotations:  map[string]string{annotationNoEnvelope: "true", annotationNoStats: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// stdout is the protocol channel: logs always as JSON lines on stderr
 			logger.Init(cmd.ErrOrStderr(), true, viper.GetBool("debug"))

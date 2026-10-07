@@ -16,6 +16,7 @@ import (
 
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/internal/stats"
 	"github.com/rs/zerolog/log"
 )
 
@@ -257,6 +258,7 @@ func (s *Server) callTool(ctx context.Context, id json.RawMessage, params json.R
 	value, err := safeCall(callCtx, s.tools[idx], p.Arguments)
 	elapsed := time.Since(begin)
 	code := output.ExitCode(err)
+	stats.Record(p.Name, stats.SourceMCP, code, elapsed)
 	res := ToolResult{OK: err == nil, ExitCode: code, ErrorCategory: Category(code), DurationMs: elapsed.Milliseconds(), Result: value}
 	if err != nil {
 		res.Error = err.Error()

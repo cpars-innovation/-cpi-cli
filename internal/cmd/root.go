@@ -17,6 +17,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/logger"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/internal/stats"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -111,6 +112,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewIdempotentCommand())
 	rootCmd.AddCommand(NewIDMappingsCommand())
 	rootCmd.AddCommand(NewProfileCommand())
+	rootCmd.AddCommand(NewStatsCommand())
 	rootCmd.AddCommand(NewMCPCommand(version))
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())
@@ -195,6 +197,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 			ev = log.Warn()
 		}
 		ev.Int64("durationMs", elapsed.Milliseconds()).Msgf("⏱ %s %s in %s", commandName(cmd), finishedVerb(err), formatElapsed(elapsed))
+		if cmd.Annotations[annotationNoStats] != "true" {
+			stats.Record(commandName(cmd), stats.SourceCLI, code, elapsed)
+		}
 	}
 
 	// --help/--version and commands without RunE produce no result document
@@ -210,6 +215,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version, 
 	}
 	return code
 }
+
+// annotationNoStats marks commands that are not recorded in the usage statistics.
+const annotationNoStats = "cpicli/no-stats"
 
 func finishedVerb(err error) string {
 	if err != nil {
