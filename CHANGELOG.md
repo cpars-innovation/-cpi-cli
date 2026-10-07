@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.2.4
+
 - Every command logs the time it took at the end (`⏱ snapshot finished in 4m12s`, JSON log field
   `durationMs`); the `--output json` envelope has a new field `durationMs`.
 
