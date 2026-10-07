@@ -11,6 +11,15 @@ import (
 )
 
 // DeploymentTask represents an artifact ready for deployment
+// Deployment defaults shared by deploy, undeploy, orchestrator, configure
+// and the MCP server: a status check every 10 s for up to 5 minutes; a
+// failed deployment ends at its first check.
+const (
+	defaultDeployChecks        = 30
+	defaultDeployDelaySeconds  = 10
+	defaultParallelDeployments = 5
+)
+
 type DeploymentTask struct {
 	ArtifactID   string
 	ArtifactType string

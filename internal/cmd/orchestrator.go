@@ -193,13 +193,13 @@ Configuration:
 
 			// Set defaults for deployment settings
 			if deployRetries == 0 {
-				deployRetries = 5
+				deployRetries = defaultDeployChecks
 			}
 			if deployDelaySeconds == 0 {
-				deployDelaySeconds = 15
+				deployDelaySeconds = defaultDeployDelaySeconds
 			}
 			if parallelDeployments == 0 {
-				parallelDeployments = 3
+				parallelDeployments = defaultParallelDeployments
 			}
 
 			return runOrchestrator(cmd, mode, packagesDir, deployConfig,
@@ -220,15 +220,15 @@ Configuration:
 	orchestratorCmd.Flags().BoolVar(&updateMode, "update", false, "Update and deploy artifacts")
 	orchestratorCmd.Flags().BoolVar(&updateOnlyMode, "update-only", false, "Only update artifacts, don't deploy")
 	orchestratorCmd.Flags().BoolVar(&deployOnlyMode, "deploy-only", false, "Only deploy artifacts, don't update")
-	orchestratorCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: orchestrator.deployRetries, default: 5)")
-	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)")
+	orchestratorCmd.Flags().IntVar(&deployRetries, "deploy-retries", defaultDeployChecks, "Deployment status checks per artifact (config: orchestrator.deployRetries)")
+	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", defaultDeployDelaySeconds, "Seconds between deployment status checks (config: orchestrator.deployDelaySeconds)")
 	addVersioningFlag(orchestratorCmd)
 	orchestratorCmd.Flags().String("snapshot-state", "", "Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; \"off\": always download)")
 	addDeferFlags(orchestratorCmd)
 	orchestratorCmd.Flags().Int("parallel", 8, "Artifacts uploaded at the same time, across all packages (config: orchestrator.parallel)")
 	orchestratorCmd.Flags().Bool("plan", false, "Only show what would be uploaded and deployed, and why; nothing is written to the tenant")
 	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
-	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
+	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", defaultParallelDeployments, "Deployments at the same time per package (config: orchestrator.parallelDeployments)")
 
 	return orchestratorCmd
 }

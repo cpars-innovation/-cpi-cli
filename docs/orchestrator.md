@@ -72,9 +72,9 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--config-pattern` | `*.y*ml` | File pattern when `--deploy-config` is a folder |
 | `--merge-configs` | `false` | Merge all config files into one run |
 | `--parallel` | `8` | Artifacts uploaded (compared) at the same time, across all packages |
-| `--parallel-deployments` | `3` | Concurrent deployments per package |
-| `--deploy-retries` | `5` | Status checks per artifact |
-| `--deploy-delay` | `15` | Seconds between status checks |
+| `--parallel-deployments` | `5` | Concurrent deployments per package |
+| `--deploy-retries` | `30` | Status checks per artifact |
+| `--deploy-delay` | `10` | Seconds between status checks |
 | `--keep-temp` | `false` | Keep the temporary working directory |
 | `--snapshot-state` | `.cpi/snapshot-state.json` (current directory, else above `--packages-dir`) | Snapshot state to compare with instead of downloading; `off` always downloads |
 | `--defer-deploy` | `false` | Skip phase 2: add the deployments to `.cpi/pending-deploy.json` (`--pending-file`) for one `cpictl deploy --pending`, see [ci.md](ci.md#pipeline-snapshot-update-configure-deploy-once) |

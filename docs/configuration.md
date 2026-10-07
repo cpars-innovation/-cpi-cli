@@ -181,17 +181,11 @@ oauth-host: mytenant.authentication.eu10.hana.ondemand.com
 
 deploy:
   artifactType: Integration
-  delayLength: 15        # seconds between status checks
-  maxCheckLimit: 20
-
-undeploy:
-  delayLength: 10
-  maxCheckLimit: 30
+  maxCheckLimit: 60      # slow deployments: 10 minutes instead of 5
 
 orchestrator:
   packagesDir: ./packages
   deployConfig: ./001-deploy-config.yml
-  parallelDeployments: 3
 
 pd-deploy:
   resources-path: ./partner-directory
@@ -201,6 +195,26 @@ pd-deploy:
 Sections used by the commands: `deploy`, `undeploy`, `configure` (and `configure.pull`),
 `orchestrator`, `update.artifact`, `update.package`, `sync`, `sync.apiproxy`,
 `sync.apiproduct`, `snapshot`, `restore`, `pd-snapshot`, `pd-deploy`.
+
+## Defaults
+
+The defaults are chosen for tenants with a few hundred packages and artifacts; set a value only
+when you need something else.
+
+| Setting | Default | Where |
+|---------|---------|-------|
+| Deployment status checks | every 10 s, up to 30 times (5 minutes); a failed deployment ends at its first check | `deploy` (`delayLength`, `maxCheckLimit`), `undeploy`, `orchestrator` / `configure` (`deployDelaySeconds`, `deployRetries`), MCP (`--poll-interval`, `--max-checks`) |
+| Deployments at the same time | 5 per package; packages one after another, in config order | `orchestrator`, `configure`, `deploy --pending` (`parallelDeployments`) |
+| Tenant reads and uploads at the same time | 8, across all packages | `snapshot`, `orchestrator`, `configure`, `configure pull`, `drift` (`parallel`) |
+| Retries of throttled reads (429, 502-504) | 3, backoff 2 s, 4 s, 8 s (`Retry-After` honoured); writes never | all commands and MCP (`read-retries`) |
+| Parameters per `$batch` request | 90 | `configure` (`batchSize`) |
+| Orchestrator comparison | with the snapshot state when one of this tenant is found, else download | `orchestrator` (`snapshotState`, `verifyDownload`) |
+| Incremental snapshot | off (on once `ModifiedAt` is verified on your tenant, see [snapshot.md](snapshot.md)) | `snapshot` (`incremental`) |
+| MCP list cache | 60 s | `mcp --cache-ttl` |
+| Job summary | `$GITHUB_STEP_SUMMARY` when set | `summary` |
+| Usage statistics | on, local only (`~/.cpictl/stats.jsonl`, at most ~1 MiB) | `CPICTL_STATS=off` |
+
+[examples/cpictl.yaml](examples/cpictl.yaml) lists them all with their config keys.
 
 ## Creating an OAuth client in SAP BTP
 

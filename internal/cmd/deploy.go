@@ -45,15 +45,15 @@ Configuration:
 	// Define cobra flags, the default value has the lowest (least significant) precedence
 	// Note: These can be set in config file under 'deploy' key
 	deployCmd.Flags().StringSlice("artifact-ids", nil, "Comma separated list of artifact IDs (config: deploy.artifactIds)")
-	deployCmd.Flags().Int("delay-length", 30, "Delay (in seconds) between each check of artifact deployment status (config: deploy.delayLength)")
-	deployCmd.Flags().Int("max-check-limit", 10, "Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit)")
+	deployCmd.Flags().Int("delay-length", defaultDeployDelaySeconds, "Seconds between deployment status checks (config: deploy.delayLength)")
+	deployCmd.Flags().Int("max-check-limit", defaultDeployChecks, "Deployment status checks per artifact (config: deploy.maxCheckLimit)")
 	// To set to false, use --compare-versions=false
 	addVersioningFlag(deployCmd)
 	deployCmd.Flags().Bool("allow-downgrade", false, "Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)")
 	deployCmd.Flags().Bool("compare-versions", true, "Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions)")
 	deployCmd.Flags().Bool("pending", false, "Deploy the pending deployments that orchestrator and configure --defer-deploy collected (each artifact once); failed ones stay in the file")
 	deployCmd.Flags().String("pending-file", "", "Pending deployments file (default: .cpi/pending-deploy.json)")
-	deployCmd.Flags().Int("parallel-deployments", 5, "With --pending: deployments at the same time per package (config: deploy.parallelDeployments)")
+	deployCmd.Flags().Int("parallel-deployments", defaultParallelDeployments, "With --pending: deployments at the same time per package (config: deploy.parallelDeployments)")
 	deployCmd.Flags().Bool("plan", false, "Only report per artifact whether it would be deployed and why; nothing is triggered")
 	deployCmd.Flags().String("artifact-type", "Integration", "Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType)")
 

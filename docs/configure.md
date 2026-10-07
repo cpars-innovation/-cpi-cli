@@ -80,9 +80,9 @@ How it runs:
    one by one. Keys that do not exist on the artifact are skipped and counted as failed.
 2. **Deploy**: artifacts with `deploy: true` (or in a package with `deploy: true`) that were
    configured successfully are deployed package by package, up to `--parallel-deployments`
-   (default 3) at a time: always after a parameter change, otherwise only when the runtime
+   (default 5) at a time: always after a parameter change, otherwise only when the runtime
    version differs from the designtime version. Status is checked
-   `--deploy-retries` (default 5) times every `--deploy-delay` (default 15) seconds.
+   `--deploy-retries` (default 30) times every `--deploy-delay` (default 10) seconds.
 
 | Flag | Description |
 |------|-------------|

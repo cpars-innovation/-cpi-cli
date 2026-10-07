@@ -145,13 +145,13 @@ All flags can be set in the config file under 'configure'.`,
 
 			// Set defaults for deployment settings
 			if deployRetries == 0 {
-				deployRetries = 5
+				deployRetries = defaultDeployChecks
 			}
 			if deployDelaySeconds == 0 {
-				deployDelaySeconds = 15
+				deployDelaySeconds = defaultDeployDelaySeconds
 			}
 			if parallelDeployments == 0 {
-				parallelDeployments = 3
+				parallelDeployments = defaultParallelDeployments
 			}
 			if batchSize == 0 {
 				batchSize = httpclnt.DefaultBatchSize
@@ -189,10 +189,10 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().BoolVar(&dryRun, "plan", false, "Same as --dry-run")
 	addDeferFlags(configureCmd)
 	configureCmd.Flags().Int("parallel", 8, "Artifacts whose parameters are read at the same time (config: configure.parallel)")
-	configureCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: configure.deployRetries, default: 5)")
-	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)")
-	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
-	configureCmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of parameters per batch request (config: configure.batchSize, default: 90)")
+	configureCmd.Flags().IntVar(&deployRetries, "deploy-retries", defaultDeployChecks, "Deployment status checks per artifact (config: configure.deployRetries)")
+	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", defaultDeployDelaySeconds, "Seconds between deployment status checks (config: configure.deployDelaySeconds)")
+	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", defaultParallelDeployments, "Deployments at the same time per package (config: configure.parallelDeployments)")
+	configureCmd.Flags().IntVar(&batchSize, "batch-size", httpclnt.DefaultBatchSize, "Parameters per batch request (config: configure.batchSize)")
 	configureCmd.Flags().BoolVar(&force, "force", false, "Write all parameters and deploy all marked artifacts, even if the tenant already has the values")
 	configureCmd.Flags().BoolVar(&offline, "offline", false, "With --dry-run: only show the file contents, do not read the tenant")
 	configureCmd.Flags().BoolVar(&disableBatch, "disable-batch", false, "Disable batch processing, use individual requests (config: configure.disableBatch)")

@@ -5,24 +5,24 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Defaults unified: deployment status every 10 s, up to 30 checks (5 minutes) for `deploy`
+  (before 30 s x 10), `orchestrator` and `configure` (before 15 s x 5, which timed out slow
+  deployments after 75 s); 5 deployments at the same time per package (before 3). All defaults
+  in one table: [docs/configuration.md](docs/configuration.md#defaults).
 - Job summary: `orchestrator`, `configure`, `deploy`, `undeploy` and `snapshot` append a markdown
   summary (counts, plan, deployments with errors first) to `$GITHUB_STEP_SUMMARY`, or to
   `--summary FILE`; `--summary off` disables it. See [docs/ci.md](docs/ci.md#job-summary).
-
 - `cpictl doctor` (MCP: `doctor`): checks configuration, connection and authentication, and per
   API area whether the credentials can use it (403: missing role, 404: not offered). Read only.
-
 - MCP: `upload_artifacts` uploads several artifacts in one call (8 at a time); `get_parameters`
   takes `artifact_ids`. `list_packages` and `list_artifacts` results are reused for
   `--cache-ttl` seconds (default 60, `cached: true`; `refresh: true` re-reads); every tool that
   changes the tenant clears the cache.
-
 - Parallel: `orchestrator --parallel` (default 8) uploads and compares artifacts at the same time
   across all packages (packages are still created first); `configure --parallel` (8) reads the
   parameters of all artifacts at the same time and writes the changes one after another;
   `configure pull --parallel` (8) reads packages and artifacts in parallel; `drift --parallel`
   (8, before: 4).
-
 - Deploy once per pipeline: `orchestrator --defer-deploy` and `configure --defer-deploy` add what
   needs a deployment (and why) to `.cpi/pending-deploy.json`; `cpictl deploy --pending` deploys
   each artifact once, with force when any step needs it, and keeps only failures in the file.
@@ -30,12 +30,10 @@ All notable changes to cpictl. Coming from FlashPipe? See
   [docs/ci.md](docs/ci.md#pipeline-snapshot-update-configure-deploy-once).
 - `orchestrator`: a content change with the running version is no longer undeployed during the
   upload; phase 2 deploys it with force, so the runtime keeps running in between.
-
 - Plan mode: `orchestrator --plan` reports per artifact whether it would be created, updated or
   left unchanged and whether it would be deployed, and why; nothing is written. `configure
   --plan` (= `--dry-run`) now also says which artifacts would be deployed and why (`plan` in the
   result). MCP: `upload_artifact` and `deploy` take `dry_run`.
-
 - `orchestrator`: compares existing artifacts with the snapshot state (`.cpi/snapshot-state.json`,
   written by `snapshot` earlier in the pipeline) instead of downloading each one again. Artifacts
   the state does not cover, or that changed on the tenant since the snapshot, are downloaded as
@@ -43,7 +41,6 @@ All notable changes to cpictl. Coming from FlashPipe? See
   downloads anyway. New statistics: `comparedWithSnapshot`, `downloadedForComparison`,
   `artifactsChanged`, `artifactsUnchanged`. `snapshot` records the tenant host and a content
   hash per artifact for that.
-
 - Every command and the MCP server retry tenant reads (GET) answered with 429 or 502-504 up to
   three times with backoff (before: `snapshot` only). `--read-retries` (`CPICTL_READ_RETRIES`)
   sets the count, `0` turns it off. Writes are never retried.
@@ -56,7 +53,6 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 - Every command logs the time it took at the end (`⏱ snapshot finished in 4m12s`, JSON log field
   `durationMs`); the `--output json` envelope has a new field `durationMs`.
-
 - `snapshot`: `--parallel` (default now 8) limits the artifacts downloaded at the same time across
   all packages instead of the packages: the artifacts of a large package are downloaded in
   parallel too, so it no longer runs alone at the end. A failing artifact does not stop the rest

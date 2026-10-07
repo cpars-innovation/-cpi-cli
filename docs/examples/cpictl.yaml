@@ -21,13 +21,18 @@ oauth-host: mytenant.authentication.eu10.hana.ondemand.com
 
 # output: json          # default output format for all commands
 # debug: false
+# read-retries: 3       # retries of throttled reads (429, 502-504); writes are never retried
+# summary: off          # job summary file (default: $GITHUB_STEP_SUMMARY when set)
+
+# The values below are the defaults (docs/configuration.md#defaults); keep only what you change.
 
 # --- deploy / undeploy --------------------------------------------------------
 deploy:
   artifactType: Integration   # Integration, MessageMapping, ScriptCollection, ValueMapping
   compareVersions: true       # skip artifacts whose version is already running
-  delayLength: 15             # seconds between status checks
-  maxCheckLimit: 20           # status checks per artifact
+  delayLength: 10             # seconds between status checks
+  maxCheckLimit: 30           # status checks per artifact (10 s x 30 = 5 minutes)
+  parallelDeployments: 5      # deploy --pending: deployments at the same time per package
   # artifactIds: [MyIFlow, MyOtherIFlow]
 
 undeploy:
@@ -37,11 +42,14 @@ undeploy:
 # --- configure (see docs/configure.md) ----------------------------------------
 configure:
   configPath: ./config/dev.yml
-  deployRetries: 5
-  deployDelaySeconds: 15
-  parallelDeployments: 3
+  parallel: 8                 # parameter reads at the same time
+  batchSize: 90
+  deployRetries: 30
+  deployDelaySeconds: 10
+  parallelDeployments: 5
   pull:
     outputDir: ./config/dev
+    parallel: 8
 
 # --- orchestrator (see docs/orchestrator.md) ----------------------------------
 orchestrator:
@@ -49,9 +57,20 @@ orchestrator:
   deployConfig: ./001-deploy-config.yml
   mode: update-and-deploy     # update-and-deploy, update-only, deploy-only
   deploymentPrefix: ""
-  parallelDeployments: 3
-  deployRetries: 5
-  deployDelaySeconds: 15
+  parallel: 8                 # uploads at the same time, across packages
+  # snapshotState: .cpi/snapshot-state.json   # default: found automatically; off: always download
+  verifyDownload: false
+  parallelDeployments: 5
+  deployRetries: 30
+  deployDelaySeconds: 10
+
+# --- snapshot (see docs/snapshot.md) -------------------------------------------
+snapshot:
+  parallel: 8                 # downloads at the same time, across packages
+  incremental: false          # true: skip unchanged artifacts (see docs/snapshot.md)
+
+drift:
+  parallel: 8
 
 # --- Partner Directory (see docs/partner-directory.md) ------------------------
 pd-snapshot:
