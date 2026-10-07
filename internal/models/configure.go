@@ -13,8 +13,11 @@ type ConfigurePackage struct {
 	Deploy      bool   `yaml:"deploy,omitempty"` // Deploy all artifacts in package after configuration
 	// AllowDowngrade lets the artifacts of this package deploy a designtime
 	// version older than the running one (nil: the --allow-downgrade flag).
-	AllowDowngrade *bool               `yaml:"allowDowngrade,omitempty"`
-	Artifacts      []ConfigureArtifact `yaml:"artifacts"`
+	AllowDowngrade *bool `yaml:"allowDowngrade,omitempty"`
+	// Versioning overrides --versioning for this package (manifest, keep,
+	// tenant-bump). Only for exceptions: the mode belongs to the pipeline.
+	Versioning string              `yaml:"versioning,omitempty"`
+	Artifacts  []ConfigureArtifact `yaml:"artifacts"`
 }
 
 func (p *ConfigurePackage) UnmarshalYAML(unmarshal func(any) error) error {
@@ -45,6 +48,8 @@ type ConfigureArtifact struct {
 	// than the running one; wins over the package's setting (nil: package,
 	// then the --allow-downgrade flag).
 	AllowDowngrade *bool `yaml:"allowDowngrade,omitempty"`
+	// Versioning overrides the package's and --versioning for this artifact.
+	Versioning string `yaml:"versioning,omitempty"`
 }
 
 // EffectiveAllowDowngrade resolves allowDowngrade: artifact, then package,

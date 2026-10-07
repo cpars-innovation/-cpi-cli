@@ -255,3 +255,42 @@ func TestConfigureDowngrade(t *testing.T) {
 		assert.Equal(t, 0, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
 	})
 }
+
+// --versioning comes from the pipeline; the file may override it per
+// artifact or package.
+func TestConfigureVersioning(t *testing.T) {
+	deployedAt := time.Now().Add(-2 * time.Hour)
+	flow := func() *cpitest.Artifact {
+		return &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.13", Parameters: map[string]string{"Host": "h"},
+			Runtime:      &cpitest.Runtime{Version: "1.0.15", Status: "STARTED", DeployedOn: deployedAt},
+			ModifiedAt:   time.Now().Add(-time.Hour), // would pass the timestamp rule without a mode
+			TaskStatuses: []string{"SUCCESS"}, AfterDeploy: []*cpitest.Runtime{{Version: "1.0.13", Status: "STARTED", DeployedOn: time.Now().Add(time.Minute)}}}
+	}
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"Strict": flow(), "Loose": flow(), "Bad": flow()})
+	path := filepath.Join(t.TempDir(), "dev.yml")
+	require.NoError(t, os.WriteFile(path, []byte(`packages:
+  - integrationSuiteId: EDM
+    artifacts:
+      - {artifactId: Strict, type: Integration, deploy: true, parameters: [{key: Host, value: h}]}
+      - {artifactId: Loose, type: Integration, deploy: true, versioning: keep, parameters: [{key: Host, value: h}]}
+      - {artifactId: Bad, type: Integration, deploy: true, versioning: sometimes}
+`), 0o644))
+	r := runMain(t, append([]string{"configure", "--config-path", path, "--disable-batch", "--deploy-delay", "1", "--versioning", "manifest", "--output", "json"}, basicAuth(mock)...)...)
+	var env struct {
+		Result struct{ Deployments []map[string]any }
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env), r.stdout)
+	res := map[string]map[string]any{}
+	for _, d := range env.Result.Deployments {
+		res[d["id"].(string)] = d
+	}
+	assert.Equal(t, "FAILED", res["Strict"]["status"], "manifest: the version decides, not the timestamps")
+	assert.Equal(t, "manifest", res["Strict"]["versioning"])
+	assert.Equal(t, "DEPLOYED", res["Loose"]["status"], "keep on the artifact wins")
+	assert.Equal(t, "versioning keep", res["Loose"]["rule"])
+	assert.NotContains(t, res, "Bad")
+	assert.Contains(t, r.stderr, `invalid versioning \"sometimes\"`)
+
+	r = runMain(t, append([]string{"configure", "--config-path", path, "--versioning", "always"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code)
+}

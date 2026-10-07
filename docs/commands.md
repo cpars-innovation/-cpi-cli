@@ -93,6 +93,8 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`validate`](#validate) | Validate an integration flow on the tenant (like Check in the Web UI) |
 | [`variables`](#variables) | List global and integration flow variables |
 | [`variables get`](#variables-get) | Read the value of a variable |
+| [`version`](#version) | Artifact versions in the repository (Bundle-Version) |
+| [`version bump`](#version-bump) | Raise Bundle-Version of (changed) artifacts |
 
 ## Global flags
 
@@ -211,6 +213,7 @@ All flags can be set in the config file under 'configure'.
       --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
+      --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 **Examples:**
@@ -495,6 +498,7 @@ Configuration:
       --compare-versions       Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions) (default true)
       --delay-length int       Delay (in seconds) between each check of artifact deployment status (config: deploy.delayLength) (default 30)
       --max-check-limit int    Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
+      --versioning string      Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 ## discover
@@ -1194,6 +1198,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
       --runtime-password string             Password for Basic Auth on runtime endpoints
       --runtime-userid string               User ID for Basic Auth on runtime endpoints
       --tools strings                       Offer only these tools (names or patterns such as list_*)
+      --versioning string                   Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 **Examples:**
@@ -1272,6 +1277,7 @@ Configuration:
       --parallel-deployments int   Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)
       --update                     Update and deploy artifacts
       --update-only                Only update artifacts, don't deploy
+      --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 **Examples:**
@@ -1780,7 +1786,13 @@ Configuration:
   'restore' section. CLI flags override config file settings.
 ```
 
-**Usage:** `cpictl snapshot restore`
+**Usage:** `cpictl snapshot restore [flags]`
+
+**Flags:**
+
+```
+      --versioning string   Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
+```
 
 ## status
 
@@ -1831,6 +1843,7 @@ Configuration:
       --package-id string               ID of Integration Package (config: sync.packageId)
       --script-collection-map strings   Comma-separated source-target ID pairs for converting script collection references during sync (config: sync.scriptCollectionMap)
       --sync-package-details            Sync details of Integration Package (config: sync.syncPackageDetails)
+      --versioning string               Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 ## sync apiproduct
@@ -1933,6 +1946,7 @@ Configuration:
       --package-id string               ID of Integration Package (config: update.artifact.packageId)
       --package-name string             Name of Integration Package. Defaults to package-id value when not provided (config: update.artifact.packageName)
       --script-collection-map strings   Comma-separated source-target ID pairs for converting script collection references during create/update (config: update.artifact.scriptCollectionMap)
+      --versioning string               Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 ## update package
@@ -2007,4 +2021,51 @@ Read the value of a variable
       --max-bytes int        Maximum bytes returned in the JSON result (default 65536; 0 with --out: unlimited)
       --name string          Variable name
       --out string           Write the content to this file instead of stdout / the JSON result
+```
+
+## version
+
+Artifact versions in the repository (Bundle-Version)
+
+```
+Versions of artifacts live in the repository: Bundle-Version in each artifact's
+META-INF/MANIFEST.MF. With --versioning manifest, upload and deploy use exactly
+that version on every tenant (docs/versioning.md).
+```
+
+## version bump
+
+Raise Bundle-Version of (changed) artifacts
+
+```
+Raise Bundle-Version in META-INF/MANIFEST.MF of the artifacts below --dir
+(layout <package>/<artifact>). With --changed only artifacts whose directory
+changed since the commit that last set their version: committed, staged,
+unstaged and untracked changes count. Artifacts never committed keep their
+version (new), artifacts whose version was raised since that commit are left
+alone (already_bumped), so running it twice does not bump twice.
+
+Run it before the pull request to the development branch and commit the
+manifests with the change. No tenant access.
+```
+
+**Usage:** `cpictl version bump [flags]`
+
+**Flags:**
+
+```
+      --artifact strings   Only these artifact IDs (names or patterns)
+      --changed            Only artifacts changed since their version was last set (Git)
+      --dir string         Content tree (<package>/<artifact>) (default ".")
+      --dry-run            Show the new versions without writing
+      --level string       patch, minor or major (default "patch")
+      --package strings    Only these package folders (names or patterns)
+```
+
+**Examples:**
+
+```
+  cpictl version bump --changed --dir packages
+  cpictl version bump --changed --level minor --package UtilitiesBaseEDM
+  cpictl version bump --artifact UtilitiesBase_MDX_to_EDM_Outbound --dry-run
 ```

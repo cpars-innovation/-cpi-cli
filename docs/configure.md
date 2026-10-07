@@ -62,6 +62,7 @@ packages:
         version: active             # default active
         deploy: true                # deploy this artifact after configuration
         allowDowngrade: true        # optional, wins over the package's setting
+        versioning: keep            # optional exception to --versioning (docs/versioning.md)
         parameters:
           - key: ReceiverHost
             value: api.example.com
@@ -91,6 +92,7 @@ How it runs:
 | `--dry-run` | Show what would be changed (compares with the tenant) |
 | `--offline` | With `--dry-run`: only the file, without tenant calls |
 | `--force` | Write every parameter and deploy every marked artifact, even without changes |
+| `--versioning` | `manifest`, `keep` or `tenant-bump` for artifacts and packages without `versioning` in the file; env `CPICTL_VERSIONING` ([versioning.md](versioning.md)) |
 | `--allow-downgrade` | Allow older designtime versions for artifacts and packages without `allowDowngrade` in the file (config `configure.allowDowngrade`, else `deploy.allowDowngrade`) |
 | `--disable-batch` | Always write parameters one by one |
 

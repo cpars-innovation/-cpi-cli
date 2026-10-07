@@ -77,6 +77,7 @@ Configuration:
 	// Define cobra flags, the default value has the lowest (least significant) precedence
 	// Note: These can be set in config file under 'sync' key
 	syncCmd.Flags().String("package-id", "", "ID of Integration Package (config: sync.packageId)")
+	addVersioningFlag(syncCmd)
 	syncCmd.PersistentFlags().String("dir-git-repo", "", "Directory of Git repository (config: sync.dirGitRepo)")
 	syncCmd.PersistentFlags().String("dir-artifacts", "", "Directory containing contents of artifacts (config: sync.dirArtifacts)")
 	syncCmd.PersistentFlags().String("dir-work", "/tmp", "Working directory for in-transit files (config: sync.dirWork)")
@@ -132,6 +133,9 @@ func runSync(cmd *cobra.Command) error {
 	// Initialise HTTP executer
 	exe := cpi.InitHTTPExecuter(serviceDetails)
 	synchroniser := sync.New(exe)
+	if synchroniser.Versioning, err = versioningMode(cmd); err != nil {
+		return err
+	}
 
 	// Sync from tenant to Git
 	if target == "git" {

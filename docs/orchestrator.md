@@ -43,7 +43,11 @@ packages:
         configOverrides:         # optional, merged into parameters.prop before upload
           ReceiverHost: dev.example.com
           Timeout: 30
+        versioning: keep         # optional exception; the mode comes from --versioning / CPICTL_VERSIONING
 ```
+
+`versioning` (package or artifact) overrides `--versioning` for exceptions that hold on every
+branch; see [versioning.md](versioning.md).
 
 `type` accepts the MANIFEST `SAP-BundleType` values (`IntegrationFlow`, `MessageMapping`,
 `ScriptCollection`, `ValueMapping`; case-insensitive) or the API names (`Integration`, ...).

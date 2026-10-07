@@ -9,6 +9,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
@@ -168,8 +169,12 @@ All flags can be set in the config file under 'configure'.`,
 					allowDowngrade = viper.GetBool("deploy.allowDowngrade")
 				}
 			}
+			versionMode, err := versioningMode(cmd)
+			if err != nil {
+				return err
+			}
 			return runConfigure(cmd, configPath, deploymentPrefix, packageFilter, artifactFilter,
-				configureMode{dryRun: dryRun, force: force, offline: offline, allowDowngrade: allowDowngrade}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
+				configureMode{dryRun: dryRun, force: force, offline: offline, allowDowngrade: allowDowngrade, versioning: versionMode}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
 		},
 	}
 
@@ -186,6 +191,7 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().BoolVar(&force, "force", false, "Write all parameters and deploy all marked artifacts, even if the tenant already has the values")
 	configureCmd.Flags().BoolVar(&offline, "offline", false, "With --dry-run: only show the file contents, do not read the tenant")
 	configureCmd.Flags().BoolVar(&disableBatch, "disable-batch", false, "Disable batch processing, use individual requests (config: configure.disableBatch)")
+	addVersioningFlag(configureCmd)
 	configureCmd.Flags().Bool("allow-downgrade", false, "Deploy designtime versions older than the running ones, for artifacts and packages without allowDowngrade in the file (config: configure.allowDowngrade, else deploy.allowDowngrade)")
 	configureCmd.AddCommand(NewConfigurePullCommand())
 
@@ -204,6 +210,9 @@ type configureMode struct {
 	// allowDowngrade is the default for artifacts and packages without
 	// allowDowngrade in the configure file.
 	allowDowngrade bool
+	// versioning is the default for artifacts and packages without
+	// versioning in the configure file.
+	versioning versioning.Mode
 }
 
 func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilterStr, artifactFilterStr string,
@@ -374,6 +383,13 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 			}
 			deploy := artifact.Deploy || pkg.Deploy
 			allowDowngrade := models.EffectiveAllowDowngrade(pkg, artifact, mode.allowDowngrade)
+			versionMode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, mode.versioning)
+			if err != nil {
+				log.Error().Msgf("      ❌ %v", err)
+				stats.ArtifactsFailed++
+				packageHasError = true
+				continue
+			}
 
 			// nothing to configure (script collections, mappings, flows without
 			// parameters): never read or write parameters, deploy when asked
@@ -388,7 +404,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 						continue
 					}
 					deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
-						PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade})
+						PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade, Versioning: versionMode})
 					log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
 				}
 				continue
@@ -437,7 +453,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 							continue
 						}
 						deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
-							PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade})
+							PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade, Versioning: versionMode})
 						log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
 					}
 					continue
@@ -516,6 +532,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 					// written: writing them may count as a change
 					AllowDowngrade: allowDowngrade,
 					ModifiedAt:     modifiedAt,
+					Versioning:     versionMode,
 				})
 				stats.DeploymentTasksQueued++
 				log.Info().Msgf("      📋 Queued for deployment")

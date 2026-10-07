@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 	"github.com/cpars-innovation/cpicli/internal/str"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/go-errors/errors"
@@ -22,6 +24,9 @@ import (
 type Synchroniser struct {
 	exe *httpclnt.HTTPExecuter
 	ip  *cpi.IntegrationPackage
+	// Versioning decides the designtime version on upload (see
+	// docs/versioning.md); Unset keeps the tenant's version.
+	Versioning versioning.Mode
 }
 
 func New(exe *httpclnt.HTTPExecuter) *Synchroniser {
@@ -165,6 +170,17 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 		log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
 
 		gitArtifactPath := fmt.Sprintf("%v/%v", artifactsDir, directoryName)
+		// The download's Bundle-Version is not the designtime version (often
+		// 1.0.0): keep the repository's version, or take the tenant's when it
+		// is higher (a version saved in the Web UI).
+		repoVersion, _ := manifest.Version(gitArtifactPath)
+		exportVersion := versioning.Max(repoVersion, artifact.Version)
+		if exportVersion != "" {
+			if err := manifest.SetVersion(downloadedArtifactPath, exportVersion); err != nil {
+				return err
+			}
+			log.Info().Str("artifact", artifact.Id).Msgf("Bundle-Version %v (repository %v, tenant designtime %v)", exportVersion, orNone(repoVersion), orNone(artifact.Version))
+		}
 		if file.Exists(fmt.Sprintf("%v/META-INF/MANIFEST.MF", gitArtifactPath)) {
 			// (1) If artifact already exists in Git, then compare and update
 			log.Info().Msg("Comparing content from tenant against Git")
@@ -364,6 +380,12 @@ type UploadOutcome struct {
 	// RuntimeUndeployed is true when a running artifact with the same version
 	// was undeployed so that the changed content can be deployed again.
 	RuntimeUndeployed bool `json:"runtimeUndeployed,omitempty"`
+	// Version is the designtime version after the upload, VersionReason why
+	// (versioning mode and the versions it was derived from).
+	Version       string `json:"version,omitempty"`
+	VersionReason string `json:"versionReason,omitempty"`
+	// VersionSet is true when the designtime version was set (SaveAsVersion).
+	VersionSet bool `json:"versionSet,omitempty"`
 }
 
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
@@ -372,15 +394,24 @@ func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifact
 }
 
 // UploadArtifact creates or updates a designtime artifact from a local
-// directory and reports what was done.
+// directory and reports what was done. The content comparison ignores
+// Bundle-Version (the tenant's download does not carry the real version);
+// s.Versioning decides the version afterwards.
 func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) (UploadOutcome, error) {
 	outcome := UploadOutcome{Action: "UNCHANGED"}
 	dt := cpi.NewDesigntimeArtifact(artifactType, s.exe)
+
+	repoVersion, _ := manifest.Version(artifactDir)
+	if s.Versioning == versioning.Manifest && repoVersion == "" {
+		return outcome, fmt.Errorf("versioning manifest: %s has no Bundle-Version in META-INF/MANIFEST.MF", artifactDir)
+	}
 
 	exists, err := artifactExists(artifactId, artifactType, packageId, dt, s.ip)
 	if err != nil {
 		return outcome, err
 	}
+	designtimeBefore := ""
+	contentChanged := false
 
 	if !exists {
 		log.Info().Msgf("Artifact %v will be created", artifactId)
@@ -402,9 +433,14 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 		}
 
 		outcome.Action = "CREATED"
+		contentChanged = true
 		log.Info().Msg("🏆 Designtime artifact created successfully")
 	} else {
 		log.Info().Msg("Checking if designtime artifact needs to be updated")
+		designtimeBefore, _, _, err = dt.Get(artifactId, "active")
+		if err != nil {
+			return outcome, err
+		}
 
 		zipFile := fmt.Sprintf("%v/%v.zip", workDir, artifactId)
 		err = dt.Download(zipFile, artifactId)
@@ -412,7 +448,7 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 			return outcome, err
 		}
 
-		changesFound, err := compareArtifactContents(workDir, zipFile, artifactDir, scriptMap, dt)
+		changesFound, err := compareArtifactContents(workDir, zipFile, artifactDir, repoVersion, scriptMap, dt)
 		if err != nil {
 			return outcome, err
 		}
@@ -427,40 +463,112 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 			if err != nil {
 				return outcome, err
 			}
-
-			designtimeVersion, _, _, err := dt.Get(artifactId, "active")
-			if err != nil {
-				return outcome, err
-			}
-			r := cpi.NewRuntime(s.exe)
-			runtimeVersion, _, err := r.Get(artifactId)
-			if err != nil {
-				return outcome, err
-			}
-			if runtimeVersion == designtimeVersion {
-				log.Info().Msg("Undeploying existing runtime artifact with same version number due to changes in design")
-				err = r.UnDeploy(artifactId)
-				if err != nil {
-					return outcome, err
-				}
-				outcome.RuntimeUndeployed = true
-			}
-
 			outcome.Action = "UPDATED"
+			contentChanged = true
 			log.Info().Msg("🏆 Designtime artifact updated successfully")
 		} else {
 			log.Info().Msg("🏆 No changes detected. Designtime artifact does not need to be updated")
 		}
+	}
 
-		if artifactType == "Integration" && file.Exists(parametersFile) {
-			log.Info().Msg("Updating configured parameter(s) of Integration designtime artifact where necessary")
-			err = updateConfiguration(artifactId, parametersFile, s.exe)
+	if err := s.applyVersioning(artifactType, artifactId, repoVersion, designtimeBefore, contentChanged, &outcome); err != nil {
+		return outcome, err
+	}
+
+	if exists && contentChanged {
+		r := cpi.NewRuntime(s.exe)
+		runtimeVersion, _, err := r.Get(artifactId)
+		if err != nil {
+			return outcome, err
+		}
+		if runtimeVersion == outcome.Version {
+			if s.Versioning == versioning.Manifest {
+				log.Warn().Msgf("Content of %v changed but Bundle-Version %v equals the running version: run 'cpictl version bump --changed' before promoting", artifactId, outcome.Version)
+			}
+			log.Info().Msg("Undeploying existing runtime artifact with same version number due to changes in design")
+			err = r.UnDeploy(artifactId)
 			if err != nil {
 				return outcome, err
 			}
+			outcome.RuntimeUndeployed = true
+		}
+	}
+
+	if exists && artifactType == "Integration" && file.Exists(parametersFile) {
+		log.Info().Msg("Updating configured parameter(s) of Integration designtime artifact where necessary")
+		err = updateConfiguration(artifactId, parametersFile, s.exe)
+		if err != nil {
+			return outcome, err
 		}
 	}
 	return outcome, nil
+}
+
+// applyVersioning sets the designtime version according to s.Versioning and
+// records version and reason in outcome.
+func (s *Synchroniser) applyVersioning(artifactType, artifactId, repoVersion, designtimeBefore string, contentChanged bool, outcome *UploadOutcome) error {
+	current, _, _, err := cpi.NewDesigntimeArtifact(artifactType, s.exe).Get(artifactId, "active")
+	if err != nil {
+		return err
+	}
+	outcome.Version = current
+	setVersion := func(version, reason string) error {
+		if version != current {
+			if err := cpi.SaveAsVersion(s.exe, artifactType, artifactId, version); err != nil {
+				return fmt.Errorf("versioning %s: cannot set %v to %v: %w", s.Versioning, artifactId, version, err)
+			}
+			outcome.VersionSet = true
+		}
+		outcome.Version, outcome.VersionReason = version, reason
+		return nil
+	}
+
+	switch s.Versioning {
+	case versioning.Manifest:
+		reason := "manifest: Bundle-Version of the repository"
+		if current != repoVersion {
+			reason += fmt.Sprintf(" (tenant had %s)", current)
+		}
+		if err := setVersion(repoVersion, reason); err != nil {
+			return err
+		}
+	case versioning.TenantBump:
+		if !contentChanged {
+			outcome.VersionReason = "tenant-bump: content unchanged, version kept"
+			break
+		}
+		running := ""
+		if rt, err := cpi.NewRuntime(s.exe).GetArtifact(artifactId); err != nil {
+			return err
+		} else if rt != nil {
+			running = rt.Version
+		}
+		base := designtimeBefore
+		if base == "" {
+			base = current // created: the version the tenant gave it
+		}
+		highest := versioning.Max(base, running)
+		next, err := versioning.Bump(highest, "patch")
+		if err != nil {
+			return fmt.Errorf("versioning tenant-bump: %w", err)
+		}
+		if err := setVersion(next, fmt.Sprintf("tenant-bump: max(designtime %s, runtime %s)+1", base, orNone(running))); err != nil {
+			return err
+		}
+	case versioning.Keep:
+		outcome.VersionReason = "keep: the tenant's version"
+	default:
+		outcome.VersionReason = "no versioning mode: the tenant's version"
+	}
+	log.Info().Str("artifact", artifactId).Str("version", outcome.Version).Msgf("Version of %v: %v (%v)", artifactId, outcome.Version, outcome.VersionReason)
+	return nil
+}
+
+func orNone(v string) string {
+	if v == "" {
+		return "none"
+	}
+	return v
 }
 
 func artifactExists(artifactId string, artifactType string, packageId string, dt cpi.DesigntimeArtifact, ip *cpi.IntegrationPackage) (bool, error) {
@@ -516,7 +624,10 @@ func updateArtifact(artifactId string, artifactName string, packageId string, ar
 	return nil
 }
 
-func compareArtifactContents(workDir string, zipFile string, artifactDir string, scriptMap []string, dt cpi.DesigntimeArtifact) (bool, error) {
+// compareArtifactContents compares the local directory with the downloaded
+// artifact. Bundle-Version is not compared: the download does not carry the
+// designtime version, and versions are handled by the versioning mode.
+func compareArtifactContents(workDir string, zipFile string, artifactDir string, repoVersion string, scriptMap []string, dt cpi.DesigntimeArtifact) (bool, error) {
 	tgtDir := fmt.Sprintf("%v/download", workDir)
 	err := os.RemoveAll(tgtDir)
 	if err != nil {
@@ -527,6 +638,11 @@ func compareArtifactContents(workDir string, zipFile string, artifactDir string,
 	err = file.UnzipSource(zipFile, tgtDir)
 	if err != nil {
 		return false, err
+	}
+	if repoVersion != "" {
+		if err := manifest.SetVersion(tgtDir, repoVersion); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
 	}
 
 	return dt.CompareContent(artifactDir, tgtDir, scriptMap, "tenant")

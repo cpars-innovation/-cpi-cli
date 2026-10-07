@@ -37,6 +37,9 @@ type Artifact struct {
 	// reported). ConfigBumpsModified sets it to now on parameter updates.
 	ModifiedAt          time.Time
 	ConfigBumpsModified bool
+	// SavedVersions records SaveAsVersion calls (the designtime version is
+	// set to each).
+	SavedVersions []string
 
 	// Runtime is what GET IntegrationRuntimeArtifacts returns before a deploy
 	// is triggered (nil: 404 not deployed).
@@ -309,6 +312,7 @@ var (
 	reCertImport      = regexp.MustCompile(`^/api/v1/CertificateResources\('([0-9A-Fa-f]+)'\)/\$value$`)
 	rePackage         = regexp.MustCompile(`^/api/v1/IntegrationPackages\('([^']+)'\)$`)
 	reDesignCreate    = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifacts$`)
+	reSaveAsVersion   = regexp.MustCompile(`^/api/v1/(\w+)DesigntimeArtifactSaveAsVersion$`)
 	reErrInfo         = regexp.MustCompile(`^/api/v1/IntegrationRuntimeArtifacts\('([^']+)'\)/ErrorInformation/\$value$`)
 )
 
@@ -1140,7 +1144,22 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Zip = zipData
 		a.Uploads++
+		a.ModifiedAt = time.Now()
 		w.WriteHeader(http.StatusOK)
+
+	// like the public API: only integration flows can be saved as a version
+	case r.Method == http.MethodPost && reSaveAsVersion.MatchString(path):
+		typ := reSaveAsVersion.FindStringSubmatch(path)[1]
+		id := strings.Trim(r.URL.Query().Get("Id"), "'")
+		version := strings.Trim(r.URL.Query().Get("SaveAsVersion"), "'")
+		a := m.Artifacts[id]
+		if typ != "Integration" || a == nil || a.DesignVersion == "" || version == "" {
+			notFound(w)
+			return
+		}
+		a.DesignVersion = version
+		a.SavedVersions = append(a.SavedVersions, version)
+		writeJSON(w, map[string]any{"d": map[string]string{"Id": id, "Version": version}})
 
 	case r.Method == http.MethodGet && reDesign.MatchString(path):
 		mm := reDesign.FindStringSubmatch(path)

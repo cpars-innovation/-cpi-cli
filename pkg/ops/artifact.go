@@ -8,6 +8,7 @@ import (
 
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 )
@@ -19,6 +20,8 @@ type UploadRequest struct {
 	Type      string `json:"type"`           // Integration, MessageMapping, ScriptCollection, ValueMapping
 	PackageID string `json:"packageId"`
 	Dir       string `json:"dir"` // contains META-INF/MANIFEST.MF and src/main/resources
+	// Versioning decides the designtime version (see docs/versioning.md).
+	Versioning versioning.Mode `json:"-"`
 }
 
 // UploadResult is the outcome of UploadArtifact.
@@ -55,7 +58,9 @@ func UploadArtifact(exe *httpclnt.HTTPExecuter, req UploadRequest) (*UploadResul
 	}
 	defer os.RemoveAll(workDir)
 
-	outcome, err := sync.New(exe).UploadArtifact(req.ID, req.Name, req.Type, req.PackageID, req.Dir, workDir, "", nil)
+	syncer := sync.New(exe)
+	syncer.Versioning = req.Versioning
+	outcome, err := syncer.UploadArtifact(req.ID, req.Name, req.Type, req.PackageID, req.Dir, workDir, "", nil)
 	if err != nil {
 		return nil, err
 	}

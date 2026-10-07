@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
@@ -295,6 +296,17 @@ func DownloadArtifactToDir(exe *httpclnt.HTTPExecuter, artifactType, id, version
 	}
 	if err := file.UnzipSource(tmp.Name(), dir); err != nil {
 		return nil, fmt.Errorf("failed to extract %s: %w", id, err)
+	}
+	// the download's Bundle-Version is not the designtime version
+	if v := version; v == "" || strings.EqualFold(v, "active") {
+		if info, exists, err := cpi.GetDesigntimeInfo(exe, artifactType, id, "active"); err == nil && exists {
+			version = info.Version
+		}
+	}
+	if version != "" && !strings.EqualFold(version, "active") {
+		if err := manifest.SetVersion(dir, version); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 	files := 0
 	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {

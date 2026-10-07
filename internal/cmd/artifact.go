@@ -52,7 +52,7 @@ Configuration:
 	artifactCmd.Flags().String("dir-work", "/tmp", "Working directory for in-transit files (config: update.artifact.dirWork)")
 	artifactCmd.Flags().StringSlice("script-collection-map", nil, "Comma-separated source-target ID pairs for converting script collection references during create/update (config: update.artifact.scriptCollectionMap)")
 	artifactCmd.Flags().String("artifact-type", "Integration", "Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: update.artifact.artifactType)")
-	// TODO - another flag for replacing value mapping in QAS?
+	addVersioningFlag(artifactCmd)
 
 	_ = artifactCmd.MarkFlagRequired("artifact-id")
 	_ = artifactCmd.MarkFlagRequired("package-id")
@@ -138,6 +138,9 @@ func runUpdateArtifact(cmd *cobra.Command) error {
 	}
 
 	synchroniser := sync.New(exe)
+	if synchroniser.Versioning, err = versioningMode(cmd); err != nil {
+		return err
+	}
 
 	err = synchroniser.SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile, scriptMap)
 	if err != nil {

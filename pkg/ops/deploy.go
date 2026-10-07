@@ -12,6 +12,7 @@ import (
 
 	"github.com/cpars-innovation/cpicli/internal/exitcode"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/rs/zerolog/log"
@@ -47,6 +48,8 @@ type Artifact struct {
 	// AllowDowngrade allows this artifact's designtime version to be older
 	// than the running one (as Options.AllowDowngrade for all artifacts).
 	AllowDowngrade bool
+	// Versioning overrides Options.Versioning for this artifact.
+	Versioning versioning.Mode
 	// ModifiedAt, when set, is the designtime artifact's last change as the
 	// caller saw it (configure reads it before writing parameters, which may
 	// count as a change); nil: read it from the tenant before the deployment.
@@ -66,6 +69,8 @@ const (
 	RuleModifiedAfterDeployment = "modified after deployment"
 	// RuleAllowDowngrade: allowed explicitly.
 	RuleAllowDowngrade = "allowDowngrade"
+	// RuleKeep: versioning keep, no downgrade guard.
+	RuleKeep = "versioning keep"
 )
 
 // Result is the structured outcome for one artifact.
@@ -83,8 +88,10 @@ type Result struct {
 	// Rule is what decided about a designtime version that differs from the
 	// running one (RuleVersion, RuleModifiedAfterDeployment,
 	// RuleAllowDowngrade); empty when nothing was running.
-	Rule  string `json:"rule,omitempty"`
-	Error string `json:"error,omitempty"`
+	Rule string `json:"rule,omitempty"`
+	// Versioning is the versioning mode the artifact was deployed with.
+	Versioning string `json:"versioning,omitempty"`
+	Error      string `json:"error,omitempty"`
 
 	// Err is the underlying error for FAILED/TIMEOUT results (not serialised).
 	Err error `json:"-"`
@@ -103,6 +110,12 @@ type Options struct {
 	// triggered: an older designtime version usually means the tenant copy
 	// was never updated and would replace a newer runtime.
 	AllowDowngrade bool
+	// Versioning is the mode for artifacts without their own (see
+	// docs/versioning.md): manifest and tenant-bump refuse any designtime
+	// version lower than the running one, keep never refuses, Unset refuses
+	// it unless the designtime artifact was changed after the running
+	// deployment.
+	Versioning versioning.Mode
 	// Parallelism is the number of artifacts processed concurrently
 	// (<= 0 means all at once).
 	Parallelism int
@@ -243,12 +256,28 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	if err != nil {
 		return fail(r, err)
 	}
+	mode := a.Versioning
+	if mode == versioning.Unset {
+		mode = opts.Versioning
+	}
+	r.Versioning = string(mode)
 	if before != nil {
 		r.RuntimeVersion = before.Version
 		r.Rule = RuleVersion
 		if before.Version != "" && CompareVersions(version, before.Version) < 0 {
 			var reason string
-			r.Rule, reason = downgradeRule(tenant, a, before, opts)
+			switch {
+			case mode == versioning.Keep:
+				r.Rule = RuleKeep
+			case opts.AllowDowngrade || a.AllowDowngrade:
+				r.Rule = RuleAllowDowngrade
+			case mode == versioning.Manifest || mode == versioning.TenantBump:
+				// the repository's version is the truth: no timestamp exception
+				return fail(r, fmt.Errorf("designtime version %s is lower than running %s (versioning %s; raise Bundle-Version in the repository, e.g. cpictl version bump, or set allowDowngrade: true on the artifact or package)",
+					version, before.Version, mode))
+			default:
+				r.Rule, reason = downgradeRule(tenant, a, before, opts)
+			}
 			if r.Rule == RuleVersion {
 				return fail(r, fmt.Errorf("designtime version %s is older than running %s%s (allow with allowDowngrade: true on the artifact or package in the configure file, --allow-downgrade, or allow_downgrade)",
 					version, before.Version, reason))
@@ -262,7 +291,7 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 		return r
 	}
 
-	logger.Info().Msgf("🚀 Deploying artifact %v with version %v", a.ID, version)
+	logger.Info().Str("version", version).Msgf("🚀 Deploying artifact %v with version %v%s", a.ID, version, versioningNote(mode))
 	triggeredAt := time.Now()
 	r.TaskID, err = tenant.TriggerDeploy(a.Type, a.ID)
 	if err != nil {
@@ -271,6 +300,13 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	logger.Info().Str("taskId", r.TaskID).Msgf("Artifact %v deployment triggered", a.ID)
 
 	return waitForDeployment(ctx, tenant, a, r, before, triggeredAt, opts)
+}
+
+func versioningNote(mode versioning.Mode) string {
+	if mode == versioning.Unset {
+		return ""
+	}
+	return " (versioning " + string(mode) + ")"
 }
 
 // downgradeRule decides about a designtime version that is older than the

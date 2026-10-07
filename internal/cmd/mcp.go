@@ -55,6 +55,10 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			logger.Init(cmd.ErrOrStderr(), true, viper.GetBool("debug"))
 
 			mode := config.GetString(cmd, "mode")
+			versionMode, err := versioningMode(cmd)
+			if err != nil {
+				return err
+			}
 			root := config.GetString(cmd, "root")
 			ledger := mcp.NewLedger(root)
 			exe := tenantExecuter(cmd)
@@ -69,6 +73,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 
 				NewEndpointExecuter: endpointExecuter(cmd),
 				DenyFullSync:        mode == "develop",
+				Versioning:          versionMode,
 			}))
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
@@ -91,6 +96,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 		},
 	}
 	c.Flags().String("root", ".", "Directory that local paths of tool calls are confined to")
+	addVersioningFlag(c)
 	c.Flags().Int("poll-interval", 10, "Default seconds between deploy/undeploy status checks")
 	c.Flags().Int("max-checks", 30, "Default maximum number of deploy/undeploy status checks")
 	c.Flags().String("mode", "", "Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)")

@@ -5,6 +5,22 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Versioning for promotion (`dev -> test -> prod`, same content = same version), see
+  [docs/versioning.md](docs/versioning.md):
+  - `--versioning manifest|keep|tenant-bump` (env `CPICTL_VERSIONING`) on `update artifact`,
+    `sync`, `snapshot restore`, `orchestrator`, `configure`, `deploy` and `mcp`; `versioning` per
+    package or artifact in deployment and configure files for exceptions. `manifest`: upload sets
+    the designtime version to `Bundle-Version` of the repository (SaveAsVersion when the tenant
+    did not take it), deploy refuses lower versions (no timestamp exception). `keep`: tenant
+    versions, no downgrade guard. `tenant-bump`: max(designtime, runtime)+1 on content changes.
+    Upload and deploy log the version per artifact and why (`versionReason`, `versioning`).
+  - `cpictl version bump [--changed] [--level] [--package] [--artifact] [--dry-run]` and MCP
+    `bump_versions`: raise `Bundle-Version` of artifacts changed since the commit that last set
+    it; no tenant access.
+  - Export (`sync --target git`, `snapshot`) keeps the repository's `Bundle-Version` (or takes a
+    higher designtime version) instead of the download's (usually 1.0.0); `download` writes the
+    designtime version. Content comparisons ignore `Bundle-Version`.
+
 - Deploy (`deploy`, `configure`, `orchestrator`, MCP `deploy`): a designtime version older than
   the running one is deployed when the designtime artifact was changed after the running version
   was deployed (designtime `ModifiedAt` later than runtime `DeployedOn`; e.g. the runtime came

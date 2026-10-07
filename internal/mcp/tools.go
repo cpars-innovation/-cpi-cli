@@ -13,6 +13,7 @@ import (
 
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/repo"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
@@ -24,7 +25,8 @@ skill fits a task? Call help (overview, or a topic: a tool, a skill and its inst
 command).
 
 Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
-(existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses)
+(existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses);
+before a pull request bump_versions changed=true raises Bundle-Version of changed artifacts
 -> edit the files locally -> create_package (new
 package) -> upload_artifact -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
@@ -80,6 +82,9 @@ type Config struct {
 	TenantHost string
 	// DenyFullSync makes pd_deploy refuse full_sync (develop mode).
 	DenyFullSync bool
+	// Versioning applies to upload_artifact and deploy (--versioning of the
+	// server, see docs/versioning.md).
+	Versioning versioning.Mode
 	// LogLevels reverts set_log_level changes; created by Tools when nil.
 	// Call RevertAll when the server stops.
 	LogLevels *LogLevelReverter
@@ -678,6 +683,40 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			},
 		},
 		{
+			Name: "bump_versions", Title: "Raise Bundle-Version of changed artifacts",
+			Description: "Raise Bundle-Version in META-INF/MANIFEST.MF of the artifacts below dir (layout <package>/<artifact>, inside the server root). " +
+				"changed=true bumps only artifacts whose directory changed since the Git commit that last set their version (never-committed artifacts and " +
+				"artifacts already bumped since that commit are left alone). Run it before a pull request when the repository uses versioning manifest; " +
+				"commit the manifests with the change. Local files only; dry_run reports without writing.",
+			InputSchema: object(props{
+				"dir":       str("Content tree relative to the server root"),
+				"changed":   boolean("Only artifacts changed since their version was last set (Git)"),
+				"level":     enum("patch (default), minor or major", "patch", "minor", "major"),
+				"packages":  strArray("Only these package folders (names or patterns)"),
+				"artifacts": strArray("Only these artifact IDs (names or patterns)"),
+				"dry_run":   boolean("Report the new versions without writing"),
+			}, "dir"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Dir       string   `json:"dir"`
+					Changed   bool     `json:"changed"`
+					Level     string   `json:"level"`
+					Packages  []string `json:"packages"`
+					Artifacts []string `json:"artifacts"`
+					DryRun    bool     `json:"dry_run"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				dir, err := resolvePath(cfg.Root, a.Dir)
+				if err != nil {
+					return nil, err
+				}
+				return ops.BumpVersions(ctx, ops.BumpOptions{Dir: dir, Changed: a.Changed, Level: a.Level, Packages: a.Packages, Artifacts: a.Artifacts, DryRun: a.DryRun})
+			},
+		},
+		{
 			Name: "list_credentials", Title: "List security credentials",
 			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
 			InputSchema: object(props{"kind": enum("Only this kind", cpi.CredentialKinds...)}),
@@ -806,7 +845,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir})
+				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning})
 			},
 		},
 		{
@@ -850,6 +889,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				opts := pollOptions(cfg, a.PollInterval, a.MaxChecks)
 				opts.CompareVersions = a.CompareVersions
 				opts.AllowDowngrade = a.AllowDowngrade
+				opts.Versioning = cfg.Versioning
 				results := ops.Deploy(ctx, tenant, artifacts, opts)
 				return map[string]any{"results": results}, ops.Err(results)
 			},

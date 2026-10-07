@@ -13,6 +13,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	artifactsync "github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
@@ -205,6 +206,7 @@ Configuration:
 	orchestratorCmd.Flags().BoolVar(&deployOnlyMode, "deploy-only", false, "Only deploy artifacts, don't update")
 	orchestratorCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: orchestrator.deployRetries, default: 5)")
 	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)")
+	addVersioningFlag(orchestratorCmd)
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
 
 	return orchestratorCmd
@@ -215,6 +217,10 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	configPattern string, mergeConfigs bool, deployRetries, deployDelaySeconds, parallelDeployments int) error {
 
 	log.Info().Msg("Starting orchestrator")
+	versionMode, err := versioningMode(cmd)
+	if err != nil {
+		return err
+	}
 	log.Info().Msgf("Deployment Strategy: Two-phase with parallel deployment")
 	log.Info().Msgf("  Phase 1: Update all artifacts")
 	log.Info().Msgf("  Phase 2: Deploy all artifacts in parallel (max %d concurrent)", parallelDeployments)
@@ -314,7 +320,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		}
 
 		tasks, err := processPackages(mergedConfig, false, mode, packagesDir, workDir,
-			packageFilter, artifactFilter, &stats, serviceDetails)
+			packageFilter, artifactFilter, &stats, serviceDetails, versionMode)
 		if err != nil {
 			return err
 		}
@@ -333,7 +339,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 			log.Info().Msgf("Deployment Prefix: %s", configFile.Config.DeploymentPrefix)
 
 			tasks, err := processPackages(configFile.Config, true, mode, packagesDir, workDir,
-				packageFilter, artifactFilter, &stats, serviceDetails)
+				packageFilter, artifactFilter, &stats, serviceDetails, versionMode)
 			if err != nil {
 				log.Error().Msgf("Failed to process config %s: %v", configFile.FileName, err)
 				continue
@@ -375,7 +381,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 func processPackages(config *models.DeployConfig, applyPrefix bool, mode OperationMode,
 	packagesDir, workDir string, packageFilter, artifactFilter []string,
-	stats *ProcessingStats, serviceDetails *cpi.ServiceDetails) ([]DeploymentTask, error) {
+	stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, versionMode versioning.Mode) ([]DeploymentTask, error) {
 
 	var deploymentTasks []DeploymentTask
 
@@ -442,7 +448,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 		// Process artifacts for update
 		if pkg.Sync && mode != ModeDeployOnly {
 			if err := updateArtifacts(&pkg, packageDir, finalPackageID, finalPackageName,
-				config.DeploymentPrefix, workDir, artifactFilter, stats, serviceDetails); err != nil {
+				config.DeploymentPrefix, workDir, artifactFilter, stats, serviceDetails, versionMode); err != nil {
 				log.Error().Msgf("Failed to update artifacts for package %s: %v", pkg.ID, err)
 				stats.UpdateFailures++
 			}
@@ -451,7 +457,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 		// Collect deployment tasks (will be executed in phase 2)
 		if pkg.Deploy && mode != ModeUpdateOnly {
 			tasks := collectDeploymentTasks(&pkg, finalPackageID, config.DeploymentPrefix,
-				artifactFilter, stats)
+				artifactFilter, stats, versionMode)
 			deploymentTasks = append(deploymentTasks, tasks...)
 		}
 	}
@@ -519,7 +525,7 @@ func updatePackage(pkg *models.Package, finalPackageID, finalPackageName, workDi
 }
 
 func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPackageName, prefix, workDir string,
-	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails) error {
+	artifactFilter []string, stats *ProcessingStats, serviceDetails *cpi.ServiceDetails, versionMode versioning.Mode) error {
 
 	updatedCount := 0
 	log.Info().Msg("Updating artifacts...")
@@ -634,8 +640,12 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 		// Call internal sync function
 		log.Debug().Msgf("Updating %s (type %s) in package %s", finalArtifactID, artifactType, finalPackageID)
 
-		err := synchroniser.SingleArtifactToTenant(finalArtifactID, finalArtifactName, artifactType,
-			finalPackageID, tempArtifactDir, workDir, "", nil)
+		mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
+		if err == nil {
+			synchroniser.Versioning = mode
+			err = synchroniser.SingleArtifactToTenant(finalArtifactID, finalArtifactName, artifactType,
+				finalPackageID, tempArtifactDir, workDir, "", nil)
+		}
 
 		if err != nil {
 			log.Error().Msgf("Update failed for %s: %v", finalArtifactName, err)
@@ -657,7 +667,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 }
 
 func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
-	artifactFilter []string, stats *ProcessingStats) []DeploymentTask {
+	artifactFilter []string, stats *ProcessingStats, versionMode versioning.Mode) []DeploymentTask {
 
 	var tasks []DeploymentTask
 
@@ -689,11 +699,20 @@ func collectDeploymentTasks(pkg *models.Package, finalPackageID, prefix string,
 			artifactType = "IntegrationFlow"
 		}
 
+		mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
+		if err != nil {
+			log.Error().Msgf("Skipping deployment of %s: %v", artifact.Id, err)
+			stats.ArtifactsDeployedFailed++
+			stats.DeployFailures++
+			stats.FailedArtifactDeploys[artifact.Id] = true
+			continue
+		}
 		tasks = append(tasks, DeploymentTask{
 			ArtifactID:   finalArtifactID,
 			ArtifactType: artifactType,
 			PackageID:    finalPackageID,
 			DisplayName:  artifact.DisplayName,
+			Versioning:   mode,
 		})
 	}
 

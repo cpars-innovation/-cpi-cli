@@ -5,9 +5,12 @@ import (
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/models"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestDeployCommand_MultipleArtifactIDs(t *testing.T) {
@@ -34,4 +37,23 @@ func TestDeployCommand_PartialFailureReturnsError(t *testing.T) {
 	assert.Len(t, depErr.Failed(), 1)
 	assert.Equal(t, "B", depErr.Failed()[0].ID)
 	assert.Equal(t, 1, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+}
+
+func TestOrchestratorVersioningPerArtifact(t *testing.T) {
+	var cfg models.DeployConfig
+	require.NoError(t, yaml.Unmarshal([]byte(`packages:
+  - integrationSuiteId: EDM
+    deploy: true
+    versioning: keep
+    artifacts:
+      - {artifactId: A, type: Integration, deploy: true}
+      - {artifactId: B, type: Integration, deploy: true, versioning: manifest}
+      - {artifactId: C, type: Integration, deploy: true, versioning: wrong}
+`), &cfg))
+	stats := &ProcessingStats{FailedArtifactUpdates: map[string]bool{}, FailedArtifactDeploys: map[string]bool{}}
+	tasks := collectDeploymentTasks(&cfg.Packages[0], "EDM", "", nil, stats, versioning.TenantBump)
+	require.Len(t, tasks, 2)
+	assert.Equal(t, versioning.Keep, tasks[0].Versioning, "package wins over the flag")
+	assert.Equal(t, versioning.Manifest, tasks[1].Versioning, "artifact wins over the package")
+	assert.True(t, stats.FailedArtifactDeploys["C"])
 }

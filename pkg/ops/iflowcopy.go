@@ -11,9 +11,9 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 )
@@ -390,69 +390,14 @@ func planAddressChanges(senders []senderAddress, flags []string, keep bool) (map
 	return changes, nil
 }
 
-// setManifestHeaders replaces (or appends) manifest headers, wrapping them at
-// 72 bytes; all other lines are kept as they are.
+// setManifestHeaders replaces or appends manifest headers (see
+// manifest.SetHeaders).
 func setManifestHeaders(mf []byte, headers map[string]string) []byte {
-	eol := "\n"
-	if bytes.Contains(mf, []byte("\r\n")) {
-		eol = "\r\n"
-	}
-	lines := strings.Split(strings.ReplaceAll(string(mf), "\r\n", "\n"), "\n")
-	var out []string
-	done := map[string]bool{}
-	skipping := false
-	for _, line := range lines {
-		if strings.HasPrefix(line, " ") {
-			if !skipping {
-				out = append(out, line)
-			}
-			continue
-		}
-		skipping = false
-		key, _, ok := strings.Cut(line, ":")
-		if ok {
-			if v, set := headers[strings.TrimSpace(key)]; set {
-				out = append(out, wrapManifestLine(strings.TrimSpace(key)+": "+v)...)
-				done[strings.TrimSpace(key)] = true
-				skipping = true
-				continue
-			}
-		}
-		out = append(out, line)
-	}
-	// drop trailing empty lines, append missing headers, end with one EOL
-	for len(out) > 0 && out[len(out)-1] == "" {
-		out = out[:len(out)-1]
-	}
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if !done[k] {
-			out = append(out, wrapManifestLine(k+": "+headers[k])...)
-		}
-	}
-	return []byte(strings.Join(out, eol) + eol)
+	return manifest.SetHeaders(mf, headers)
 }
 
-// wrapManifestLine splits a header into lines of at most 72 bytes;
-// continuation lines start with a space. UTF-8 characters are not split.
-func wrapManifestLine(s string) []string {
-	var lines []string
-	limit := 72
-	for len(s) > limit {
-		cut := limit
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
-			cut--
-		}
-		lines = append(lines, s[:cut])
-		s = " " + s[cut:]
-		limit = 72
-	}
-	return append(lines, s)
-}
+// wrapManifestLine splits a header into manifest lines of at most 72 bytes.
+func wrapManifestLine(s string) []string { return manifest.WrapLine(s) }
 
 // setProperties sets keys in a Java properties file, keeping all other lines;
 // missing keys are appended. cpiEscapes escapes ':' and '=' in values as CPI

@@ -8,6 +8,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,28 @@ type DesigntimeInfo struct {
 	// ModifiedAt is the last change of the designtime artifact; zero when
 	// the tenant does not report it (or in a format cpictl cannot read).
 	ModifiedAt time.Time
+}
+
+// SaveAsVersion sets the version of a designtime artifact
+// (POST <Type>DesigntimeArtifactSaveAsVersion). The public API offers it for
+// integration flows; other types answer 404, reported as unsupported.
+func SaveAsVersion(exe *httpclnt.HTTPExecuter, artifactType, id, version string) error {
+	urlPath := fmt.Sprintf("/api/v1/%sDesigntimeArtifactSaveAsVersion?Id=%s&SaveAsVersion=%s", artifactType,
+		url.QueryEscape("'"+strings.ReplaceAll(id, "'", "''")+"'"), url.QueryEscape("'"+strings.ReplaceAll(version, "'", "''")+"'"))
+	resp, err := exe.Exec(http.MethodPost, urlPath, http.NoBody, map[string]string{"Accept": "application/json"})
+	if err != nil {
+		return err
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotFound && artifactType != "Integration":
+		_, _ = exe.ReadRespBody(resp)
+		return fmt.Errorf("the tenant cannot set the version of %s artifacts through the API (only integration flows)", artifactType)
+	case resp.StatusCode >= 300:
+		_, err = exe.LogError(resp, fmt.Sprintf("Save %v designtime artifact %v as version %v", artifactType, id, version))
+		return err
+	}
+	_, err = exe.ReadRespBody(resp)
+	return err
 }
 
 // GetDesigntimeInfo reads an artifact's designtime entity; exists is false

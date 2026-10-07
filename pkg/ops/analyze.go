@@ -14,6 +14,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/cpars-innovation/cpicli/internal/manifest"
 )
 
 // IFlowFacts are the facts discovered about one integration flow: what it is
@@ -323,25 +325,8 @@ func tableNames(table string) []string {
 	return names
 }
 
-// parseManifest reads MANIFEST.MF headers (continuation lines start with a space).
-func parseManifest(data []byte) map[string]string {
-	h := map[string]string{}
-	var last string
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		if strings.HasPrefix(line, " ") && last != "" {
-			h[last] += line[1:]
-			continue
-		}
-		if k, v, ok := strings.Cut(line, ":"); ok {
-			last = strings.TrimSpace(k)
-			h[last] = strings.TrimSpace(v)
-		}
-	}
-	return h
-}
+// parseManifest reads MANIFEST.MF headers (see manifest.Parse).
+func parseManifest(data []byte) map[string]string { return manifest.Parse(data) }
 
 // propertyValues returns the keys and values of a Java properties file
 // (single-line entries; escapes in keys are resolved).

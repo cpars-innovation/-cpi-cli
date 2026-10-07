@@ -26,14 +26,17 @@ type DeployConfig struct {
 
 // Package represents a SAP CPI package
 type Package struct {
-	ID          string     `yaml:"integrationSuiteId"`
-	PackageDir  string     `yaml:"packageDir,omitempty"`
-	DisplayName string     `yaml:"displayName,omitempty"`
-	Description string     `yaml:"description,omitempty"`
-	ShortText   string     `yaml:"short_text,omitempty"`
-	Sync        bool       `yaml:"sync"`
-	Deploy      bool       `yaml:"deploy"`
-	Artifacts   []Artifact `yaml:"artifacts"`
+	ID          string `yaml:"integrationSuiteId"`
+	PackageDir  string `yaml:"packageDir,omitempty"`
+	DisplayName string `yaml:"displayName,omitempty"`
+	Description string `yaml:"description,omitempty"`
+	ShortText   string `yaml:"short_text,omitempty"`
+	Sync        bool   `yaml:"sync"`
+	Deploy      bool   `yaml:"deploy"`
+	// Versioning overrides --versioning for this package (manifest, keep,
+	// tenant-bump). Only for exceptions: the mode belongs to the pipeline.
+	Versioning string     `yaml:"versioning,omitempty"`
+	Artifacts  []Artifact `yaml:"artifacts"`
 }
 
 func (p *Package) UnmarshalYAML(unmarshal func(any) error) error {
@@ -61,6 +64,8 @@ type Artifact struct {
 	Sync            bool           `yaml:"sync"`
 	Deploy          bool           `yaml:"deploy"`
 	ConfigOverrides map[string]any `yaml:"configOverrides,omitempty"`
+	// Versioning overrides the package's and --versioning for this artifact.
+	Versioning string `yaml:"versioning,omitempty"`
 }
 
 func (a *Artifact) UnmarshalYAML(unmarshal func(any) error) error {

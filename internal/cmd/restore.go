@@ -6,6 +6,7 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
@@ -53,6 +54,7 @@ Configuration:
 			return
 		},
 	}
+	addVersioningFlag(restoreCmd)
 
 	return restoreCmd
 }
@@ -77,7 +79,11 @@ func runRestore(cmd *cobra.Command) error {
 	excludedIds := str.TrimSlice(config.GetStringSliceWithFallback(cmd, "ids-exclude", "restore.idsExclude"))
 
 	serviceDetails := serviceDetails(cmd)
-	err = restoreSnapshot(serviceDetails, artifactsBaseDir, workDir, includedIds, excludedIds)
+	mode, err := versioningMode(cmd)
+	if err != nil {
+		return err
+	}
+	err = restoreSnapshot(serviceDetails, artifactsBaseDir, workDir, includedIds, excludedIds, mode)
 	if err != nil {
 		return err
 	}
@@ -85,7 +91,7 @@ func runRestore(cmd *cobra.Command) error {
 	return nil
 }
 
-func restoreSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, includedIds []string, excludedIds []string) error {
+func restoreSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, includedIds []string, excludedIds []string, mode versioning.Mode) error {
 	log.Info().Msg("---------------------------------------------------------------------------------")
 	log.Info().Msg("📢 Begin restoring snapshot to the tenant")
 
@@ -100,6 +106,7 @@ func restoreSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string
 	exe := cpi.InitHTTPExecuter(serviceDetails)
 	packageSynchroniser := sync.NewSyncer("tenant", "CPIPackage", exe)
 	artifactsSynchroniser := sync.New(exe)
+	artifactsSynchroniser.Versioning = mode
 
 	// Go through each directory and check if there is an integration package details in it, if yes, then proceed to restore integration package and artifacts
 	for _, entry := range entries {

@@ -70,6 +70,23 @@ steps:
 
 Secret variables are not exported automatically in Azure Pipelines; map them with `env:` as shown.
 
+### Versioning per branch
+
+The versioning mode belongs to the pipeline, not to files that are merged between branches
+([versioning.md](versioning.md)):
+
+```yaml
+variables:
+  - name: CPICTL_VERSIONING
+    ${{ if in(variables['Build.SourceBranchName'], 'dev', 'test', 'main') }}:
+      value: manifest
+    ${{ else }}:
+      value: keep
+```
+
+Azure Pipelines exports non-secret variables as environment variables, so every cpictl call of
+the job uses it.
+
 ## Exit codes in scripts
 
 ```bash

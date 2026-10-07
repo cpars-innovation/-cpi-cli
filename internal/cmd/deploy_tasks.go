@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/cpars-innovation/cpicli/internal/versioning"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
@@ -18,9 +19,10 @@ type DeploymentTask struct {
 	// Force deploys even when the runtime already has the designtime
 	// version (configuration changes do not change the version).
 	Force bool
-	// AllowDowngrade and ModifiedAt are passed to ops.Artifact.
+	// AllowDowngrade, ModifiedAt and Versioning are passed to ops.Artifact.
 	AllowDowngrade bool
 	ModifiedAt     *time.Time
+	Versioning     versioning.Mode
 }
 
 // deployTasks deploys the tasks of configure and orchestrator through the
@@ -42,7 +44,7 @@ func deployTasks(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []Deploy
 			byPackage[t.PackageID] = g
 		}
 		a := ops.Artifact{ID: t.ArtifactID, Type: mapArtifactTypeForSync(t.ArtifactType), PackageID: t.PackageID,
-			AllowDowngrade: t.AllowDowngrade, ModifiedAt: t.ModifiedAt}
+			AllowDowngrade: t.AllowDowngrade, ModifiedAt: t.ModifiedAt, Versioning: t.Versioning}
 		if t.Force || !compareVersions {
 			g.forced = append(g.forced, a)
 		} else {

@@ -67,7 +67,10 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
   `modified after deployment`). `--allow-downgrade` (config `deploy.allowDowngrade`) deploys
   anyway; in `configure` files also `allowDowngrade: true` per artifact or package
   ([configure.md](configure.md#older-designtime-versions)). This applies to `deploy`, `configure`
-  and `orchestrator`.
+  and `orchestrator`. With `--versioning manifest` the repository's `Bundle-Version` is the version
+  on every tenant and only the version numbers decide ([versioning.md](versioning.md)).
+- **Export keeps your versions.** `sync --target git` no longer overwrites `Bundle-Version` with
+  the download's value (usually `1.0.0`).
 - `deploy.artifactIds` in the config file now works (FlashPipe rejected it because
   `--artifact-ids` was a required flag).
 
