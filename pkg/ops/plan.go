@@ -21,7 +21,7 @@ func DeployDecision(runtime *cpi.RuntimeArtifact, version string, changed bool, 
 	case version == "":
 		return true, "designtime version assigned by the tenant on creation", false
 	case changed && runtime.Version == version:
-		return true, fmt.Sprintf("content changed, same version %s: undeployed and deployed again", version), false
+		return true, fmt.Sprintf("content changed, same version %s: deployed again", version), false
 	}
 	cmp := CompareVersions(version, runtime.Version)
 	switch {

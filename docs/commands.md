@@ -206,6 +206,7 @@ All flags can be set in the config file under 'configure'.
       --artifact-filter string     Comma-separated list of artifacts to include (config: configure.artifactFilter)
       --batch-size int             Number of parameters per batch request (config: configure.batchSize, default: 90)
   -c, --config-path string         Path to configuration YAML file (config: configure.configPath)
+      --defer-deploy               Do not deploy: add the deployments to the pending file for one 'cpictl deploy --pending' at the end
       --deploy-delay int           Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)
       --deploy-retries int         Number of retries for deployment status checks (config: configure.deployRetries, default: 5)
   -p, --deployment-prefix string   Deployment prefix for artifact IDs (config: configure.deploymentPrefix)
@@ -215,6 +216,7 @@ All flags can be set in the config file under 'configure'.
       --offline                    With --dry-run: only show the file contents, do not read the tenant
       --package-filter string      Comma-separated list of packages to include (config: configure.packageFilter)
       --parallel-deployments int   Number of parallel deployments (config: configure.parallelDeployments, default: 3)
+      --pending-file string        Pending deployments file (default: .cpi/pending-deploy.json)
       --plan                       Same as --dry-run
       --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
@@ -495,13 +497,17 @@ Configuration:
 **Flags:**
 
 ```
-      --allow-downgrade        Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)
-      --artifact-ids strings   Comma separated list of artifact IDs (config: deploy.artifactIds)
-      --artifact-type string   Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType) (default "Integration")
-      --compare-versions       Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions) (default true)
-      --delay-length int       Delay (in seconds) between each check of artifact deployment status (config: deploy.delayLength) (default 30)
-      --max-check-limit int    Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
-      --versioning string      Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
+      --allow-downgrade            Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)
+      --artifact-ids strings       Comma separated list of artifact IDs (config: deploy.artifactIds)
+      --artifact-type string       Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType) (default "Integration")
+      --compare-versions           Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions) (default true)
+      --delay-length int           Delay (in seconds) between each check of artifact deployment status (config: deploy.delayLength) (default 30)
+      --max-check-limit int        Max number of times to check for artifact deployment status (config: deploy.maxCheckLimit) (default 10)
+      --parallel-deployments int   With --pending: deployments at the same time per package (config: deploy.parallelDeployments) (default 5)
+      --pending                    Deploy the pending deployments that orchestrator and configure --defer-deploy collected (each artifact once); failed ones stay in the file
+      --pending-file string        Pending deployments file (default: .cpi/pending-deploy.json)
+      --plan                       Only report per artifact whether it would be deployed and why; nothing is triggered
+      --versioning string          Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 
 ## discover
@@ -1268,6 +1274,7 @@ Configuration:
 ```
       --artifact-filter string     Comma-separated list of artifacts to include (config: orchestrator.artifactFilter)
       --config-pattern string      File pattern for config files in folders (config: orchestrator.configPattern) (default "*.y*ml")
+      --defer-deploy               Do not deploy: add the deployments to the pending file for one 'cpictl deploy --pending' at the end
   -c, --deploy-config string       Path to deployment config file/folder/URL (config: orchestrator.deployConfig)
       --deploy-delay int           Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)
       --deploy-only                Only deploy artifacts, don't update
@@ -1278,6 +1285,7 @@ Configuration:
       --package-filter string      Comma-separated list of packages to include (config: orchestrator.packageFilter)
   -d, --packages-dir string        Directory containing packages (config: orchestrator.packagesDir)
       --parallel-deployments int   Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)
+      --pending-file string        Pending deployments file (default: .cpi/pending-deploy.json)
       --plan                       Only show what would be uploaded and deployed, and why; nothing is written to the tenant
       --snapshot-state string      Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; "off": always download)
       --update                     Update and deploy artifacts

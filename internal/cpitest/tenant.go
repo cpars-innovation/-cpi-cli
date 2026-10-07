@@ -87,8 +87,10 @@ type Artifact struct {
 	// (and the content stored by create/update).
 	Resources map[string]Resource
 	Zip       []byte
-	// Uploads counts designtime creates and updates.
+	// Uploads counts designtime creates and updates, Deploys the deploy
+	// triggers.
 	Uploads int
+	Deploys int
 
 	triggered      bool
 	runtimeGets    int
@@ -1226,6 +1228,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.triggered, a.runtimeGets, a.taskGets = true, 0, 0
+		a.Deploys++
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte("task-" + id))
 

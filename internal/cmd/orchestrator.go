@@ -58,6 +58,10 @@ type ProcessingStats struct {
 	FailedPackageUpdates      map[string]bool `json:"failedPackageUpdates"`
 	FailedArtifactUpdates     map[string]bool `json:"failedArtifactUpdates"`
 	FailedArtifactDeploys     map[string]bool `json:"failedArtifactDeploys"`
+	// changed and redeploy are keyed by the final artifact ID: content
+	// created or updated, and content changed with the running version (to
+	// be deployed with force; the runtime was not undeployed).
+	changed, redeploy map[string]bool
 }
 
 func NewOrchestratorCommand() *cobra.Command {
@@ -218,6 +222,7 @@ Configuration:
 	orchestratorCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: orchestrator.deployDelaySeconds, default: 15)")
 	addVersioningFlag(orchestratorCmd)
 	orchestratorCmd.Flags().String("snapshot-state", "", "Snapshot state of the target tenant (written by snapshot) used instead of downloading artifacts for the comparison (config: orchestrator.snapshotState; default: .cpi/snapshot-state.json in the current directory or above --packages-dir; \"off\": always download)")
+	addDeferFlags(orchestratorCmd)
 	orchestratorCmd.Flags().Bool("plan", false, "Only show what would be uploaded and deployed, and why; nothing is written to the tenant")
 	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments per package (config: orchestrator.parallelDeployments, default: 3)")
@@ -255,6 +260,8 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		FailedArtifactUpdates:     make(map[string]bool),
 		FailedPackageUpdates:      make(map[string]bool),
 		FailedArtifactDeploys:     make(map[string]bool),
+		changed:                   make(map[string]bool),
+		redeploy:                  make(map[string]bool),
 	}
 
 	// Setup config loader
@@ -373,6 +380,24 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		}
 	}
 
+	if deferDeploy, _ := cmd.Flags().GetBool("defer-deploy"); deferDeploy && upload.plan == nil && mode != ModeUpdateOnly {
+		printSummary(&stats)
+		output.SetResult(cmd.Context(), orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: []ops.Result{}})
+		err := deferDeployments(pendingFile(cmd), serviceDetails.Host, deploymentTasks, func(t DeploymentTask) string {
+			switch {
+			case stats.redeploy[t.ArtifactID]:
+				return "orchestrator: content changed, same version as running"
+			case stats.changed[t.ArtifactID]:
+				return "orchestrator: content changed"
+			}
+			return "orchestrator: deploy if the runtime lacks the designtime version"
+		})
+		if err != nil {
+			return err
+		}
+		return orchestratorErr(&stats)
+	}
+
 	if upload.plan != nil {
 		if mode != ModeUpdateOnly {
 			planDeployments(deploymentTasks, upload.plan, serviceDetails)
@@ -401,7 +426,12 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	printSummary(&stats)
 	output.SetResult(cmd.Context(), orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: deployments})
 
-	// Return error if there were failures
+	return orchestratorErr(&stats)
+}
+
+// orchestratorErr is the error of a run with failures (partial when
+// anything succeeded).
+func orchestratorErr(stats *ProcessingStats) error {
 	if stats.PackagesFailed > 0 || stats.UpdateFailures > 0 || stats.DeployFailures > 0 {
 		err := fmt.Errorf("deployment completed with failures")
 		if len(stats.SuccessfulArtifactUpdates) > 0 || stats.ArtifactsDeployedSuccess > 0 {
@@ -409,7 +439,6 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		}
 		return output.Failed(err)
 	}
-
 	return nil
 }
 
@@ -579,6 +608,9 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 	synchroniser := artifactsync.New(exe)
 	synchroniser.Baseline, synchroniser.VerifyDownload = upload.baseline, upload.verifyDownload
 	synchroniser.DryRun = upload.plan != nil
+	// a content change with the running version is deployed with force in
+	// phase 2 (or by deploy --pending) instead of undeploying it now
+	synchroniser.KeepRuntime = true
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
@@ -707,6 +739,10 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 					stats.ArtifactsUnchanged++
 				} else {
 					stats.ArtifactsChanged++
+					stats.changed[finalArtifactID] = true
+				}
+				if outcome.Redeploy {
+					stats.redeploy[finalArtifactID] = true
 				}
 			}
 		}
@@ -790,6 +826,7 @@ func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, pre
 			ArtifactType:    artifactType,
 			PackageID:       finalPackageID,
 			DisplayName:     artifact.DisplayName,
+			Force:           stats.redeploy[finalArtifactID],
 			Versioning:      mode,
 			ExpectedVersion: expected,
 		})

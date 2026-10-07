@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Deploy once per pipeline: `orchestrator --defer-deploy` and `configure --defer-deploy` add what
+  needs a deployment (and why) to `.cpi/pending-deploy.json`; `cpictl deploy --pending` deploys
+  each artifact once, with force when any step needs it, and keeps only failures in the file.
+  `deploy --plan` (also with `--artifact-ids`) predicts without triggering. See
+  [docs/ci.md](docs/ci.md#pipeline-snapshot-update-configure-deploy-once).
+- `orchestrator`: a content change with the running version is no longer undeployed during the
+  upload; phase 2 deploys it with force, so the runtime keeps running in between.
+
 - Plan mode: `orchestrator --plan` reports per artifact whether it would be created, updated or
   left unchanged and whether it would be deployed, and why; nothing is written. `configure
   --plan` (= `--dry-run`) now also says which artifacts would be deployed and why (`plan` in the

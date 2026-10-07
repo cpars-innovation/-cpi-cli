@@ -49,9 +49,13 @@ type Synchroniser struct {
 	VerifyDownload bool
 	// DryRun makes UploadArtifact read only: it compares and reports what it
 	// would do (Action, the version the upload would give) without writing.
-	DryRun     bool
-	skipped    atomic.Int64
-	downloaded atomic.Int64
+	DryRun bool
+	// KeepRuntime: a content change with a version equal to the running one
+	// does not undeploy the runtime artifact; the outcome says Redeploy
+	// instead (a later forced deployment replaces it, without downtime).
+	KeepRuntime bool
+	skipped     atomic.Int64
+	downloaded  atomic.Int64
 }
 
 // Downloaded returns the number of artifacts downloaded by exports.
@@ -498,6 +502,10 @@ type UploadOutcome struct {
 	// DryRun is true when nothing was written (Synchroniser.DryRun): Action
 	// and Version are what the upload would do.
 	DryRun bool `json:"dryRun,omitempty"`
+	// Redeploy is true when the content changed but the version equals the
+	// running one and the runtime was kept (KeepRuntime): it must be
+	// deployed with force.
+	Redeploy bool `json:"redeploy,omitempty"`
 }
 
 func (s *Synchroniser) SingleArtifactToTenant(artifactId, artifactName, artifactType, packageId, artifactDir, workDir, parametersFile string, scriptMap []string) error {
@@ -614,6 +622,11 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 			if s.Versioning == versioning.Manifest {
 				log.Warn().Msgf("Content of %v changed but Bundle-Version %v equals the running version: run 'cpictl version bump --changed' before promoting", artifactId, outcome.Version)
 			}
+			if s.KeepRuntime {
+				log.Info().Msgf("Content of %v changed with the running version %v: to be deployed again (the runtime keeps running until then)", artifactId, outcome.Version)
+				outcome.Redeploy = true
+				return outcome, s.afterUpload(exists, artifactType, artifactId, parametersFile)
+			}
 			log.Info().Msg("Undeploying existing runtime artifact with same version number due to changes in design")
 			err = r.UnDeploy(artifactId)
 			if err != nil {
@@ -623,14 +636,16 @@ func (s *Synchroniser) UploadArtifact(artifactId, artifactName, artifactType, pa
 		}
 	}
 
+	return outcome, s.afterUpload(exists, artifactType, artifactId, parametersFile)
+}
+
+// afterUpload updates the configured parameters from parametersFile.
+func (s *Synchroniser) afterUpload(exists bool, artifactType, artifactId, parametersFile string) error {
 	if exists && artifactType == "Integration" && file.Exists(parametersFile) {
 		log.Info().Msg("Updating configured parameter(s) of Integration designtime artifact where necessary")
-		err = updateConfiguration(artifactId, parametersFile, s.exe)
-		if err != nil {
-			return outcome, err
-		}
+		return updateConfiguration(artifactId, parametersFile, s.exe)
 	}
-	return outcome, nil
+	return nil
 }
 
 // applyVersioning sets the designtime version according to s.Versioning and

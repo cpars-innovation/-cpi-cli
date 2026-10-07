@@ -87,6 +87,33 @@ variables:
 Azure Pipelines exports non-secret variables as environment variables, so every cpictl call of
 the job uses it.
 
+## Pipeline: snapshot, update, configure, deploy once
+
+For a repository that keeps only the parts of each artifact it manages (scripts, mappings, ...)
+on top of a snapshot of the tenant, with uploads and parameters in separate steps:
+
+```bash
+set -e
+cpictl snapshot --incremental --dir-git-repo . --git-skip-commit   # 1. tenant -> repository
+./copy-managed-parts.sh                                            # 2. your parts over the snapshot
+cpictl orchestrator -d . -c deploy/ --plan                         # 3. optional: what would happen
+cpictl orchestrator -d . -c deploy/ --defer-deploy                 # 4. uploads only what changed
+cpictl configure -c config/dev.yml --defer-deploy                  # 5. writes only changed parameters
+cpictl deploy --pending                                            # 6. deploys each artifact once
+```
+
+- Step 4 compares with the snapshot of step 1 instead of downloading every artifact again
+  ([orchestrator.md](orchestrator.md#comparison-without-downloads)).
+- Steps 4 and 5 do not deploy: they add to `.cpi/pending-deploy.json` what needs a deployment and
+  why. An artifact both steps touch is deployed once, with force when either needs it (a
+  parameter change or new content with the running version). The runtime keeps running until
+  step 6; nothing is undeployed in between.
+- Step 6 skips pending artifacts whose runtime already runs the designtime version and that no
+  step forced. Failed deployments stay in the file (exit code 5/7); successful ones are removed,
+  and the file is deleted when it is empty. `cpictl deploy --pending --plan` shows the list with
+  the reasons first.
+- The file records the tenant: it cannot be deployed to another one.
+
 ## Exit codes in scripts
 
 ```bash

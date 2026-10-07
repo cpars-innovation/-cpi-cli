@@ -185,6 +185,7 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().StringVar(&artifactFilter, "artifact-filter", "", "Comma-separated list of artifacts to include (config: configure.artifactFilter)")
 	configureCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be done without making changes, including which artifacts would be deployed and why (config: configure.dryRun)")
 	configureCmd.Flags().BoolVar(&dryRun, "plan", false, "Same as --dry-run")
+	addDeferFlags(configureCmd)
 	configureCmd.Flags().IntVar(&deployRetries, "deploy-retries", 0, "Number of retries for deployment status checks (config: configure.deployRetries, default: 5)")
 	configureCmd.Flags().IntVar(&deployDelaySeconds, "deploy-delay", 0, "Delay in seconds between deployment status checks (config: configure.deployDelaySeconds, default: 15)")
 	configureCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", 0, "Number of parallel deployments (config: configure.parallelDeployments, default: 3)")
@@ -274,7 +275,20 @@ func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilte
 
 	// Phase 2: Deploy artifacts if requested
 	deployments := []ops.Result{}
-	if len(deploymentTasks) > 0 && !dryRun {
+	deferDeploy, _ := cmd.Flags().GetBool("defer-deploy")
+	if deferDeploy && !dryRun {
+		if len(deploymentTasks) > 0 {
+			err := deferDeployments(pendingFile(cmd), serviceDetails.Host, deploymentTasks, func(t DeploymentTask) string {
+				if t.Force {
+					return "configure: configuration changed"
+				}
+				return "configure: deploy if the runtime lacks the designtime version"
+			})
+			if err != nil {
+				return err
+			}
+		}
+	} else if len(deploymentTasks) > 0 && !dryRun {
 		log.Info().Msg("")
 		log.Info().Msg("═══════════════════════════════════════════════════════════════════════")
 		log.Info().Msg("PHASE 2: DEPLOYING CONFIGURED ARTIFACTS")

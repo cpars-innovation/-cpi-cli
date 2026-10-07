@@ -76,6 +76,7 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--deploy-delay` | `15` | Seconds between status checks |
 | `--keep-temp` | `false` | Keep the temporary working directory |
 | `--snapshot-state` | `.cpi/snapshot-state.json` (current directory, else above `--packages-dir`) | Snapshot state to compare with instead of downloading; `off` always downloads |
+| `--defer-deploy` | `false` | Skip phase 2: add the deployments to `.cpi/pending-deploy.json` (`--pending-file`) for one `cpictl deploy --pending`, see [ci.md](ci.md#pipeline-snapshot-update-configure-deploy-once) |
 | `--plan` | `false` | Only report per artifact what would be uploaded and deployed, and why; nothing is written |
 | `--verify-download` | `false` | Download every existing artifact for the comparison anyway |
 
@@ -91,8 +92,8 @@ All of these can be set in the global config file under `orchestrator:` (camelCa
    final ID and name (`Bundle-SymbolicName`, `Bundle-Name`), `configOverrides` are merged into
    `parameters.prop`, and the artifact is created or updated on the tenant if its content differs
    ([comparison](#comparison-without-downloads)).
-   If the content changed but the version did not, the running artifact is undeployed so that
-   phase 2 deploys the new content.
+   If the content changed but the version equals the running one, phase 2 deploys it with force
+   (the runtime keeps running until then; earlier versions undeployed it right away).
 
 **Phase 2, deploy** (skipped with `--update-only`): artifacts with `deploy: true` (whose update
 did not fail) are deployed package by package, up to `--parallel-deployments` at a time. An

@@ -6,9 +6,11 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"strings"
 	"time"
 )
 
@@ -49,6 +51,10 @@ Configuration:
 	addVersioningFlag(deployCmd)
 	deployCmd.Flags().Bool("allow-downgrade", false, "Deploy even if the designtime version is older than the running version (config: deploy.allowDowngrade)")
 	deployCmd.Flags().Bool("compare-versions", true, "Perform version comparison of design time against runtime before deployment (config: deploy.compareVersions)")
+	deployCmd.Flags().Bool("pending", false, "Deploy the pending deployments that orchestrator and configure --defer-deploy collected (each artifact once); failed ones stay in the file")
+	deployCmd.Flags().String("pending-file", "", "Pending deployments file (default: .cpi/pending-deploy.json)")
+	deployCmd.Flags().Int("parallel-deployments", 5, "With --pending: deployments at the same time per package (config: deploy.parallelDeployments)")
+	deployCmd.Flags().Bool("plan", false, "Only report per artifact whether it would be deployed and why; nothing is triggered")
 	deployCmd.Flags().String("artifact-type", "Integration", "Artifact type. Allowed values: Integration, MessageMapping, ScriptCollection, ValueMapping (config: deploy.artifactType)")
 
 	return deployCmd
@@ -71,9 +77,32 @@ func runDeploy(cmd *cobra.Command) error {
 		return err
 	}
 
+	exe := cpi.InitHTTPExecuter(serviceDetails)
+	planOnly, _ := cmd.Flags().GetBool("plan")
+	if pending, _ := cmd.Flags().GetBool("pending"); pending {
+		if len(artifactIds) > 0 {
+			return output.Usagef("--pending and --artifact-ids cannot be combined")
+		}
+		parallel := config.GetIntWithFallback(cmd, "parallel-deployments", "deploy.parallelDeployments")
+		return runPendingDeploy(cmd, exe, serviceDetails, planOnly, maxCheckLimit, delayLength, parallel)
+	}
+
 	artifacts := make([]ops.Artifact, 0, len(artifactIds))
 	for _, id := range nonEmpty(artifactIds) {
 		artifacts = append(artifacts, ops.Artifact{ID: id, Type: artifactType})
+	}
+	if planOnly && len(artifacts) > 0 {
+		plan, err := ops.PlanDeploy(exe, artifactType, nonEmpty(artifactIds), mode, allowDowngrade)
+		items := make([]PlanItem, 0, len(plan))
+		for _, p := range plan {
+			items = append(items, PlanItem{Artifact: p.ID, Designtime: p.Designtime, Running: p.Running, RuntimeStatus: p.RuntimeStatus,
+				Deploy: p.Deploy, Reason: p.Reason, Error: p.Error})
+		}
+		output.SetResult(cmd.Context(), map[string]any{"plan": items})
+		if perr := logPlan(items); perr != nil {
+			return perr
+		}
+		return err
 	}
 	if len(artifacts) == 0 {
 		// Validated here rather than with MarkFlagRequired so that the config
@@ -81,7 +110,6 @@ func runDeploy(cmd *cobra.Command) error {
 		return output.Usagef("required flag \"artifact-ids\" not set (or config deploy.artifactIds)")
 	}
 
-	exe := cpi.InitHTTPExecuter(serviceDetails)
 	results := ops.Deploy(cmd.Context(), ops.NewTenant(exe), artifacts, ops.Options{
 		Interval:        time.Duration(delayLength) * time.Second,
 		MaxChecks:       maxCheckLimit,
@@ -98,6 +126,51 @@ func runDeploy(cmd *cobra.Command) error {
 	}
 	log.Info().Msg("🏆 Artifact(s) deployment completed successfully")
 	return nil
+}
+
+// runPendingDeploy deploys the pending deployments once each and keeps
+// only the failed ones in the file.
+func runPendingDeploy(cmd *cobra.Command, exe *httpclnt.HTTPExecuter, serviceDetails *cpi.ServiceDetails, planOnly bool,
+	maxChecks, delaySeconds, parallel int) error {
+	path := pendingFile(cmd)
+	p, err := loadPending(path)
+	if err != nil {
+		return err
+	}
+	if len(p.Artifacts) == 0 {
+		log.Info().Msgf("No pending deployments in %s", path)
+		output.SetResult(cmd.Context(), artifactResults{Results: []ops.Result{}})
+		return nil
+	}
+	if tenant := cpi.TenantID(serviceDetails.Host); p.Tenant != tenant {
+		return output.Usagef("%s holds pending deployments for tenant %s, not %s", path, p.Tenant, tenant)
+	}
+	tasks := p.tasks()
+	for _, t := range tasks {
+		log.Info().Msgf("📋 %s (%s)%s: %s", t.ArtifactID, t.PackageID, map[bool]string{true: " [force]", false: ""}[t.Force],
+			strings.Join(p.Artifacts[t.ArtifactID].Reasons, "; "))
+	}
+	if planOnly {
+		collector := &planCollector{index: map[string]int{}}
+		planDeployments(tasks, collector, serviceDetails)
+		output.SetResult(cmd.Context(), map[string]any{"plan": collector.items})
+		return logPlan(collector.items)
+	}
+	results := deployTasks(cmd.Context(), exe, tasks, true, maxChecks, delaySeconds, parallel)
+	logResults(results)
+	output.SetResult(cmd.Context(), artifactResults{Results: results})
+	for _, r := range results {
+		if r.Status.Succeeded() {
+			delete(p.Artifacts, r.ID)
+		}
+	}
+	if err := p.save(path); err != nil {
+		return err
+	}
+	if len(p.Artifacts) > 0 {
+		log.Warn().Msgf("%d failed deployment(s) stay in %s", len(p.Artifacts), path)
+	}
+	return ops.Err(results)
 }
 
 // artifactResults is the JSON result of deploy and undeploy.
