@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.3.0
+
 - OpenCode: MCP setup (`opencode.json`) and `cpictl skills install --agent opencode`
   (`.opencode/skills`, `--user`: `~/.config/opencode/skills`). Cursor setup expanded (global
   file, `${env:...}`, tool approval). Examples with profiles and with environment variables in
