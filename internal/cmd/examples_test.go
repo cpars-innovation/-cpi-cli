@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
+	"github.com/cpars-innovation/cpicli/internal/models"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
@@ -69,6 +70,9 @@ func TestDocsExamples(t *testing.T) {
 			assert.NotEmpty(t, a.Parameters)
 		}
 		assert.False(t, pkg.Artifacts[1].Batch.Enabled)
+		assert.True(t, models.EffectiveAllowDowngrade(pkg, pkg.Artifacts[0], false), "allowDowngrade on the artifact")
+		assert.False(t, models.EffectiveAllowDowngrade(pkg, pkg.Artifacts[1], false))
+		assert.True(t, models.EffectiveAllowDowngrade(pkg, pkg.Artifacts[1], true), "the flag applies without a setting")
 	})
 
 	for _, name := range []string{"mcp.json", "claude-code.mcp.json", "profiles.mcp.json",

@@ -8,10 +8,13 @@ type ConfigureConfig struct {
 
 // ConfigurePackage represents a package containing artifacts to configure
 type ConfigurePackage struct {
-	ID          string              `yaml:"integrationSuiteId"`
-	DisplayName string              `yaml:"displayName,omitempty"`
-	Deploy      bool                `yaml:"deploy,omitempty"` // Deploy all artifacts in package after configuration
-	Artifacts   []ConfigureArtifact `yaml:"artifacts"`
+	ID          string `yaml:"integrationSuiteId"`
+	DisplayName string `yaml:"displayName,omitempty"`
+	Deploy      bool   `yaml:"deploy,omitempty"` // Deploy all artifacts in package after configuration
+	// AllowDowngrade lets the artifacts of this package deploy a designtime
+	// version older than the running one (nil: the --allow-downgrade flag).
+	AllowDowngrade *bool               `yaml:"allowDowngrade,omitempty"`
+	Artifacts      []ConfigureArtifact `yaml:"artifacts"`
 }
 
 func (p *ConfigurePackage) UnmarshalYAML(unmarshal func(any) error) error {
@@ -38,6 +41,22 @@ type ConfigureArtifact struct {
 	Deploy      bool                     `yaml:"deploy,omitempty"`     // Deploy this specific artifact after configuration
 	Parameters  []ConfigurationParameter `yaml:"parameters,omitempty"` // List of configuration parameters to update
 	Batch       *BatchSettings           `yaml:"batch,omitempty"`      // Optional batch processing settings
+	// AllowDowngrade lets this artifact deploy a designtime version older
+	// than the running one; wins over the package's setting (nil: package,
+	// then the --allow-downgrade flag).
+	AllowDowngrade *bool `yaml:"allowDowngrade,omitempty"`
+}
+
+// EffectiveAllowDowngrade resolves allowDowngrade: artifact, then package,
+// then the global flag.
+func EffectiveAllowDowngrade(pkg ConfigurePackage, a ConfigureArtifact, global bool) bool {
+	switch {
+	case a.AllowDowngrade != nil:
+		return *a.AllowDowngrade
+	case pkg.AllowDowngrade != nil:
+		return *pkg.AllowDowngrade
+	}
+	return global
 }
 
 func (a *ConfigureArtifact) UnmarshalYAML(unmarshal func(any) error) error {

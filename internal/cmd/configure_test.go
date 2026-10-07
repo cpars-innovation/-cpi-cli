@@ -153,3 +153,105 @@ func TestConfigureArtifactsWithoutParameters(t *testing.T) {
 	assert.Contains(t, r.stderr, "no configurable parameters")
 	assert.Equal(t, 1, mock.Count("POST /api/v1/DeployScriptCollectionDesigntimeArtifact"), "nothing deployed")
 }
+
+// The ENBW case: parameters already on the tenant, designtime 1.0.13 with the
+// newer content, runtime 1.0.15 from a manual deployment of an older build.
+func TestConfigureDowngrade(t *testing.T) {
+	deployedAt := time.Now().Add(-2 * time.Hour)
+	running := func() *cpitest.Runtime {
+		return &cpitest.Runtime{Version: "1.0.15", Status: "STARTED", DeployedOn: deployedAt}
+	}
+	redeployed := []*cpitest.Runtime{{Version: "1.0.13", Status: "STARTED", DeployedOn: time.Now().Add(time.Minute)}}
+	flow := func(modified time.Time) *cpitest.Artifact {
+		return &cpitest.Artifact{Type: "Integration", DesignVersion: "1.0.13", Parameters: map[string]string{"Host": "h"},
+			Runtime: running(), ModifiedAt: modified, TaskStatuses: []string{"SUCCESS"}, AfterDeploy: redeployed}
+	}
+	write := func(body string) string {
+		path := filepath.Join(t.TempDir(), "dev.yml")
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+		return path
+	}
+	runConfig := func(mock *cpitest.Tenant, path string, extra ...string) cliRun {
+		args := append([]string{"configure", "--config-path", path, "--disable-batch", "--deploy-delay", "1", "--output", "json"}, extra...)
+		return runMain(t, append(args, basicAuth(mock)...)...)
+	}
+	results := func(r cliRun) map[string]map[string]any {
+		var env struct {
+			Result struct{ Deployments []map[string]any }
+		}
+		require.NoError(t, json.Unmarshal([]byte(r.stdout), &env), r.stdout)
+		m := map[string]map[string]any{}
+		for _, d := range env.Result.Deployments {
+			m[d["id"].(string)] = d
+		}
+		return m
+	}
+
+	t.Run("changed after the manual deployment: deployed by timestamp", func(t *testing.T) {
+		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+			"Fixed": flow(time.Now().Add(-time.Hour)), // edited after the deployment
+			"Stale": flow(deployedAt.Add(-time.Hour)), // not edited since
+		})
+		r := runConfig(mock, write(`packages:
+  - integrationSuiteId: EDM
+    artifacts:
+      - {artifactId: Fixed, type: Integration, deploy: true, parameters: [{key: Host, value: h}]}
+      - {artifactId: Stale, type: Integration, deploy: true, parameters: [{key: Host, value: h}]}
+`))
+		assert.Equal(t, 7, r.code, "partial: one deployed, one refused")
+		res := results(r)
+		assert.Equal(t, "DEPLOYED", res["Fixed"]["status"])
+		assert.Equal(t, "modified after deployment", res["Fixed"]["rule"])
+		assert.Equal(t, "FAILED", res["Stale"]["status"])
+		assert.Equal(t, "version", res["Stale"]["rule"])
+		assert.Contains(t, res["Stale"]["error"], "allowDowngrade: true")
+		assert.Contains(t, r.stderr, "[rule: modified after deployment]", "the rule is on the artifact's log line")
+	})
+
+	t.Run("allowDowngrade in the file: artifact wins over package", func(t *testing.T) {
+		old := deployedAt.Add(-time.Hour)
+		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": flow(old), "B": flow(old), "C": flow(old)})
+		r := runConfig(mock, write(`packages:
+  - integrationSuiteId: EDM
+    allowDowngrade: true
+    artifacts:
+      - {artifactId: A, type: Integration, deploy: true, parameters: [{key: Host, value: h}]}
+      - {artifactId: B, type: Integration, deploy: true, allowDowngrade: false, parameters: [{key: Host, value: h}]}
+  - integrationSuiteId: Other
+    artifacts:
+      - {artifactId: C, type: Integration, deploy: true, allowDowngrade: true}
+`))
+		res := results(r)
+		assert.Equal(t, "DEPLOYED", res["A"]["status"], "package allowDowngrade")
+		assert.Equal(t, "allowDowngrade", res["A"]["rule"])
+		assert.Equal(t, "FAILED", res["B"]["status"], "artifact false wins")
+		assert.Equal(t, "DEPLOYED", res["C"]["status"], "artifact allowDowngrade")
+
+		// the global flag covers artifacts without a setting, not B
+		mock = cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": flow(old), "B": flow(old), "C": flow(old)})
+		r = runConfig(mock, write(`packages:
+  - integrationSuiteId: EDM
+    artifacts:
+      - {artifactId: A, type: Integration, deploy: true, parameters: [{key: Host, value: h}]}
+      - {artifactId: B, type: Integration, deploy: true, allowDowngrade: false, parameters: [{key: Host, value: h}]}
+`), "--allow-downgrade")
+		res = results(r)
+		assert.Equal(t, "DEPLOYED", res["A"]["status"])
+		assert.Equal(t, "FAILED", res["B"]["status"])
+	})
+
+	t.Run("writing parameters does not count as a newer content", func(t *testing.T) {
+		a := flow(deployedAt.Add(-time.Hour))
+		a.ConfigBumpsModified = true // as if the tenant updated ModifiedAt on the parameter write
+		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": a})
+		r := runConfig(mock, write(`packages:
+  - integrationSuiteId: EDM
+    artifacts:
+      - {artifactId: A, type: Integration, deploy: true, parameters: [{key: Host, value: new}]}
+`))
+		assert.Equal(t, 1, mock.Count("PUT "), "the parameter is written")
+		res := results(r)
+		assert.Equal(t, "FAILED", res["A"]["status"], "the time from before the write decides")
+		assert.Equal(t, 0, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+	})
+}

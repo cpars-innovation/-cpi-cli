@@ -55,11 +55,13 @@ packages:
   - integrationSuiteId: MyPackage
     displayName: My Package         # informational
     deploy: false                   # true: deploy all configured artifacts of this package
+    allowDowngrade: false           # optional: see "Older designtime versions" below
     artifacts:
       - artifactId: MyIFlow
         type: Integration           # Integration, MessageMapping, ScriptCollection, ValueMapping
         version: active             # default active
         deploy: true                # deploy this artifact after configuration
+        allowDowngrade: true        # optional, wins over the package's setting
         parameters:
           - key: ReceiverHost
             value: api.example.com
@@ -89,6 +91,7 @@ How it runs:
 | `--dry-run` | Show what would be changed (compares with the tenant) |
 | `--offline` | With `--dry-run`: only the file, without tenant calls |
 | `--force` | Write every parameter and deploy every marked artifact, even without changes |
+| `--allow-downgrade` | Allow older designtime versions for artifacts and packages without `allowDowngrade` in the file (config `configure.allowDowngrade`, else `deploy.allowDowngrade`) |
 | `--disable-batch` | Always write parameters one by one |
 
 All flags can be set in the global config file under `configure:` (`configPath`,
@@ -102,6 +105,29 @@ and tenant value, `unchanged`, `unknown_key`) and one deployment result per depl
 > and artifacts (prefix `DEV_` → `DEV_MyPackage`, `DEV_MyIFlow`). The orchestrator builds
 > `prefix + ID` for packages but `prefix + "_" + ID` for artifacts (prefix `DEV` →
 > `DEVMyPackage`, `DEV_MyIFlow`). Choose the prefix per command so the IDs match.
+
+### Older designtime versions
+
+A deployment whose designtime version is lower than the running one (designtime `1.0.13`,
+runtime `1.0.15`) usually means the tenant copy was never updated, so it is refused by default.
+Sometimes the designtime is the newer content anyway, for example when the runtime came from a
+manual deployment of an older build with a bumped version. Two rules decide, and the deciding
+rule is logged on the artifact's result line (`[rule: ...]`, JSON field `rule`):
+
+| Rule | When | Outcome |
+|------|------|---------|
+| `modified after deployment` | the designtime artifact was changed after the running version was deployed (designtime `ModifiedAt` later than runtime `DeployedOn`) | deployed: the designtime holds the newer content |
+| `version` | otherwise, or when the tenant does not report one of the two times | `FAILED` before anything is triggered; the error names both times |
+| `allowDowngrade` | `allowDowngrade: true` applies (below) | deployed |
+
+`allowDowngrade` is resolved per artifact: the artifact's `allowDowngrade`, else its package's,
+else `--allow-downgrade` / `configure.allowDowngrade` / `deploy.allowDowngrade`.
+`allowDowngrade: false` on an artifact keeps the guard even when the package or the flag allows
+downgrades.
+
+When `configure` writes parameters, it reads the designtime modification time *before* writing
+them: a parameter change may count as a modification on the tenant, and must not make older
+content look new.
 
 ## configure pull
 

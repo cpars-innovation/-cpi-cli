@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/models"
@@ -156,8 +157,19 @@ All flags can be set in the config file under 'configure'.`,
 			if offline && !dryRun {
 				return output.Usagef("--offline only works with --dry-run")
 			}
+			// --allow-downgrade, else configure.allowDowngrade, else the
+			// deploy command's deploy.allowDowngrade
+			allowDowngrade, _ := cmd.Flags().GetBool("allow-downgrade")
+			if !cmd.Flags().Changed("allow-downgrade") {
+				switch {
+				case viper.IsSet("configure.allowDowngrade"):
+					allowDowngrade = viper.GetBool("configure.allowDowngrade")
+				case viper.IsSet("deploy.allowDowngrade"):
+					allowDowngrade = viper.GetBool("deploy.allowDowngrade")
+				}
+			}
 			return runConfigure(cmd, configPath, deploymentPrefix, packageFilter, artifactFilter,
-				configureMode{dryRun: dryRun, force: force, offline: offline}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
+				configureMode{dryRun: dryRun, force: force, offline: offline, allowDowngrade: allowDowngrade}, deployRetries, deployDelaySeconds, parallelDeployments, batchSize, disableBatch)
 		},
 	}
 
@@ -174,6 +186,7 @@ All flags can be set in the config file under 'configure'.`,
 	configureCmd.Flags().BoolVar(&force, "force", false, "Write all parameters and deploy all marked artifacts, even if the tenant already has the values")
 	configureCmd.Flags().BoolVar(&offline, "offline", false, "With --dry-run: only show the file contents, do not read the tenant")
 	configureCmd.Flags().BoolVar(&disableBatch, "disable-batch", false, "Disable batch processing, use individual requests (config: configure.disableBatch)")
+	configureCmd.Flags().Bool("allow-downgrade", false, "Deploy designtime versions older than the running ones, for artifacts and packages without allowDowngrade in the file (config: configure.allowDowngrade, else deploy.allowDowngrade)")
 	configureCmd.AddCommand(NewConfigurePullCommand())
 
 	return configureCmd
@@ -188,6 +201,9 @@ type configureMode struct {
 	force bool
 	// offline (dry run only) does not read the tenant.
 	offline bool
+	// allowDowngrade is the default for artifacts and packages without
+	// allowDowngrade in the configure file.
+	allowDowngrade bool
 }
 
 func runConfigure(cmd *cobra.Command, configPath, deploymentPrefix, packageFilterStr, artifactFilterStr string,
@@ -357,6 +373,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 				continue
 			}
 			deploy := artifact.Deploy || pkg.Deploy
+			allowDowngrade := models.EffectiveAllowDowngrade(pkg, artifact, mode.allowDowngrade)
 
 			// nothing to configure (script collections, mappings, flows without
 			// parameters): never read or write parameters, deploy when asked
@@ -371,7 +388,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 						continue
 					}
 					deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
-						PackageID: packageID, DisplayName: artifact.DisplayName})
+						PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade})
 					log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
 				}
 				continue
@@ -420,7 +437,7 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 							continue
 						}
 						deploymentTasks = append(deploymentTasks, DeploymentTask{ArtifactID: artifactID, ArtifactType: artifact.Type,
-							PackageID: packageID, DisplayName: artifact.DisplayName})
+							PackageID: packageID, DisplayName: artifact.DisplayName, AllowDowngrade: allowDowngrade})
 						log.Info().Msg("      📋 Queued for deployment (skipped if the runtime already has the designtime version)")
 					}
 					continue
@@ -441,6 +458,18 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 					log.Info().Msgf("      [DRY RUN] Would deploy after configuration")
 				}
 				continue
+			}
+
+			// Remember when the designtime artifact was last changed before the
+			// parameters are written (a parameter change may count as one):
+			// the downgrade rule compares it with the runtime deployment time.
+			var modifiedAt *time.Time
+			if deploy && len(parameters) > 0 {
+				var t time.Time
+				if info, exists, err := cpi.GetDesigntimeInfo(exe, artifact.Type, artifactID, "active"); err == nil && exists {
+					t = info.ModifiedAt
+				}
+				modifiedAt = &t
 			}
 
 			// Determine batch settings
@@ -483,6 +512,10 @@ func configureAllArtifacts(exe *httpclnt.HTTPExecuter, cfg *models.ConfigureConf
 					PackageID:    packageID,
 					DisplayName:  artifact.DisplayName,
 					Force:        true,
+					// the designtime change time from before the parameters were
+					// written: writing them may count as a change
+					AllowDowngrade: allowDowngrade,
+					ModifiedAt:     modifiedAt,
 				})
 				stats.DeploymentTasksQueued++
 				log.Info().Msgf("      📋 Queued for deployment")

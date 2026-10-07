@@ -61,9 +61,13 @@ grep -rl 'flashpipe ' .github/ azure-pipelines*.yml | xargs sed -i 's/flashpipe 
   cpictl processes all artifacts and reports a result for each (exit code 7 if some succeeded).
 - The first status check happens after `--delay-length` instead of immediately.
 - **No silent downgrades.** If the designtime version is older than the running version
-  (e.g. `1.0.9` vs `1.0.10`), the artifact is `FAILED` without being deployed: the tenant copy
-  was probably never updated. `--allow-downgrade` (config `deploy.allowDowngrade`) deploys anyway.
-  This also applies to `configure` and `orchestrator`.
+  (e.g. `1.0.9` vs `1.0.10`) and the designtime artifact was not changed after that deployment,
+  the artifact is `FAILED` without being deployed: the tenant copy was probably never updated.
+  A designtime artifact changed after the running deployment is deployed (rule
+  `modified after deployment`). `--allow-downgrade` (config `deploy.allowDowngrade`) deploys
+  anyway; in `configure` files also `allowDowngrade: true` per artifact or package
+  ([configure.md](configure.md#older-designtime-versions)). This applies to `deploy`, `configure`
+  and `orchestrator`.
 - `deploy.artifactIds` in the config file now works (FlashPipe rejected it because
   `--artifact-ids` was a required flag).
 

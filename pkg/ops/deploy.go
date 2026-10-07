@@ -44,7 +44,29 @@ type Artifact struct {
 	ID        string
 	Type      string // Integration, MessageMapping, ScriptCollection, ValueMapping
 	PackageID string // informational only
+	// AllowDowngrade allows this artifact's designtime version to be older
+	// than the running one (as Options.AllowDowngrade for all artifacts).
+	AllowDowngrade bool
+	// ModifiedAt, when set, is the designtime artifact's last change as the
+	// caller saw it (configure reads it before writing parameters, which may
+	// count as a change); nil: read it from the tenant before the deployment.
+	ModifiedAt *time.Time
 }
+
+// Rules that decide whether an older designtime version may replace the
+// running one (Result.Rule).
+const (
+	// RuleVersion: the version numbers decided (no older designtime version,
+	// or one that is refused).
+	RuleVersion = "version"
+	// RuleModifiedAfterDeployment: the designtime version is lower, but the
+	// designtime artifact was changed after the running one was deployed, so
+	// it holds the newer content (e.g. the runtime came from a manual
+	// deployment of an older build with a bumped version).
+	RuleModifiedAfterDeployment = "modified after deployment"
+	// RuleAllowDowngrade: allowed explicitly.
+	RuleAllowDowngrade = "allowDowngrade"
+)
 
 // Result is the structured outcome for one artifact.
 type Result struct {
@@ -58,7 +80,11 @@ type Result struct {
 	// filled by Deploy.
 	DesigntimeVersion string `json:"designtimeVersion,omitempty"`
 	RuntimeVersion    string `json:"runtimeVersion,omitempty"`
-	Error             string `json:"error,omitempty"`
+	// Rule is what decided about a designtime version that differs from the
+	// running one (RuleVersion, RuleModifiedAfterDeployment,
+	// RuleAllowDowngrade); empty when nothing was running.
+	Rule  string `json:"rule,omitempty"`
+	Error string `json:"error,omitempty"`
 
 	// Err is the underlying error for FAILED/TIMEOUT results (not serialised).
 	Err error `json:"-"`
@@ -84,6 +110,13 @@ type Options struct {
 	// with the local trigger time (only used when no previous deployment
 	// timestamp is known). Defaults to 2 minutes.
 	ClockSkew time.Duration
+}
+
+// designtimeModified is implemented by tenants that report when a
+// designtime artifact was last changed (the CPI API does); without it the
+// version rule decides alone.
+type designtimeModified interface {
+	DesigntimeModifiedAt(artifactType, id string) (time.Time, error)
 }
 
 // Tenant is the subset of the CPI API the deployer needs.
@@ -113,6 +146,14 @@ func (t *apiTenant) DesigntimeVersion(artifactType, id string) (string, bool, er
 	}
 	version, _, exists, err := dt.Get(id, "active")
 	return version, exists, err
+}
+
+func (t *apiTenant) DesigntimeModifiedAt(artifactType, id string) (time.Time, error) {
+	info, exists, err := cpi.GetDesigntimeInfo(t.exe, artifactType, id, "active")
+	if err != nil || !exists {
+		return time.Time{}, err
+	}
+	return info.ModifiedAt, nil
 }
 
 func (t *apiTenant) TriggerDeploy(artifactType, id string) (string, error) {
@@ -204,8 +245,15 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	}
 	if before != nil {
 		r.RuntimeVersion = before.Version
-		if !opts.AllowDowngrade && before.Version != "" && CompareVersions(version, before.Version) < 0 {
-			return fail(r, fmt.Errorf("designtime version %s is older than running %s (allow with allow_downgrade / --allow-downgrade)", version, before.Version))
+		r.Rule = RuleVersion
+		if before.Version != "" && CompareVersions(version, before.Version) < 0 {
+			var reason string
+			r.Rule, reason = downgradeRule(tenant, a, before, opts)
+			if r.Rule == RuleVersion {
+				return fail(r, fmt.Errorf("designtime version %s is older than running %s%s (allow with allowDowngrade: true on the artifact or package in the configure file, --allow-downgrade, or allow_downgrade)",
+					version, before.Version, reason))
+			}
+			logger.Info().Str("rule", r.Rule).Msgf("Designtime version %s is older than running %s; deploying (%s%s)", version, before.Version, r.Rule, reason)
 		}
 	}
 	if opts.CompareVersions && before != nil && before.Status == "STARTED" && before.Version == version {
@@ -223,6 +271,40 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 	logger.Info().Str("taskId", r.TaskID).Msgf("Artifact %v deployment triggered", a.ID)
 
 	return waitForDeployment(ctx, tenant, a, r, before, triggeredAt, opts)
+}
+
+// downgradeRule decides about a designtime version that is older than the
+// running one. reason explains the timestamps for the log and the error.
+func downgradeRule(tenant Tenant, a Artifact, before *cpi.RuntimeArtifact, opts Options) (rule, reason string) {
+	if opts.AllowDowngrade || a.AllowDowngrade {
+		return RuleAllowDowngrade, ""
+	}
+	if before.DeployedOn.IsZero() {
+		return RuleVersion, "; the runtime does not report its deployment time"
+	}
+	var modified time.Time
+	switch {
+	case a.ModifiedAt != nil:
+		modified = *a.ModifiedAt
+	default:
+		dm, ok := tenant.(designtimeModified)
+		if !ok {
+			return RuleVersion, ""
+		}
+		var err error
+		if modified, err = dm.DesigntimeModifiedAt(a.Type, a.ID); err != nil {
+			log.Debug().Str("artifact", a.ID).Msgf("Designtime modification time of %v not available: %v", a.ID, err)
+			return RuleVersion, "; the designtime modification time is not available"
+		}
+	}
+	if modified.IsZero() {
+		return RuleVersion, "; the tenant does not report when the designtime artifact was modified"
+	}
+	stamps := fmt.Sprintf("designtime modified %s, runtime deployed %s", modified.UTC().Format(time.RFC3339), before.DeployedOn.UTC().Format(time.RFC3339))
+	if modified.After(before.DeployedOn) {
+		return RuleModifiedAfterDeployment, ": " + stamps
+	}
+	return RuleVersion, " and was not modified since that deployment (" + stamps + ")"
 }
 
 func waitForDeployment(ctx context.Context, tenant Tenant, a Artifact, r Result, before *cpi.RuntimeArtifact,

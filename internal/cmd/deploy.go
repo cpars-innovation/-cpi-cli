@@ -106,8 +106,13 @@ func logResults(results []ops.Result) {
 		if !r.Status.Succeeded() {
 			event = log.Error()
 		}
-		event.Str("artifact", r.ID).Str("status", string(r.Status)).Str("version", r.Version).Str("taskId", r.TaskID).
-			Msgf("%s: %s%s", r.ID, r.Status, errSuffix(r.Error))
+		event = event.Str("artifact", r.ID).Str("status", string(r.Status)).Str("version", r.Version).Str("taskId", r.TaskID)
+		rule := ""
+		if r.Rule != "" {
+			event = event.Str("rule", r.Rule)
+			rule = " [rule: " + r.Rule + "]"
+		}
+		event.Msgf("%s: %s%s%s", r.ID, r.Status, rule, errSuffix(r.Error))
 	}
 }
 

@@ -288,3 +288,65 @@ func TestDeploy_DowngradeGuard(t *testing.T) {
 	assert.Equal(t, StatusDeployed, results[0].Status, "not deployed yet: no guard")
 	assert.Empty(t, results[0].RuntimeVersion)
 }
+
+// The case from a configure pipeline: the runtime (1.0.15) came from a
+// manual deployment of an older build; designtime 1.0.13 holds the newer
+// content. Whether it was changed after that deployment decides.
+func TestDeploy_DowngradeRules(t *testing.T) {
+	running := func() *cpitest.Runtime { return &cpitest.Runtime{Version: "1.0.15", Status: "STARTED", DeployedOn: t0} }
+	after := []*cpitest.Runtime{{Version: "1.0.13", Status: "STARTED", DeployedOn: t1.Add(time.Hour)}}
+	deployOne := func(a *cpitest.Artifact, art Artifact, opts Options) (Result, *cpitest.Tenant) {
+		t.Helper()
+		a.Type, a.TaskStatuses, a.AfterDeploy = "Integration", []string{"SUCCESS"}, after
+		mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": a})
+		art.ID, art.Type = "A", "Integration"
+		res := Deploy(context.Background(), NewTenant(mock.Executer()), []Artifact{art}, opts)
+		require.Len(t, res, 1)
+		return res[0], mock
+	}
+
+	t.Run("modified after the deployment: deploy", func(t *testing.T) {
+		r, mock := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: running(), ModifiedAt: t1}, Artifact{}, fastOpts())
+		assert.Equal(t, StatusDeployed, r.Status, r.Error)
+		assert.Equal(t, RuleModifiedAfterDeployment, r.Rule)
+		assert.Equal(t, 1, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+	})
+	t.Run("not modified since the deployment: refuse", func(t *testing.T) {
+		r, mock := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: running(), ModifiedAt: t0.Add(-time.Hour)}, Artifact{}, fastOpts())
+		assert.Equal(t, StatusFailed, r.Status)
+		assert.Equal(t, RuleVersion, r.Rule)
+		assert.Contains(t, r.Error, "was not modified since that deployment")
+		assert.Contains(t, r.Error, "allowDowngrade: true")
+		assert.Equal(t, 0, mock.Count("POST /api/v1/DeployIntegrationDesigntimeArtifact"))
+	})
+	t.Run("no modification time: version rule", func(t *testing.T) {
+		r, _ := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: running()}, Artifact{}, fastOpts())
+		assert.Equal(t, StatusFailed, r.Status)
+		assert.Equal(t, RuleVersion, r.Rule)
+		assert.Contains(t, r.Error, "does not report when the designtime artifact was modified")
+	})
+	t.Run("no deployment time: version rule", func(t *testing.T) {
+		rt := running()
+		rt.DeployedOn = time.Time{}
+		r, _ := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: rt, ModifiedAt: t1}, Artifact{}, fastOpts())
+		assert.Equal(t, StatusFailed, r.Status)
+		assert.Contains(t, r.Error, "does not report its deployment time")
+	})
+	t.Run("per artifact allowDowngrade", func(t *testing.T) {
+		r, _ := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: running()}, Artifact{AllowDowngrade: true}, fastOpts())
+		assert.Equal(t, StatusDeployed, r.Status, r.Error)
+		assert.Equal(t, RuleAllowDowngrade, r.Rule)
+	})
+	t.Run("a modification time given by the caller wins", func(t *testing.T) {
+		// configure passes the time from before it wrote parameters
+		before := t0.Add(-time.Hour)
+		r, _ := deployOne(&cpitest.Artifact{DesignVersion: "1.0.13", Runtime: running(), ModifiedAt: t1}, Artifact{ModifiedAt: &before}, fastOpts())
+		assert.Equal(t, StatusFailed, r.Status)
+		assert.Equal(t, RuleVersion, r.Rule)
+	})
+	t.Run("newer designtime version: version rule", func(t *testing.T) {
+		r, _ := deployOne(&cpitest.Artifact{DesignVersion: "1.0.16", Runtime: running()}, Artifact{}, fastOpts())
+		assert.Equal(t, StatusDeployed, r.Status, r.Error)
+		assert.Equal(t, RuleVersion, r.Rule)
+	})
+}

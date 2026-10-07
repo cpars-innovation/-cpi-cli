@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 type DesigntimeArtifact interface {
@@ -29,7 +30,33 @@ type designtimeArtifactData struct {
 	Root struct {
 		Version     string `json:"Version"`
 		Description string `json:"Description"`
+		ModifiedAt  string `json:"ModifiedAt"`
 	} `json:"d"`
+}
+
+// DesigntimeInfo is what the designtime artifact entity says about an
+// artifact.
+type DesigntimeInfo struct {
+	Version     string
+	Description string
+	// ModifiedAt is the last change of the designtime artifact; zero when
+	// the tenant does not report it (or in a format cpictl cannot read).
+	ModifiedAt time.Time
+}
+
+// GetDesigntimeInfo reads an artifact's designtime entity; exists is false
+// for 404.
+func GetDesigntimeInfo(exe *httpclnt.HTTPExecuter, artifactType, id, version string) (info *DesigntimeInfo, exists bool, err error) {
+	data, exists, err := getData(id, version, artifactType, exe)
+	if err != nil || !exists {
+		return nil, exists, err
+	}
+	info = &DesigntimeInfo{Version: data.Root.Version, Description: data.Root.Description}
+	if info.ModifiedAt, err = ParseODataTime(data.Root.ModifiedAt); err != nil {
+		log.Debug().Msgf("Ignoring unparseable ModifiedAt %q of %v designtime artifact %v: %v", data.Root.ModifiedAt, artifactType, id, err)
+		info.ModifiedAt = time.Time{}
+	}
+	return info, true, nil
 }
 
 type designtimeArtifactUpdateData struct {
@@ -170,6 +197,14 @@ func upsert(id string, name string, packageId string, artifactDir string, method
 }
 
 func get(id string, version string, artifactType string, exe *httpclnt.HTTPExecuter) (string, string, bool, error) {
+	data, exists, err := getData(id, version, artifactType, exe)
+	if err != nil || !exists {
+		return "", "", exists, err
+	}
+	return data.Root.Version, data.Root.Description, true, nil
+}
+
+func getData(id string, version string, artifactType string, exe *httpclnt.HTTPExecuter) (*designtimeArtifactData, bool, error) {
 	log.Info().Msgf("Getting details of %v designtime artifact %v", artifactType, id)
 	urlPath := fmt.Sprintf("/api/v1/%vDesigntimeArtifacts(Id='%v',Version='%v')", artifactType, id, version)
 
@@ -177,23 +212,21 @@ func get(id string, version string, artifactType string, exe *httpclnt.HTTPExecu
 	resp, err := readOnlyCall(urlPath, callType, exe)
 	if err != nil {
 		if err.Error() == fmt.Sprintf("%v call failed with response code = 404", callType) {
-			return "", "", false, nil
-		} else {
-			return "", "", false, err
+			return nil, false, nil
 		}
+		return nil, false, err
 	}
-	// Process response to extract version
 	var jsonData *designtimeArtifactData
 	respBody, err := exe.ReadRespBody(resp)
 	if err != nil {
-		return "", "", false, err
+		return nil, false, err
 	}
 	err = json.Unmarshal(respBody, &jsonData)
 	if err != nil {
 		log.Error().Msgf("Error unmarshalling response as JSON. Response body = %s", respBody)
-		return "", "", false, errors.Wrap(err, 0)
+		return nil, false, errors.Wrap(err, 0)
 	}
-	return jsonData.Root.Version, jsonData.Root.Description, true, nil
+	return jsonData, true, nil
 }
 
 func getContent(id string, version string, artifactType string, exe *httpclnt.HTTPExecuter) ([]byte, error) {

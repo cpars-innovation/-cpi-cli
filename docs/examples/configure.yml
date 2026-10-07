@@ -8,6 +8,7 @@ packages:
       - artifactId: OrderIntake
         type: Integration
         deploy: true             # redeploy after the parameters were written
+        allowDowngrade: true     # may replace a running version with a higher number (docs/configure.md)
         parameters:
           - key: ReceiverHost
             value: orders.dev.example.com

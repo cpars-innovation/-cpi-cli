@@ -160,7 +160,7 @@ read roles.
 | `check_guidelines` | | Run the activated design guidelines and wait; violations with violated components |
 | `get_parameters` | | Externalised parameters of an integration flow |
 | `set_parameters` | designtime | Change parameters; only changed values are written, unknown keys fail first; `dry_run` |
-| `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT`, with `designtimeVersion` / `runtimeVersion`. Refuses a designtime version older than the running one unless `allow_downgrade` |
+| `deploy` | runtime | Deploy and wait; per artifact `DEPLOYED`, `SKIPPED`, `FAILED` (tenant error), `TIMEOUT`, with `designtimeVersion` / `runtimeVersion`. Refuses a designtime version older than the running one unless the designtime artifact was changed after that deployment or `allow_downgrade`; `rule` says which rule decided |
 | `send_test_message` | **triggers processing** | Send a message to the flow's endpoint (or via the test harness to a ProcessDirect address); HTTP status, response, message GUID; `wait_seconds` returns the final message log. See [testing.md](testing.md) |
 | `get_runtime_status` | | Runtime status, version, deployment time and error of given artifacts |
 | `list_runtime_artifacts` | | All deployed artifacts, filter by status (e.g. `ERROR`) |

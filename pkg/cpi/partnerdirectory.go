@@ -64,146 +64,34 @@ type BatchResult struct {
 
 // GetStringParameters retrieves all string parameters from partner directory
 func (pd *PartnerDirectory) GetStringParameters(selectFields string) ([]StringParameter, error) {
-	basePath := "/api/v1/StringParameters"
-	separator := "?"
-	if selectFields != "" {
-		basePath += "?$select=" + url.QueryEscape(selectFields)
-		separator = "&"
+	all := []StringParameter{}
+	err := pd.listAll("/api/v1/StringParameters", selectQuery(selectFields), "Get string parameters", func(raw json.RawMessage) (int, error) {
+		var page []StringParameter
+		err := json.Unmarshal(raw, &page)
+		all = append(all, page...)
+		return len(page), err
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	allParameters := []StringParameter{}
-	skip := 0
-	batchSize := 1000
-	totalCount := -1
-
-	for {
-		path := fmt.Sprintf("%s%s$inlinecount=allpages&$top=%d&$skip=%d", basePath, separator, batchSize, skip)
-		log.Debug().Msgf("Getting string parameters from %s", path)
-
-		resp, err := pd.exe.ExecGetRequest(path, map[string]string{
-			"Accept": "application/json",
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, pdStatusError("Get string parameters", resp)
-		}
-
-		body, err := pd.exe.ReadRespBody(resp)
-		if err != nil {
-			return nil, err
-		}
-
-		var result struct {
-			D struct {
-				Results []StringParameter `json:"results"`
-				Count   string            `json:"__count"`
-			} `json:"d"`
-		}
-
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-
-		// Parse total count on first iteration
-		if totalCount == -1 && result.D.Count != "" {
-			fmt.Sscanf(result.D.Count, "%d", &totalCount)
-			log.Info().Msgf("Total string parameters available: %d", totalCount)
-		}
-
-		batchCount := len(result.D.Results)
-		allParameters = append(allParameters, result.D.Results...)
-
-		if totalCount > 0 {
-			log.Debug().Msgf("Retrieved %d string parameters in this batch (progress: %d/%d)", batchCount, len(allParameters), totalCount)
-		} else {
-			log.Debug().Msgf("Retrieved %d string parameters in this batch (total so far: %d)", batchCount, len(allParameters))
-		}
-
-		// If we got fewer results than batch size, we've reached the end
-		if batchCount < batchSize {
-			break
-		}
-
-		skip += batchSize
-	}
-
-	log.Info().Msgf("Retrieved %d total string parameters", len(allParameters))
-	return allParameters, nil
+	log.Info().Msgf("Retrieved %d total string parameters", len(all))
+	return all, nil
 }
 
 // GetBinaryParameters retrieves all binary parameters from partner directory
 func (pd *PartnerDirectory) GetBinaryParameters(selectFields string) ([]BinaryParameter, error) {
-	basePath := "/api/v1/BinaryParameters"
-	separator := "?"
-	if selectFields != "" {
-		basePath += "?$select=" + url.QueryEscape(selectFields)
-		separator = "&"
+	all := []BinaryParameter{}
+	err := pd.listAll("/api/v1/BinaryParameters", selectQuery(selectFields), "Get binary parameters", func(raw json.RawMessage) (int, error) {
+		var page []BinaryParameter
+		err := json.Unmarshal(raw, &page)
+		all = append(all, page...)
+		return len(page), err
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	allParameters := []BinaryParameter{}
-	skip := 0
-	batchSize := 30 // Binary parameters API has a lower limit than string parameters
-	totalCount := -1
-
-	for {
-		path := fmt.Sprintf("%s%s$inlinecount=allpages&$top=%d&$skip=%d", basePath, separator, batchSize, skip)
-		log.Debug().Msgf("Getting binary parameters from %s", path)
-
-		resp, err := pd.exe.ExecGetRequest(path, map[string]string{
-			"Accept": "application/json",
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, pdStatusError("Get binary parameters", resp)
-		}
-
-		body, err := pd.exe.ReadRespBody(resp)
-		if err != nil {
-			return nil, err
-		}
-
-		var result struct {
-			D struct {
-				Results []BinaryParameter `json:"results"`
-				Count   string            `json:"__count"`
-			} `json:"d"`
-		}
-
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-
-		// Parse total count on first iteration
-		if totalCount == -1 && result.D.Count != "" {
-			fmt.Sscanf(result.D.Count, "%d", &totalCount)
-			log.Info().Msgf("Total binary parameters available: %d", totalCount)
-		}
-
-		batchCount := len(result.D.Results)
-		allParameters = append(allParameters, result.D.Results...)
-
-		if totalCount > 0 {
-			log.Debug().Msgf("Retrieved %d binary parameters in this batch (progress: %d/%d)", batchCount, len(allParameters), totalCount)
-		} else {
-			log.Debug().Msgf("Retrieved %d binary parameters in this batch (total so far: %d)", batchCount, len(allParameters))
-		}
-
-		// If we got fewer results than batch size, we've reached the end
-		if batchCount < batchSize {
-			break
-		}
-
-		skip += batchSize
-	}
-
-	log.Info().Msgf("Retrieved %d total binary parameters", len(allParameters))
-	return allParameters, nil
+	log.Info().Msgf("Retrieved %d total binary parameters", len(all))
+	return all, nil
 }
 
 // GetStringParameter retrieves a single string parameter
@@ -468,9 +356,9 @@ func pdStatusError(callType string, resp *http.Response) error {
 // ListParameters returns the string and binary parameters of one partner ID
 // (binary values included, base64).
 func (pd *PartnerDirectory) ListParameters(pid string) ([]StringParameter, []BinaryParameter, error) {
-	filter := "&$filter=" + url.QueryEscape("Pid eq '"+strings.ReplaceAll(pid, "'", "''")+"'")
+	filter := "$filter=" + url.QueryEscape("Pid eq '"+strings.ReplaceAll(pid, "'", "''")+"'")
 	var strs []StringParameter
-	if err := pd.listPaged("/api/v1/StringParameters?$top=1000"+filter, "Get string parameters", func(raw json.RawMessage) (int, error) {
+	if err := pd.listAll("/api/v1/StringParameters", filter, "Get string parameters", func(raw json.RawMessage) (int, error) {
 		var page []StringParameter
 		err := json.Unmarshal(raw, &page)
 		strs = append(strs, page...)
@@ -479,7 +367,7 @@ func (pd *PartnerDirectory) ListParameters(pid string) ([]StringParameter, []Bin
 		return nil, nil, err
 	}
 	var bins []BinaryParameter
-	if err := pd.listPaged("/api/v1/BinaryParameters?$top=1000"+filter, "Get binary parameters", func(raw json.RawMessage) (int, error) {
+	if err := pd.listAll("/api/v1/BinaryParameters", filter, "Get binary parameters", func(raw json.RawMessage) (int, error) {
 		var page []BinaryParameter
 		err := json.Unmarshal(raw, &page)
 		bins = append(bins, page...)
@@ -490,21 +378,97 @@ func (pd *PartnerDirectory) ListParameters(pid string) ([]StringParameter, []Bin
 	return strs, bins, nil
 }
 
-func (pd *PartnerDirectory) listPaged(path, callType string, add func(json.RawMessage) (int, error)) error {
-	for skip := 0; ; skip += 1000 {
-		var raw json.RawMessage
-		if err := getResults(pd.exe, fmt.Sprintf("%s&$skip=%d", path, skip), callType, &raw); err != nil {
-			return err
+func selectQuery(fields string) string {
+	if fields == "" {
+		return ""
+	}
+	return "$select=" + url.QueryEscape(fields)
+}
+
+// pageSize is the $top cpictl asks for. The tenant may return fewer entries
+// per page (binary parameters: 30, as they carry their content), so a short
+// page never means the end.
+const pageSize = 1000
+
+// maxPages stops a server that ignores $skip.
+const maxPages = 100000
+
+// listAll reads every page of an OData v2 collection (query without "?"):
+// it follows __next when the server sends one; otherwise it moves $skip on by
+// the number of entries received until __count is reached or a page is
+// empty.
+func (pd *PartnerDirectory) listAll(basePath, query, callType string, add func(json.RawMessage) (int, error)) error {
+	base := basePath + "?$inlinecount=allpages&$top=" + fmt.Sprint(pageSize)
+	if query != "" {
+		base += "&" + query
+	}
+	next, total, seen, skip := "", -1, 0, 0
+	var previous json.RawMessage
+	for page := 0; page < maxPages; page++ {
+		path := next
+		if path == "" {
+			path = fmt.Sprintf("%s&$skip=%d", base, skip)
 		}
-		if len(raw) == 0 {
-			return nil
-		}
-		n, err := add(raw)
+		log.Debug().Msgf("%s: %s", callType, path)
+		resp, err := pd.exe.ExecGetRequest(path, map[string]string{"Accept": "application/json"})
 		if err != nil {
 			return err
 		}
-		if n < 1000 {
-			return nil
+		if resp.StatusCode != http.StatusOK {
+			return pdStatusError(callType, resp)
 		}
+		body, err := pd.exe.ReadRespBody(resp)
+		if err != nil {
+			return err
+		}
+		var data struct {
+			D struct {
+				Results json.RawMessage `json:"results"`
+				Count   string          `json:"__count"`
+				Next    string          `json:"__next"`
+			} `json:"d"`
+		}
+		if err := json.Unmarshal(body, &data); err != nil {
+			return fmt.Errorf("%s: failed to decode response: %w", callType, err)
+		}
+		if total < 0 && data.D.Count != "" {
+			fmt.Sscanf(data.D.Count, "%d", &total)
+		}
+		n := 0
+		if len(data.D.Results) > 0 && string(data.D.Results) != "null" {
+			if next == "" && previous != nil && bytes.Equal(previous, data.D.Results) {
+				// $skip ignored: without a count the first page was everything
+				if total < 0 {
+					return nil
+				}
+				return fmt.Errorf("%s: the tenant returned the same page again ($skip=%d ignored, %d of %d read)", callType, skip, seen, total)
+			}
+			previous = data.D.Results
+			if n, err = add(data.D.Results); err != nil {
+				return fmt.Errorf("%s: failed to decode response: %w", callType, err)
+			}
+		}
+		seen += n
+		if data.D.Next != "" {
+			next = relativeNext(data.D.Next)
+			continue
+		}
+		if next != "" || n == 0 || (total >= 0 && seen >= total) {
+			return nil // last page of a __next chain, empty page, or all counted
+		}
+		skip += n
 	}
+	return fmt.Errorf("%s: more than %d pages", callType, maxPages)
+}
+
+// relativeNext turns a __next link into a path for the executer.
+func relativeNext(next string) string {
+	if i := strings.Index(next, "/api/"); i >= 0 {
+		return next[i:]
+	}
+	if strings.HasPrefix(next, "/") {
+		return next
+	}
+	// relative to the collection, e.g. "BinaryParameters?$skiptoken=30"
+	return "/api/v1/" + next
 }

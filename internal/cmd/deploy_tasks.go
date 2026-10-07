@@ -18,6 +18,9 @@ type DeploymentTask struct {
 	// Force deploys even when the runtime already has the designtime
 	// version (configuration changes do not change the version).
 	Force bool
+	// AllowDowngrade and ModifiedAt are passed to ops.Artifact.
+	AllowDowngrade bool
+	ModifiedAt     *time.Time
 }
 
 // deployTasks deploys the tasks of configure and orchestrator through the
@@ -38,7 +41,8 @@ func deployTasks(ctx context.Context, exe *httpclnt.HTTPExecuter, tasks []Deploy
 			g = &group{}
 			byPackage[t.PackageID] = g
 		}
-		a := ops.Artifact{ID: t.ArtifactID, Type: mapArtifactTypeForSync(t.ArtifactType), PackageID: t.PackageID}
+		a := ops.Artifact{ID: t.ArtifactID, Type: mapArtifactTypeForSync(t.ArtifactType), PackageID: t.PackageID,
+			AllowDowngrade: t.AllowDowngrade, ModifiedAt: t.ModifiedAt}
 		if t.Force || !compareVersions {
 			g.forced = append(g.forced, a)
 		} else {

@@ -213,5 +213,9 @@ func ParseODataTime(value string) (time.Time, error) {
 		}
 		return time.UnixMilli(ms).UTC(), nil
 	}
+	// epoch milliseconds as a plain string (used by some entities)
+	if ms, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return time.UnixMilli(ms).UTC(), nil
+	}
 	return time.Parse(time.RFC3339, value)
 }

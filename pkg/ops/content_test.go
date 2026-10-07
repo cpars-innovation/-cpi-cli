@@ -89,6 +89,7 @@ func TestResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "groovy", list[0].Type)
+	assert.Equal(t, float64(12), list[0].Size, "ResourceSize comes as a string from the tenant")
 
 	res, err := GetResource(m.Executer(), "A", "", "script1.groovy", "groovy", 0)
 	require.NoError(t, err)

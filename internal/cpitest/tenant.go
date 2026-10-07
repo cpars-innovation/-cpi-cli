@@ -33,6 +33,10 @@ type Runtime struct {
 type Artifact struct {
 	Type          string // designtime type, e.g. Integration
 	DesignVersion string // empty: designtime artifact does not exist
+	// ModifiedAt is the designtime artifact's last change (zero: not
+	// reported). ConfigBumpsModified sets it to now on parameter updates.
+	ModifiedAt          time.Time
+	ConfigBumpsModified bool
 
 	// Runtime is what GET IntegrationRuntimeArtifacts returns before a deploy
 	// is triggered (nil: 404 not deployed).
@@ -182,6 +186,10 @@ type Tenant struct {
 	// "<pid>/<id>".
 	PDStrings  map[string]string
 	PDBinaries map[string]PDBinary
+	// Listings page like the tenant: $skip/$top, at most 30 binary and 1000
+	// string parameters per page whatever $top asks for, __count with
+	// $inlinecount=allpages. PDNextLinks adds __next links (absolute URLs).
+	PDNextLinks bool
 
 	// LogLevels records the log level set per artifact via the operations
 	// command (request body as received).
@@ -424,7 +432,27 @@ func (m *Tenant) handlePD(w http.ResponseWriter, r *http.Request) {
 					rows = append(rows, row(kind, k))
 				}
 			}
-			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
+			q := r.URL.Query()
+			skip, _ := strconv.Atoi(q.Get("$skip"))
+			top, _ := strconv.Atoi(q.Get("$top"))
+			limit := 1000
+			if kind == "Binary" {
+				limit = 30
+			}
+			if top > 0 && top < limit {
+				limit = top
+			}
+			total := len(rows)
+			page := rows[min(skip, total):min(skip+limit, total)]
+			d := map[string]any{"results": page}
+			if q.Get("$inlinecount") == "allpages" {
+				d["__count"] = strconv.Itoa(total)
+			}
+			if m.PDNextLinks && skip+len(page) < total {
+				q.Set("$skip", strconv.Itoa(skip+len(page)))
+				d["__next"] = "https://" + r.Host + r.URL.Path + "?" + q.Encode()
+			}
+			writeJSON(w, map[string]any{"d": d})
 		case http.MethodPost:
 			var body map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["Pid"] == "" || body["Id"] == "" {
@@ -948,7 +976,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		if mm[2] == "" {
 			rows := []map[string]any{}
 			for _, n := range sortedKeys(a.Resources) {
-				rows = append(rows, map[string]any{"Name": n, "ResourceType": a.Resources[n].Type, "ResourceSize": len(a.Resources[n].Content)})
+				rows = append(rows, map[string]any{"Name": n, "ResourceType": a.Resources[n].Type, "ResourceSize": fmt.Sprint(len(a.Resources[n].Content))}) // a string, as real tenants send it
 			}
 			writeJSON(w, map[string]any{"d": map[string]any{"results": rows}})
 			return
@@ -1060,6 +1088,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			a.Parameters = map[string]string{}
 		}
 		a.Parameters[mm[2]] = body.ParameterValue
+		if a.ConfigBumpsModified {
+			a.ModifiedAt = time.Now()
+		}
 		w.WriteHeader(http.StatusAccepted)
 
 	case r.Method == http.MethodPost && reDesignCreate.MatchString(path):
@@ -1118,7 +1149,11 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			notFound(w)
 			return
 		}
-		writeJSON(w, map[string]any{"d": map[string]string{"Id": mm[2], "Version": a.DesignVersion}})
+		d := map[string]string{"Id": mm[2], "Version": a.DesignVersion}
+		if !a.ModifiedAt.IsZero() {
+			d["ModifiedAt"] = odataDate(a.ModifiedAt)
+		}
+		writeJSON(w, map[string]any{"d": d})
 
 	case r.Method == http.MethodPost && reDeploy.MatchString(path):
 		id := strings.Trim(r.URL.Query().Get("Id"), "'")

@@ -5,6 +5,25 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Deploy (`deploy`, `configure`, `orchestrator`, MCP `deploy`): a designtime version older than
+  the running one is deployed when the designtime artifact was changed after the running version
+  was deployed (designtime `ModifiedAt` later than runtime `DeployedOn`; e.g. the runtime came
+  from a manual deployment of an older build with a bumped version). Otherwise, or when a
+  timestamp is missing, it is still refused. Every result names the deciding rule
+  (`version`, `modified after deployment`, `allowDowngrade`) on its log line and in `rule`.
+- `configure`: `allowDowngrade: true|false` per artifact and per package in the configure file
+  (artifact wins, then package, then `--allow-downgrade` / `configure.allowDowngrade` /
+  `deploy.allowDowngrade`); before, configure could not allow a downgrade at all. The
+  modification time is read before parameters are written, so a parameter change never makes
+  older content look new. The refusal names the `allowDowngrade` key.
+- `resources` / MCP `list_resources`: `ResourceSize` sent as a string (`"1234"`) or with
+  decimals no longer fails (`cannot unmarshal string into ... ResourceSize`).
+- Partner Directory (`pd diff`, `pd get`, `pd-snapshot`, `pd-deploy`, MCP `pd_diff`,
+  `get_pd_parameters`): all pages are read. The tenant returns at most 30 binary parameters per
+  page; listings stopped after the first page, so further binaries showed as missing or
+  `create`, and snapshots could miss them. Paging now follows `__next` or `$skip` until
+  `__count` is reached.
+
 ## 0.2.1
 
 - `configure`: artifacts without `parameters` (script collections, mappings, flows that only need

@@ -811,7 +811,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		},
 		{
 			Name: "deploy", Title: "Deploy artifacts",
-			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless allow_downgrade. Next: send_test_message to test the flow.",
+			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless the designtime artifact was changed after the running deployment (rule 'modified after deployment') or allow_downgrade; each result's rule says which rule decided. Next: send_test_message to test the flow.",
 			InputSchema: object(props{
 				"artifact_ids":          strArray("Artifact IDs"),
 				"artifact_type":         enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),

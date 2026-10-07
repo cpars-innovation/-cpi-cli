@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
@@ -307,18 +308,37 @@ type Resource struct {
 	Name           string `json:"name"`
 	Type           string `json:"type"`
 	ReferencedType string `json:"referencedType,omitempty"`
-	Size           int64  `json:"size,omitempty"`
-	SizeUnit       string `json:"sizeUnit,omitempty"`
+	// Size is in SizeUnit (the tenant may report fractions, e.g. 1.5 kB).
+	Size     float64 `json:"size,omitempty"`
+	SizeUnit string  `json:"sizeUnit,omitempty"`
+}
+
+// flexNumber reads a JSON number that tenants send as a number or as a
+// string ("12", "1.5"); empty and null are 0.
+type flexNumber float64
+
+func (f *flexNumber) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(strings.Trim(string(b), `"`))
+	if s == "" || s == "null" {
+		*f = 0
+		return nil
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return fmt.Errorf("not a number: %s", b)
+	}
+	*f = flexNumber(n)
+	return nil
 }
 
 // Resources lists the resources of an integration flow.
 func (c *Content) Resources(id, version string) ([]Resource, error) {
 	var rows []struct {
-		Name                   string `json:"Name"`
-		ResourceType           string `json:"ResourceType"`
-		ReferencedResourceType string `json:"ReferencedResourceType"`
-		ResourceSize           int64  `json:"ResourceSize"`
-		ResourceSizeUnit       string `json:"ResourceSizeUnit"`
+		Name                   string     `json:"Name"`
+		ResourceType           string     `json:"ResourceType"`
+		ReferencedResourceType string     `json:"ReferencedResourceType"`
+		ResourceSize           flexNumber `json:"ResourceSize"`
+		ResourceSizeUnit       string     `json:"ResourceSizeUnit"`
 	}
 	urlPath := fmt.Sprintf("/api/v1/IntegrationDesigntimeArtifacts(%s)/Resources", artifactKey(id, version))
 	if err := getResults(c.exe, urlPath, "Get resources", &rows); err != nil {
@@ -326,7 +346,7 @@ func (c *Content) Resources(id, version string) ([]Resource, error) {
 	}
 	out := make([]Resource, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Resource{Name: r.Name, Type: r.ResourceType, ReferencedType: r.ReferencedResourceType, Size: r.ResourceSize, SizeUnit: r.ResourceSizeUnit})
+		out = append(out, Resource{Name: r.Name, Type: r.ResourceType, ReferencedType: r.ReferencedResourceType, Size: float64(r.ResourceSize), SizeUnit: r.ResourceSizeUnit})
 	}
 	return out, nil
 }

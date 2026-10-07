@@ -198,6 +198,7 @@ All flags can be set in the config file under 'configure'.
 **Flags:**
 
 ```
+      --allow-downgrade            Deploy designtime versions older than the running ones, for artifacts and packages without allowDowngrade in the file (config: configure.allowDowngrade, else deploy.allowDowngrade)
       --artifact-filter string     Comma-separated list of artifacts to include (config: configure.artifactFilter)
       --batch-size int             Number of parameters per batch request (config: configure.batchSize, default: 90)
   -c, --config-path string         Path to configuration YAML file (config: configure.configPath)

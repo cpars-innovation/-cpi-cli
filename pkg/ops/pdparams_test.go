@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -126,5 +127,39 @@ func TestPDDeployKeys(t *testing.T) {
 	assert.Equal(t, "CREATED", res.Keys[0].Action)
 	for _, r := range mock.Requests()[before:] {
 		assert.Regexp(t, `^GET `, r, "dry run writes nothing")
+	}
+}
+
+// The tenant returns at most 30 binary parameters per page, whatever $top
+// asks for. ONE_EDM had more: every page must be read, by $skip or by
+// following __next.
+func TestPDManyBinaries(t *testing.T) {
+	for _, next := range []bool{false, true} {
+		t.Run(fmt.Sprintf("next links %v", next), func(t *testing.T) {
+			mock := cpitest.NewTenant(t, nil)
+			mock.PDNextLinks = next
+			mock.PDBinaries = map[string]cpitest.PDBinary{"OTHER/x": {ContentType: "xml", Content: []byte("<x/>")}}
+			for i := range 75 {
+				mock.PDBinaries[fmt.Sprintf("ONE_EDM/map%02d", i)] = cpitest.PDBinary{ContentType: "xsl", Content: []byte("<xsl/>")}
+			}
+			api := cpi.NewPartnerDirectory(mock.Executer())
+
+			res, err := GetPDParameters(api, "ONE_EDM", nil, false, 0)
+			require.NoError(t, err)
+			assert.Len(t, res.Binaries, 75)
+
+			// a requested key on the third page is found, not "missing"
+			res, err = GetPDParameters(api, "ONE_EDM", []string{"map74"}, false, 0)
+			require.NoError(t, err)
+			assert.Empty(t, res.Missing)
+			assert.Len(t, res.Binaries, 1)
+
+			// the snapshot listing (all partner IDs) as well
+			all, err := api.GetBinaryParameters("")
+			require.NoError(t, err)
+			assert.Len(t, all, 76)
+
+			assert.GreaterOrEqual(t, mock.Count("GET /api/v1/BinaryParameters"), 3*3, "three pages per listing")
+		})
 	}
 }
