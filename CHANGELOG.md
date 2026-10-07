@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.2.3
+
 - `snapshot`: `--incremental` skips the download of artifacts whose designtime version,
   `ModifiedAt`, configured parameters (SHA-256) and local copy (SHA-256) are unchanged since the
   last snapshot (state in `.cpi/snapshot-state.json`, committed with the snapshot; artifacts
