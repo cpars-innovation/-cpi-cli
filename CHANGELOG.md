@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `snapshot`: `--incremental` skips the download of artifacts whose designtime version,
+  `ModifiedAt`, configured parameters (SHA-256) and local copy (SHA-256) are unchanged since the
+  last snapshot (state in `.cpi/snapshot-state.json`, committed with the snapshot; artifacts
+  without `ModifiedAt` are always downloaded). Packages run `--parallel` (default 4); a failing
+  package no longer aborts the snapshot (exit code 7, the rest is written and committed).
+  Throttled or gateway-failed reads (429, 502-504) are retried with backoff. See
+  [docs/snapshot.md](docs/snapshot.md).
+
 ## 0.2.2
 
 - Versioning for promotion (`dev -> test -> prod`, same content = same version), see

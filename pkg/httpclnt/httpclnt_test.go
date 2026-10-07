@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockOauth(t *testing.T) {
@@ -145,4 +150,44 @@ func TestMockBasicAuthIDNotFound(t *testing.T) {
 	} else {
 		t.Fatalf("HTTP call failed with response code - %v", resp.StatusCode)
 	}
+}
+
+// RetryReads retries throttled reads, never writes, and only when enabled.
+func TestRetryReads(t *testing.T) {
+	calls := map[string]int{}
+	var mu sync.Mutex
+	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls[r.Method+" "+r.URL.Path]++
+		n := calls[r.Method+" "+r.URL.Path]
+		mu.Unlock()
+		switch {
+		case r.URL.Path == "/flaky" && n <= 2:
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+		case r.URL.Path == "/down":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer svr.Close()
+	host, port := GetHostPort(svr.URL)
+
+	plain := New("", "", "", "", "user", "pw", host, "http", port, false)
+	resp, err := plain.ExecGetRequest("/flaky", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode, "no retries by default")
+
+	exe := New("", "", "", "", "user", "pw", host, "http", port, false).RetryReads(3, time.Millisecond)
+	calls["GET /flaky"] = 0
+	resp, err = exe.ExecGetRequest("/flaky", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, 3, calls["GET /flaky"])
+
+	resp, err = exe.ExecGetRequest("/down", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "gives up after the retries")
+	assert.Equal(t, 4, calls["GET /down"])
 }

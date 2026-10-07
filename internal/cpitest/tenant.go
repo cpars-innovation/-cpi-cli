@@ -1063,7 +1063,11 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		for _, id := range sortedKeys(m.Artifacts) {
 			a := m.Artifacts[id]
 			if a.Package == mm[1] && a.Type == mm[2] {
-				results = append(results, map[string]string{"Id": id, "Name": a.Name, "Version": a.DesignVersion})
+				row := map[string]string{"Id": id, "Name": a.Name, "Version": a.DesignVersion}
+				if !a.ModifiedAt.IsZero() {
+					row["ModifiedAt"] = odataDate(a.ModifiedAt)
+				}
+				results = append(results, row)
 			}
 		}
 		writeJSON(w, map[string]any{"d": map[string]any{"results": results}})

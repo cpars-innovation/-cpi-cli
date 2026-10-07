@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -27,12 +28,30 @@ type HTTPExecuter struct {
 	// csrfOnDemand disables the up-front fetch for Basic Auth.
 	csrfPath     string
 	csrfOnDemand bool
+	readRetries  int
+	readBackoff  time.Duration
 }
 
 // ForEndpoint configures the executer for a runtime endpoint of an integration
 // flow: CSRF tokens are fetched from path, and only after the endpoint asked for
 // one (403 "X-CSRF-Token: Required"), so no GET reaches an endpoint that does
 // not need a token.
+// RetryReads retries GET and HEAD requests that answer 429, 502, 503 or 504
+// up to n times, waiting backoff, 2*backoff, ... (or Retry-After when the
+// tenant sends it, at most 30 s). For bulk reads such as parallel snapshots.
+func (e *HTTPExecuter) RetryReads(n int, backoff time.Duration) *HTTPExecuter {
+	e.readRetries, e.readBackoff = n, backoff
+	return e
+}
+
+func retryable(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 func (e *HTTPExecuter) ForEndpoint(path string) *HTTPExecuter {
 	e.csrfPath, e.csrfOnDemand = path, true
 	return e
@@ -88,7 +107,20 @@ func (e *HTTPExecuter) Exec(method string, path string, body io.Reader, headers 
 		}
 	}
 	if !isModifying(method) {
-		return e.send(method, path, payload, headers, nil)
+		resp, err := e.send(method, path, payload, headers, nil)
+		wait := e.readBackoff
+		for attempt := 0; attempt < e.readRetries && err == nil && retryable(resp.StatusCode); attempt++ {
+			delay := wait
+			if s, perr := strconv.Atoi(resp.Header.Get("Retry-After")); perr == nil && s >= 0 {
+				delay = min(time.Duration(s)*time.Second, 30*time.Second)
+			}
+			_, _ = e.ReadRespBody(resp)
+			log.Debug().Msgf("%v %v answered %d, retrying in %v", method, path, resp.StatusCode, delay)
+			time.Sleep(delay)
+			wait *= 2
+			resp, err = e.send(method, path, payload, headers, nil)
+		}
+		return resp, err
 	}
 
 	token, cookies, generation, err := e.csrfCurrent(e.AuthType == "BASIC" && !e.csrfOnDemand)

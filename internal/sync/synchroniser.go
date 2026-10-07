@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/cpars-innovation/cpicli/internal/manifest"
@@ -27,7 +29,17 @@ type Synchroniser struct {
 	// Versioning decides the designtime version on upload (see
 	// docs/versioning.md); Unset keeps the tenant's version.
 	Versioning versioning.Mode
+	// State, when set, records every exported artifact (snapshot). With
+	// Incremental, artifacts whose version, ModifiedAt, configuration and
+	// local content are unchanged since the recorded state are not
+	// downloaded.
+	State       *SnapshotState
+	Incremental bool
+	skipped     atomic.Int64
 }
+
+// Skipped returns the number of artifacts an incremental export skipped.
+func (s *Synchroniser) Skipped() int64 { return s.skipped.Load() }
 
 func New(exe *httpclnt.HTTPExecuter) *Synchroniser {
 	s := new(Synchroniser)
@@ -145,20 +157,35 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 				return fmt.Errorf("Artifact %v is in draft version. Save Version in Web UI first!", artifact.Id)
 			}
 		}
+		var directoryName string
+		if dirNamingType == "NAME" {
+			directoryName = artifact.Name
+		} else {
+			directoryName = artifact.Id
+		}
+		gitArtifactPath := fmt.Sprintf("%v/%v", artifactsDir, directoryName)
+
+		// incremental snapshot: skip the download when nothing changed
+		stateKey := packageId + "/" + artifact.Id
+		var sig ArtifactState
+		var sigErr error
+		if s.State != nil {
+			if sig, sigErr = tenantSignature(s.exe, artifact); sigErr != nil {
+				log.Warn().Msgf("Cannot read the configuration of %v (%v): downloading it", artifact.Id, sigErr)
+			} else if prev, ok := s.State.get(stateKey); s.Incremental && ok && unchangedSince(prev, sig, gitArtifactPath) {
+				log.Info().Str("artifact", artifact.Id).Msgf("🏆 %v unchanged since the last snapshot (version %v, modified %v, configuration, local copy): skipped",
+					artifact.Id, sig.Version, sig.ModifiedAt.Format(time.RFC3339))
+				s.skipped.Add(1)
+				continue
+			}
+		}
+
 		// Download artifact content
 		dt := cpi.NewDesigntimeArtifact(artifact.ArtifactType, s.exe)
 		targetDownloadFile := fmt.Sprintf("%v/download/%v.zip", workDir, artifact.Id)
 		err = dt.Download(targetDownloadFile, artifact.Id)
 		if err != nil {
 			return err
-		}
-
-		// TODO - override directory name using key value pair - to cater for syncing artifact from different environment
-		var directoryName string
-		if dirNamingType == "NAME" {
-			directoryName = artifact.Name
-		} else {
-			directoryName = artifact.Id
 		}
 		// Unzip artifact contents
 		log.Debug().Msgf("Target artifact directory name - %v", directoryName)
@@ -169,7 +196,6 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 		}
 		log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
 
-		gitArtifactPath := fmt.Sprintf("%v/%v", artifactsDir, directoryName)
 		// The download's Bundle-Version is not the designtime version (often
 		// 1.0.0): keep the repository's version, or take the tenant's when it
 		// is higher (a version saved in the Web UI).
@@ -215,6 +241,14 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 			if err != nil {
 				return err
 			}
+		}
+
+		if s.State != nil {
+			if sigErr != nil {
+				sig.ModifiedAt = time.Time{} // incomplete signature: never skip next time
+			}
+			sig.ContentHash, _ = localContentHash(gitArtifactPath)
+			s.State.set(stateKey, sig)
 		}
 	}
 

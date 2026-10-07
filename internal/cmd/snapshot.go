@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
+	gosync "sync"
+
 	"github.com/cpars-innovation/cpicli/internal/config"
+	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/repo"
 	"github.com/cpars-innovation/cpicli/internal/str"
 	"github.com/cpars-innovation/cpicli/internal/sync"
@@ -75,6 +79,9 @@ Configuration:
 	snapshotCmd.Flags().String("git-commit-email", "41898282+github-actions[bot]@users.noreply.github.com", "Email used in commit (config: snapshot.gitCommitEmail)")
 	snapshotCmd.Flags().Bool("git-skip-commit", false, "Skip committing changes to Git repository (config: snapshot.gitSkipCommit)")
 	snapshotCmd.Flags().Bool("sync-package-details", true, "Sync details of Integration Packages (config: snapshot.syncPackageDetails)")
+	snapshotCmd.Flags().Bool("incremental", false, "Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)")
+	snapshotCmd.Flags().Int("parallel", 4, "Packages processed at the same time (config: snapshot.parallel)")
+	snapshotCmd.Flags().String("state-file", "", "State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)")
 
 	_ = snapshotCmd.MarkFlagRequired("dir-git-repo")
 	snapshotCmd.MarkFlagsMutuallyExclusive("ids-include", "ids-exclude")
@@ -110,68 +117,137 @@ func runSnapshot(cmd *cobra.Command) error {
 	skipCommit := config.GetBoolWithFallback(cmd, "git-skip-commit", "snapshot.gitSkipCommit")
 	syncPackageLevelDetails := config.GetBoolWithFallback(cmd, "sync-package-details", "snapshot.syncPackageDetails")
 
-	serviceDetails := serviceDetails(cmd)
-	err = getTenantSnapshot(serviceDetails, artifactsBaseDir, workDir, draftHandling, syncPackageLevelDetails, includedIds, excludedIds)
+	incremental := config.GetBoolWithFallback(cmd, "incremental", "snapshot.incremental")
+	parallel := config.GetIntWithFallback(cmd, "parallel", "snapshot.parallel")
+	stateFile := config.GetStringWithFallback(cmd, "state-file", "snapshot.stateFile")
+	if stateFile == "" {
+		stateFile = filepath.Join(gitRepoDir, ".cpi", "snapshot-state.json")
+	}
+	state, err := sync.LoadSnapshotState(stateFile)
 	if err != nil {
-		return err
+		return output.Usagef("cannot read the snapshot state %s: %v (delete it for a full snapshot)", stateFile, err)
 	}
 
+	serviceDetails := serviceDetails(cmd)
+	res, snapErr := getTenantSnapshot(serviceDetails, artifactsBaseDir, workDir, draftHandling, syncPackageLevelDetails, includedIds, excludedIds,
+		snapshotOptions{incremental: incremental, parallel: parallel, state: state})
+	if res != nil {
+		output.SetResult(cmd.Context(), res)
+	}
+	if snapErr != nil && (res == nil || res.Succeeded == 0) {
+		return snapErr
+	}
+	// what succeeded is kept, also when some packages failed
+	if err := state.Save(stateFile); err != nil {
+		return err
+	}
 	if !skipCommit {
 		err = repo.CommitToRepo(gitRepoDir, commitMsg, commitUser, commitEmail)
 		if err != nil {
 			return err
 		}
 	}
-	return nil
+	return snapErr
 }
 
-func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool, includedIds []string, excludedIds []string) error {
+type snapshotOptions struct {
+	incremental bool
+	parallel    int
+	state       *sync.SnapshotState
+}
+
+// snapshotResult is the JSON result of snapshot.
+type snapshotResult struct {
+	Packages  int      `json:"packages"`
+	Succeeded int      `json:"succeeded"`
+	Skipped   int64    `json:"artifactsSkipped"`
+	Failed    []string `json:"failed,omitempty"`
+}
+
+func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool,
+	includedIds []string, excludedIds []string, opts snapshotOptions) (*snapshotResult, error) {
 	log.Info().Msg("---------------------------------------------------------------------------------")
 	log.Info().Msg("📢 Begin taking a snapshot of the tenant")
 
-	// Initialise HTTP executer
-	exe := cpi.InitHTTPExecuter(serviceDetails)
+	// Initialise HTTP executer; many parallel reads: retry when the tenant
+	// throttles (429) or a gateway fails
+	exe := cpi.InitHTTPExecuter(serviceDetails).RetryReads(3, 2*time.Second)
 
 	// Get packages from the tenant - details of all packages are returned in this single call,
 	// so no additional call per package is needed
 	ip := cpi.NewIntegrationPackage(exe)
 	packages, err := ip.GetPackagesData()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(packages) == 0 {
-		return fmt.Errorf("No packages found in the tenant")
+		return nil, fmt.Errorf("No packages found in the tenant")
 	}
 
-	log.Info().Msgf("Processing %d packages", len(packages))
+	if opts.parallel < 1 {
+		opts.parallel = 1
+	}
+	mode := "full"
+	if opts.incremental {
+		mode = "incremental"
+	}
+	log.Info().Msgf("Processing %d packages (%s, %d in parallel)", len(packages), mode, opts.parallel)
 	synchroniser := sync.New(exe)
+	synchroniser.State, synchroniser.Incremental = opts.state, opts.incremental
+
+	res := &snapshotResult{}
+	var mu gosync.Mutex
+	sem := make(chan struct{}, opts.parallel)
+	var wg gosync.WaitGroup
 	for i, packageDataFromTenant := range packages {
 		id := packageDataFromTenant.Root.Id
-		log.Info().Msg("---------------------------------------------------------------------------------")
-		log.Info().Msgf("Processing package %d/%d - ID: %v", i+1, len(packages), id)
 		// Filter in/out packages before any call to the tenant
 		if str.FilterIDs(id, includedIds, excludedIds) {
 			continue
 		}
-		packageWorkingDir := fmt.Sprintf("%v/%v", workDir, id)
-		packageArtifactsDir := fmt.Sprintf("%v/%v", artifactsBaseDir, id)
 		if packageDataFromTenant.Root.Mode == "READ_ONLY" {
 			log.Warn().Msgf("Skipping package %v as it is Configure-only and cannot be downloaded", id)
 			continue
 		}
-		if syncPackageLevelDetails {
-			err = synchroniser.PackageToGit(packageDataFromTenant, id, packageWorkingDir, packageArtifactsDir)
+		res.Packages++
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			log.Info().Str("package", id).Msgf("Processing package %d/%d - ID: %v", i+1, len(packages), id)
+			packageWorkingDir := fmt.Sprintf("%v/%v", workDir, id)
+			packageArtifactsDir := fmt.Sprintf("%v/%v", artifactsBaseDir, id)
+			err := func() error {
+				if syncPackageLevelDetails {
+					if err := synchroniser.PackageToGit(packageDataFromTenant, id, packageWorkingDir, packageArtifactsDir); err != nil {
+						return err
+					}
+				}
+				return synchroniser.ArtifactsToGit(id, packageWorkingDir, packageArtifactsDir, nil, nil, draftHandling, "ID", nil)
+			}()
+			mu.Lock()
+			defer mu.Unlock()
 			if err != nil {
-				return err
+				log.Error().Str("package", id).Msgf("❌ Package %v failed: %v", id, err)
+				res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", id, err))
+				return
 			}
-		}
-		err = synchroniser.ArtifactsToGit(id, packageWorkingDir, packageArtifactsDir, nil, nil, draftHandling, "ID", nil)
-		if err != nil {
-			return err
-		}
+			res.Succeeded++
+		}()
 	}
+	wg.Wait()
+	res.Skipped = synchroniser.Skipped()
+	sort.Strings(res.Failed)
 
 	log.Info().Msg("---------------------------------------------------------------------------------")
-	log.Info().Msg("🏆 Completed taking a snapshot of the tenant")
-	return nil
+	log.Info().Msgf("🏆 Snapshot: %d package(s) done, %d failed, %d artifact(s) unchanged and skipped", res.Succeeded, len(res.Failed), res.Skipped)
+	if len(res.Failed) > 0 {
+		err := fmt.Errorf("%d of %d package(s) failed: %s", len(res.Failed), res.Packages, strings.Join(res.Failed, "; "))
+		if res.Succeeded > 0 {
+			return res, output.Partial(err)
+		}
+		return res, err
+	}
+	return res, nil
 }

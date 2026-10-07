@@ -1771,6 +1771,9 @@ Configuration:
       --git-commit-msg string     Message used in commit (config: snapshot.gitCommitMsg) (default "Tenant snapshot of <current time>")
       --git-commit-user string    User used in commit (config: snapshot.gitCommitUser) (default "github-actions[bot]")
       --git-skip-commit           Skip committing changes to Git repository (config: snapshot.gitSkipCommit)
+      --incremental               Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)
+      --parallel int              Packages processed at the same time (config: snapshot.parallel) (default 4)
+      --state-file string         State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)
       --sync-package-details      Sync details of Integration Packages (config: snapshot.syncPackageDetails) (default true)
 ```
 

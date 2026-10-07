@@ -353,6 +353,7 @@ Setup per agent, examples and what differs from the Claude Code plugin: [docs/ag
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Other agents](docs/agents.md) | Codex, Cursor, Gemini CLI: MCP setup, skills, AGENTS.md |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages, `config-generate` |
+| [Snapshot](docs/snapshot.md) | Tenant backup to Git: `--incremental` (version, ModifiedAt, configuration and content hashes), `--parallel` |
 | [Versioning](docs/versioning.md) | Versions in the repository (`Bundle-Version`), `--versioning manifest\|keep\|tenant-bump`, `version bump --changed` |
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |

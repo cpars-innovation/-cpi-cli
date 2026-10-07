@@ -195,6 +195,9 @@ func (g *ConfigGenerator) Generate() error {
 		}
 
 		packageName := entry.Name()
+		if strings.HasPrefix(packageName, ".") {
+			continue // .git, .cpi (snapshot state, conventions), ...
+		}
 
 		// Apply package filter
 		if !shouldInclude(packageName, g.PackageFilter) {

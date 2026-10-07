@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
 	"github.com/go-errors/errors"
@@ -22,9 +23,10 @@ type PackageSingleData struct {
 type artifactData struct {
 	Root struct {
 		Results []struct {
-			Id      string `json:"Id"`
-			Name    string `json:"Name"`
-			Version string `json:"Version"`
+			Id         string `json:"Id"`
+			Name       string `json:"Name"`
+			Version    string `json:"Version"`
+			ModifiedAt string `json:"ModifiedAt"`
 		} `json:"results"`
 	} `json:"d"`
 }
@@ -56,6 +58,9 @@ type ArtifactDetails struct {
 	IsDraft      bool
 	Version      string
 	ArtifactType string
+	// ModifiedAt is the last change of the designtime artifact; zero when the
+	// tenant does not report it.
+	ModifiedAt time.Time
 }
 
 // NewIntegrationPackage returns an initialised IntegrationPackage instance.
@@ -179,12 +184,17 @@ func (ip *IntegrationPackage) GetArtifactsData(id string, artifactType string) (
 		} else {
 			draft = false
 		}
+		modified, err := ParseODataTime(result.ModifiedAt)
+		if err != nil {
+			modified = time.Time{}
+		}
 		details = append(details, &ArtifactDetails{
 			Id:           result.Id,
 			Name:         result.Name,
 			IsDraft:      draft,
 			Version:      result.Version,
 			ArtifactType: artifactType,
+			ModifiedAt:   modified,
 		})
 	}
 	return details, nil
