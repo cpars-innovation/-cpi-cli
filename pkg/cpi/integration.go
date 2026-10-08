@@ -3,6 +3,9 @@ package cpi
 import (
 	"github.com/cpars-innovation/cpicli/internal/file"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
+	"github.com/rs/zerolog/log"
+	"os"
+	"path/filepath"
 )
 
 type Integration struct {
@@ -54,10 +57,29 @@ func (int *Integration) CompareContent(srcDir string, tgtDir string, scriptMap [
 	// - Therefore diff of parameters.prop may come up with false differences
 	if target == "git" {
 		// When syncing (from tenant to Git), include diff of parameter.prop separately
-		paramDiffer := DiffOptionalFile(srcDir, tgtDir, "src/main/resources/parameters.prop")
+		paramDiffer := diffParameters(srcDir, tgtDir)
 		return dirDiffer || paramDiffer, nil
 	} else {
 		// When uploading (from Git to tenant), API is used to update the configuration parameters separately
 		return dirDiffer, nil
 	}
+}
+
+// diffParameters compares parameters.prop by its entries: order, comments
+// (the download's timestamp line) and blank lines do not count.
+func diffParameters(srcDir, tgtDir string) bool {
+	a, errA := os.ReadFile(filepath.Join(srcDir, filepath.FromSlash(file.ParametersFile)))
+	b, errB := os.ReadFile(filepath.Join(tgtDir, filepath.FromSlash(file.ParametersFile)))
+	switch {
+	case errA != nil && errB != nil:
+		return false
+	case errA != nil || errB != nil:
+		log.Info().Msg("parameters.prop exists on one side only")
+		return true
+	}
+	if !file.PropertiesEqual(a, b) {
+		log.Info().Msg("File differs: parameters.prop")
+		return true
+	}
+	return false
 }

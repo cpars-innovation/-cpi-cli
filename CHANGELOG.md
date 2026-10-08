@@ -5,6 +5,27 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `snapshot` for a repository with one copy of every artifact (`packages/` in the tenant layout,
+  edited by developers, deployed by the orchestrator). See [docs/snapshot.md](docs/snapshot.md).
+  - Per artifact: `new`, `changed`, `unchanged`, `deleted`, `local-modified`, `local-only`,
+    `derived`, in the text output, `--output json` (`counts`, `artifacts`) and the job summary.
+  - `--dry-run` writes no files and no state; `--fail-on-local-modified` exits 5 (CI).
+  - **Local edits are no longer overwritten**: an artifact whose files differ from what the last
+    snapshot wrote is skipped as `local-modified` (`--overwrite-local` forces it). The state has a
+    hash of every local file (`filesHash`).
+  - A written artifact folder is replaced by the tenant's content, so files deleted on the
+    tenant are deleted locally. Artifacts and packages deleted on the tenant are reported;
+    `--prune` removes them (never local edits, never local-only folders).
+  - Deployment copies are not written: IDs deployed from another `artifactDir`, and
+    `deploymentPrefix` variants of artifacts and packages, read from `--deploy-config` (else
+    `orchestrator.deployConfig`). A copy edited on the tenant is reported as a warning.
+    `--include-derived` turns this off. For artifacts deployed with `configOverrides`, the
+    repository's values of those keys are kept.
+  - Stable output: `parameters.prop` without the timestamp comment and with sorted keys, LF line
+    endings for text files, binaries byte for byte; an unchanged snapshot gives no diff, the
+    state file included.
+- `download` / MCP `download_artifact` normalize `parameters.prop` the same way.
+
 ## 0.3.0
 
 - OpenCode: MCP setup (`opencode.json`) and `cpictl skills install --agent opencode`

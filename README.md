@@ -208,18 +208,21 @@ directory tree) or [`configure`](docs/configure.md) (parameters from YAML per en
 
 ### In a pipeline
 
+One copy of every artifact in the tenant layout (`packages/`, tracked in Git): developers edit
+it, `snapshot` brings tenant changes into it as a reviewable diff, `orchestrator` deploys from it.
+
 ```bash
-cpictl snapshot --incremental --dir-git-repo . --git-skip-commit   # tenant -> repository (unchanged artifacts skipped)
-./copy-managed-parts.sh                                            # your parts over the snapshot
-cpictl orchestrator -d . -c deploy/ --plan                         # optional: what would happen, and why
-cpictl orchestrator -d . -c deploy/ --defer-deploy                 # uploads only what changed, no second download
-cpictl configure -c config/dev.yml --defer-deploy                  # writes only changed parameters
-cpictl deploy --pending                                            # deploys each artifact once
+cpictl snapshot --dir-git-repo packages --git-skip-commit --dry-run   # new / changed / deleted / local-modified / derived
+cpictl snapshot --dir-git-repo packages --git-skip-commit             # write it; local edits are not overwritten
+cpictl orchestrator -d packages -c deployments --plan                 # what would be uploaded and deployed, and why
+cpictl orchestrator -d packages -c deployments --defer-deploy         # uploads only what changed; never writes into packages/
+cpictl configure -c config/dev.yml --defer-deploy                     # writes only changed parameters
+cpictl deploy --pending                                               # deploys each artifact once
 ```
 
-Reads, uploads and parameter reads run 8 at a time, throttled reads are retried, and in GitHub
-Actions every step adds a summary table to the run page. Details:
-[docs/ci.md](docs/ci.md#pipeline-snapshot-update-configure-deploy-once).
+Snapshot output is stable (two runs, empty `git status`), deployment copies of the deploy config
+are not written, and reads, uploads and parameter reads run 8 at a time. Details:
+[docs/snapshot.md](docs/snapshot.md), [docs/ci.md](docs/ci.md#pipeline-snapshot-update-configure-deploy-once).
 
 ## Commands
 
@@ -436,7 +439,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [Claude Code plugin](docs/plugin.md) | Skills, reviewer agent, tenant conventions |
 | [Other agents](docs/agents.md) | Cursor, OpenCode, Codex, Gemini CLI: MCP setup, skills, AGENTS.md |
 | [Orchestrator](docs/orchestrator.md) | Update + deploy many packages: `--plan`, comparison with the snapshot, `--defer-deploy`, `--parallel`, `config-generate` |
-| [Snapshot](docs/snapshot.md) | Tenant backup to Git: `--incremental` (version, ModifiedAt, configuration and content hashes), `--parallel` |
+| [Snapshot](docs/snapshot.md) | Tenant into the repository: `--dry-run`, local edits protected, deployment copies skipped, stable output, `--prune`, `--incremental`, `--parallel` |
 | [Versioning](docs/versioning.md) | Versions in the repository (`Bundle-Version`), `--versioning manifest\|keep\|tenant-bump`, `version bump --changed` |
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |

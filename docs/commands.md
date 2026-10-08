@@ -1813,15 +1813,22 @@ Configuration:
 **Flags:**
 
 ```
-      --draft-handling string     Handling when artifact is in draft version. Allowed values: SKIP, ADD, ERROR (config: snapshot.draftHandling) (default "SKIP")
-      --git-commit-email string   Email used in commit (config: snapshot.gitCommitEmail) (default "41898282+github-actions[bot]@users.noreply.github.com")
-      --git-commit-msg string     Message used in commit (config: snapshot.gitCommitMsg) (default "Tenant snapshot of <current time>")
-      --git-commit-user string    User used in commit (config: snapshot.gitCommitUser) (default "github-actions[bot]")
-      --git-skip-commit           Skip committing changes to Git repository (config: snapshot.gitSkipCommit)
-      --incremental               Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)
-      --parallel int              Artifacts downloaded at the same time, across all packages (config: snapshot.parallel) (default 8)
-      --state-file string         State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)
-      --sync-package-details      Sync details of Integration Packages (config: snapshot.syncPackageDetails) (default true)
+      --deploy-config string        Deploy config file or folder of the orchestrator: its deployment copies are not written (config: snapshot.deployConfig, else orchestrator.deployConfig)
+      --deployment-prefix strings   Additional deployment prefixes whose copies are not written (the deploy config's deploymentPrefix always counts)
+      --draft-handling string       Handling when artifact is in draft version. Allowed values: SKIP, ADD, ERROR (config: snapshot.draftHandling) (default "SKIP")
+      --dry-run                     Only report per artifact what the snapshot would do (new, changed, deleted, unchanged, local-modified, derived); writes no files and no state
+      --fail-on-local-modified      Exit with code 5 when an artifact is local-modified (for CI)
+      --git-commit-email string     Email used in commit (config: snapshot.gitCommitEmail) (default "41898282+github-actions[bot]@users.noreply.github.com")
+      --git-commit-msg string       Message used in commit (config: snapshot.gitCommitMsg) (default "Tenant snapshot of <current time>")
+      --git-commit-user string      User used in commit (config: snapshot.gitCommitUser) (default "github-actions[bot]")
+      --git-skip-commit             Skip committing changes to Git repository (config: snapshot.gitSkipCommit)
+      --include-derived             Write deployment copies like any other artifact (ignore the deploy config)
+      --incremental                 Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)
+      --overwrite-local             Overwrite artifacts with local edits since the last snapshot (default: skip them as local-modified)
+      --parallel int                Artifacts downloaded at the same time, across all packages (config: snapshot.parallel) (default 8)
+      --prune                       Remove local artifact folders of artifacts and packages deleted on the tenant, and local folders of derived copies (never when edited locally)
+      --state-file string           State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)
+      --sync-package-details        Sync details of Integration Packages (config: snapshot.syncPackageDetails) (default true)
 ```
 
 ## snapshot restore

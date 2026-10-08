@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"cmp"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/internal/deploy"
+	"github.com/spf13/viper"
+	"slices"
 	"sort"
 	gosync "sync"
 
@@ -81,6 +85,13 @@ Configuration:
 	snapshotCmd.Flags().Bool("sync-package-details", true, "Sync details of Integration Packages (config: snapshot.syncPackageDetails)")
 	snapshotCmd.Flags().Bool("incremental", false, "Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)")
 	snapshotCmd.Flags().Int("parallel", 8, "Artifacts downloaded at the same time, across all packages (config: snapshot.parallel)")
+	snapshotCmd.Flags().Bool("dry-run", false, "Only report per artifact what the snapshot would do (new, changed, deleted, unchanged, local-modified, derived); writes no files and no state")
+	snapshotCmd.Flags().Bool("overwrite-local", false, "Overwrite artifacts with local edits since the last snapshot (default: skip them as local-modified)")
+	snapshotCmd.Flags().Bool("fail-on-local-modified", false, "Exit with code 5 when an artifact is local-modified (for CI)")
+	snapshotCmd.Flags().Bool("prune", false, "Remove local artifact folders of artifacts and packages deleted on the tenant, and local folders of derived copies (never when edited locally)")
+	snapshotCmd.Flags().String("deploy-config", "", "Deploy config file or folder of the orchestrator: its deployment copies are not written (config: snapshot.deployConfig, else orchestrator.deployConfig)")
+	snapshotCmd.Flags().StringSlice("deployment-prefix", nil, "Additional deployment prefixes whose copies are not written (the deploy config's deploymentPrefix always counts)")
+	snapshotCmd.Flags().Bool("include-derived", false, "Write deployment copies like any other artifact (ignore the deploy config)")
 	snapshotCmd.Flags().String("state-file", "", "State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)")
 
 	_ = snapshotCmd.MarkFlagRequired("dir-git-repo")
@@ -128,6 +139,19 @@ func runSnapshot(cmd *cobra.Command) error {
 		return output.Usagef("cannot read the snapshot state %s: %v (delete it for a full snapshot)", stateFile, err)
 	}
 
+	snap := &sync.SnapshotOptions{
+		DryRun:         config.GetBoolWithFallback(cmd, "dry-run", "snapshot.dryRun"),
+		OverwriteLocal: config.GetBoolWithFallback(cmd, "overwrite-local", "snapshot.overwriteLocal"),
+		Prune:          config.GetBoolWithFallback(cmd, "prune", "snapshot.prune"),
+	}
+	if snap.Derived, err = derivedIndex(cmd, artifactsBaseDir); err != nil {
+		return err
+	}
+	failOnLocal := config.GetBoolWithFallback(cmd, "fail-on-local-modified", "snapshot.failOnLocalModified")
+	if snap.DryRun {
+		log.Info().Msg("DRY RUN: no files and no state are written")
+	}
+
 	serviceDetails := serviceDetails(cmd)
 	if tenant := cpi.TenantID(serviceDetails.Host); state.Tenant != tenant {
 		if state.Tenant != "" && len(state.Artifacts) > 0 {
@@ -137,12 +161,22 @@ func runSnapshot(cmd *cobra.Command) error {
 		state.Tenant = tenant
 	}
 	res, snapErr := getTenantSnapshot(serviceDetails, artifactsBaseDir, workDir, draftHandling, syncPackageLevelDetails, includedIds, excludedIds,
-		snapshotOptions{incremental: incremental, parallel: parallel, state: state})
+		snapshotOptions{incremental: incremental, parallel: parallel, state: state, snap: snap, includedIds: includedIds, excludedIds: excludedIds})
 	if res != nil {
 		output.SetResult(cmd.Context(), res)
 	}
 	if snapErr != nil && (res == nil || res.Succeeded == 0) {
 		return snapErr
+	}
+	localErr := error(nil)
+	if failOnLocal && res != nil && res.Counts[sync.SnapLocalModified] > 0 {
+		localErr = output.Failed(fmt.Errorf("%d artifact(s) local-modified", res.Counts[sync.SnapLocalModified]))
+	}
+	if snap.DryRun {
+		if snapErr != nil {
+			return snapErr
+		}
+		return localErr
 	}
 	// what succeeded is kept, also when some packages failed
 	if err := state.Save(stateFile); err != nil {
@@ -154,13 +188,19 @@ func runSnapshot(cmd *cobra.Command) error {
 			return err
 		}
 	}
-	return snapErr
+	if snapErr != nil {
+		return snapErr
+	}
+	return localErr
 }
 
 type snapshotOptions struct {
 	incremental bool
 	parallel    int
 	state       *sync.SnapshotState
+	snap        *sync.SnapshotOptions
+	// the package filters, for packages that exist only locally
+	includedIds, excludedIds []string
 }
 
 // snapshotResult is the JSON result of snapshot.
@@ -171,6 +211,12 @@ type snapshotResult struct {
 	Skipped    int64    `json:"artifactsSkipped"`
 	Seconds    float64  `json:"seconds"`
 	Failed     []string `json:"failed,omitempty"`
+	DryRun     bool     `json:"dryRun,omitempty"`
+	// Counts per status, Artifacts per artifact (sorted), Warnings: derived
+	// copies edited on the tenant and similar.
+	Counts    map[string]int      `json:"counts"`
+	Warnings  int                 `json:"warnings"`
+	Artifacts []sync.SnapshotItem `json:"artifacts"`
 }
 
 func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir string, workDir string, draftHandling string, syncPackageLevelDetails bool,
@@ -203,6 +249,12 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 	log.Info().Msgf("Processing %d packages (%s, %d in parallel)", len(packages), mode, opts.parallel)
 	synchroniser := sync.New(exe)
 	synchroniser.State, synchroniser.Incremental = opts.state, opts.incremental
+	synchroniser.Snap = opts.snap
+	if synchroniser.Snap == nil {
+		synchroniser.Snap = &sync.SnapshotOptions{}
+	}
+	snap := synchroniser.Snap
+	tenantPackages := map[string]bool{}
 	// the artifacts of all packages share the download slots, so one large
 	// package does not run alone at the end
 	synchroniser.ArtifactSlots = make(chan struct{}, opts.parallel)
@@ -214,6 +266,7 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 	var wg gosync.WaitGroup
 	for i, packageDataFromTenant := range packages {
 		id := packageDataFromTenant.Root.Id
+		tenantPackages[id] = true
 		// Filter in/out packages before any call to the tenant
 		if str.FilterIDs(id, includedIds, excludedIds) {
 			continue
@@ -232,7 +285,8 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 			packageWorkingDir := fmt.Sprintf("%v/%v", workDir, id)
 			packageArtifactsDir := fmt.Sprintf("%v/%v", artifactsBaseDir, id)
 			err := func() error {
-				if syncPackageLevelDetails {
+				_, derivedPackage := derivedPackages(snap)[id]
+				if syncPackageLevelDetails && !snap.DryRun && !derivedPackage {
 					if err := synchroniser.PackageToGit(packageDataFromTenant, id, packageWorkingDir, packageArtifactsDir); err != nil {
 						return err
 					}
@@ -250,13 +304,31 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 		}()
 	}
 	wg.Wait()
+	// deployment copies are compared with their sources once those are written
+	if err := synchroniser.CheckDerived(); err != nil {
+		res.Failed = append(res.Failed, err.Error())
+	}
+	// packages that exist only locally
+	if err := snapshotLocalPackages(synchroniser, artifactsBaseDir, tenantPackages, includedIds, excludedIds); err != nil {
+		res.Failed = append(res.Failed, err.Error())
+	}
+	res.DryRun = snap.DryRun
+	res.Artifacts = snap.Items()
+	res.Counts = map[string]int{}
+	for _, it := range res.Artifacts {
+		res.Counts[it.Status]++
+		if it.Warning != "" {
+			res.Warnings++
+		}
+	}
 	res.Skipped, res.Downloaded = synchroniser.Skipped(), synchroniser.Downloaded()
 	res.Seconds = time.Since(started).Round(100 * time.Millisecond).Seconds()
 	sort.Strings(res.Failed)
 
 	log.Info().Msg("---------------------------------------------------------------------------------")
-	log.Info().Msgf("🏆 Snapshot: %d package(s) done, %d failed; %d artifact(s) downloaded, %d unchanged and skipped; %.1fs (%d in parallel)",
-		res.Succeeded, len(res.Failed), res.Downloaded, res.Skipped, res.Seconds, opts.parallel)
+	log.Info().Msgf("🏆 Snapshot%s: %d package(s) done, %d failed; %d artifact(s) downloaded, %d unchanged and skipped; %.1fs (%d in parallel)",
+		map[bool]string{true: " (dry run)", false: ""}[snap.DryRun], res.Succeeded, len(res.Failed), res.Downloaded, res.Skipped, res.Seconds, opts.parallel)
+	log.Info().Msgf("Artifacts: %s; %d warning(s)", formatCounts(res.Counts), res.Warnings)
 	if len(res.Failed) > 0 {
 		err := fmt.Errorf("%d of %d package(s) failed: %s", len(res.Failed), res.Packages, strings.Join(res.Failed, "; "))
 		if res.Succeeded > 0 {
@@ -265,4 +337,122 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 		return res, err
 	}
 	return res, nil
+}
+
+func derivedPackages(o *sync.SnapshotOptions) map[string]string {
+	if o == nil || o.Derived == nil {
+		return nil
+	}
+	return o.Derived.Packages
+}
+
+func formatCounts(counts map[string]int) string {
+	order := []string{sync.SnapNew, sync.SnapChanged, sync.SnapUnchanged, sync.SnapDeleted, sync.SnapLocalModified, sync.SnapLocalOnly, sync.SnapDerived}
+	var parts []string
+	for _, k := range order {
+		if counts[k] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[k], k))
+		}
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// snapshotLocalPackages reports (and with --prune removes) the artifacts of
+// package folders whose package is no longer on the tenant.
+func snapshotLocalPackages(s *sync.Synchroniser, base string, tenantPackages map[string]bool, included, excluded []string) error {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		id := e.Name()
+		if !e.IsDir() || strings.HasPrefix(id, ".") || tenantPackages[id] || str.FilterIDs(id, included, excluded) {
+			continue
+		}
+		dir := filepath.Join(base, id)
+		if err := s.SnapshotLeftovers(id, dir, nil); err != nil {
+			return err
+		}
+		if s.Snap.Prune && !s.Snap.DryRun {
+			// the package folder goes when only its details file is left
+			rest, _ := os.ReadDir(dir)
+			if len(rest) == 0 || (len(rest) == 1 && rest[0].Name() == id+".json") {
+				if err := os.RemoveAll(dir); err != nil {
+					return err
+				}
+				log.Info().Msgf("Package folder %s removed (--prune): the package is gone from the tenant", id)
+			}
+		}
+	}
+	return nil
+}
+
+// derivedIndex reads the deploy config (--deploy-config, snapshot.deployConfig
+// or orchestrator.deployConfig): the deployment copies it creates on the
+// tenant, and the configOverrides keys of the artifacts deployed as they are.
+func derivedIndex(cmd *cobra.Command, base string) (*sync.DerivedIndex, error) {
+	path := config.GetStringWithFallback(cmd, "deploy-config", "snapshot.deployConfig")
+	if path == "" {
+		path = viper.GetString("orchestrator.deployConfig")
+	}
+	if path == "" {
+		return nil, nil
+	}
+	loader := deploy.NewConfigLoader()
+	if err := loader.DetectSource(path); err != nil {
+		return nil, output.Usagef("deploy config %s: %v", path, err)
+	}
+	files, err := loader.LoadConfigs()
+	if err != nil {
+		return nil, output.Usagef("deploy config %s: %v", path, err)
+	}
+	extra := str.TrimSlice(config.GetStringSliceWithFallback(cmd, "deployment-prefix", "snapshot.deploymentPrefix"))
+	includeDerived := config.GetBoolWithFallback(cmd, "include-derived", "snapshot.includeDerived")
+	idx := &sync.DerivedIndex{Artifacts: map[string]sync.DerivedSource{}, Packages: map[string]string{}, Overrides: map[string]map[string]bool{}}
+	sources := map[string]bool{}
+	for _, f := range files {
+		prefixes := slices.Clone(extra)
+		if p := f.Config.DeploymentPrefix; p != "" && !slices.Contains(prefixes, p) {
+			prefixes = append(prefixes, p)
+		}
+		for _, pkg := range f.Config.Packages {
+			pkgDir := cmp.Or(pkg.PackageDir, pkg.ID)
+			for _, p := range prefixes {
+				idx.Packages[p+pkg.ID] = pkg.ID
+			}
+			for _, a := range pkg.Artifacts {
+				artDir := filepath.ToSlash(filepath.Clean(cmp.Or(a.ArtifactDir, a.Id)))
+				src := sync.DerivedSource{Label: pkgDir + "/" + artDir, Dir: filepath.Join(base, filepath.FromSlash(pkgDir), filepath.FromSlash(artDir))}
+				if artDir != a.Id {
+					idx.Artifacts[a.Id] = sync.DerivedSource{Label: src.Label, Dir: src.Dir, Reason: "artifactDir"}
+				} else if f.Config.DeploymentPrefix == "" {
+					sources[a.Id] = true
+					if len(a.ConfigOverrides) > 0 {
+						if idx.Overrides[a.Id] == nil {
+							idx.Overrides[a.Id] = map[string]bool{}
+						}
+						for k := range a.ConfigOverrides {
+							idx.Overrides[a.Id][k] = true
+						}
+					}
+				}
+				for _, p := range prefixes {
+					idx.Artifacts[p+"_"+a.Id] = sync.DerivedSource{Label: src.Label, Dir: src.Dir, Reason: "deploymentPrefix " + p}
+				}
+			}
+		}
+	}
+	// an ID that is deployed from its own folder is no copy
+	for id := range sources {
+		delete(idx.Artifacts, id)
+	}
+	if includeDerived {
+		idx.Artifacts, idx.Packages = nil, nil
+	}
+	log.Info().Msgf("Deploy config %s: %d deployment copies and %d prefixed package(s) are not written%s",
+		path, len(idx.Artifacts), len(idx.Packages), map[bool]string{true: " (--include-derived: all are written)", false: ""}[includeDerived])
+	return idx, nil
 }

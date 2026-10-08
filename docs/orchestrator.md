@@ -86,6 +86,11 @@ All of these can be set in the global config file under `orchestrator:` (camelCa
 
 ### What happens
 
+The orchestrator only reads `--packages-dir`: renamed IDs and names, `configOverrides`,
+`deploymentPrefix` and manifest changes are applied to a temporary copy, so the directory can be
+the Git working tree. One `artifactDir` can be deployed under several `artifactId`s, each with its
+own `configOverrides`; `--plan` lists every ID.
+
 **Phase 1, update** (skipped with `--deploy-only`), per package with `sync: true`:
 
 1. The package is created or updated (ID, name, description, short text).

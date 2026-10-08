@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/cpicli/internal/sync"
 	"os"
 	"strings"
 	"time"
@@ -174,12 +175,24 @@ func (r planResult) MarkdownSummary() string {
 }
 
 func (r *snapshotResult) MarkdownSummary() string {
-	s := fmt.Sprintf("%d of %d package(s) exported: %d artifact(s) downloaded, %d skipped (unchanged), %.1fs.\n",
-		r.Succeeded, r.Packages, r.Downloaded, r.Skipped, r.Seconds)
-	if len(r.Failed) > 0 {
-		s += "\nFailed: " + strings.Join(r.Failed, ", ") + "\n"
+	var b strings.Builder
+	if r.DryRun {
+		b.WriteString("**Dry run**: nothing was written.\n\n")
 	}
-	return s
+	fmt.Fprintf(&b, "%d of %d package(s): %s; %d warning(s); %d artifact(s) downloaded, %.1fs.\n\n",
+		r.Succeeded, r.Packages, formatCounts(r.Counts), r.Warnings, r.Downloaded, r.Seconds)
+	var rows [][]string
+	for _, it := range r.Artifacts {
+		if it.Status == sync.SnapUnchanged && it.Warning == "" {
+			continue
+		}
+		rows = append(rows, []string{it.Package + "/" + it.Artifact, it.Status, it.Action, it.Source, strings.TrimSpace(it.Note + " " + it.Warning)})
+	}
+	b.WriteString(mdTable([]string{"Artifact", "Status", "Action", "Source", "Note"}, rows))
+	if len(r.Failed) > 0 {
+		b.WriteString("Failed: " + strings.Join(r.Failed, ", ") + "\n")
+	}
+	return b.String()
 }
 
 // planResult is the JSON result of deploy --plan.

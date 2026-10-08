@@ -47,6 +47,12 @@ type ArtifactState struct {
 	// downloaded (no Bundle-Version): an upload whose content has the same
 	// hash would change nothing (see Synchroniser.Baseline).
 	UploadHash string `json:"uploadHash,omitempty"`
+	// FilesHash is the file.TreeHash of the local folder as the snapshot
+	// left it (every file, exact bytes): a different hash means local edits.
+	FilesHash string `json:"filesHash,omitempty"`
+	// Derived is set for a deployment copy of another artifact
+	// ("<package>/<artifactDir>"): the snapshot does not write it.
+	Derived string `json:"derived,omitempty"`
 }
 
 // LoadSnapshotState reads the state file; a missing file is an empty state.
@@ -87,6 +93,27 @@ func (st *SnapshotState) get(key string) (ArtifactState, bool) {
 	defer st.mu.Unlock()
 	a, ok := st.Artifacts[key]
 	return a, ok
+}
+
+func (st *SnapshotState) remove(key string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.Artifacts, key)
+	st.byID = nil
+}
+
+// keys returns the keys of one package ("<package>/...").
+func (st *SnapshotState) keys(packageID string) []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var out []string
+	for k := range st.Artifacts {
+		if strings.HasPrefix(k, packageID+"/") {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (st *SnapshotState) set(key string, a ArtifactState) {

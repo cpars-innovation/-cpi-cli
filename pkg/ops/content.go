@@ -297,6 +297,10 @@ func DownloadArtifactToDir(exe *httpclnt.HTTPExecuter, artifactType, id, version
 	if err := file.UnzipSource(tmp.Name(), dir); err != nil {
 		return nil, fmt.Errorf("failed to extract %s: %w", id, err)
 	}
+	// stable between downloads: no timestamp line, sorted keys
+	if err := file.NormalizeParametersFile(dir); err != nil {
+		return nil, err
+	}
 	// the download's Bundle-Version is not the designtime version
 	if v := version; v == "" || strings.EqualFold(v, "active") {
 		if info, exists, err := cpi.GetDesigntimeInfo(exe, artifactType, id, "active"); err == nil && exists {

@@ -54,8 +54,11 @@ type Synchroniser struct {
 	// does not undeploy the runtime artifact; the outcome says Redeploy
 	// instead (a later forced deployment replaces it, without downtime).
 	KeepRuntime bool
-	skipped     atomic.Int64
-	downloaded  atomic.Int64
+	// Snap, when set, makes ArtifactsToGit a snapshot into the tenant
+	// layout (snapshot.go); nil: sync --target git.
+	Snap       *SnapshotOptions
+	skipped    atomic.Int64
+	downloaded atomic.Int64
 }
 
 // Downloaded returns the number of artifacts downloaded by exports.
@@ -171,7 +174,13 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 	var failed []string
 	for _, artifact := range filtered {
 		run := func() {
-			if err := s.artifactToGit(packageId, workDir, artifactsDir, draftHandling, dirNamingType, scriptCollectionMap, artifact); err != nil {
+			export := s.artifactToGit
+			if s.Snap != nil {
+				export = func(packageId, workDir, artifactsDir, draftHandling, _ string, scriptCollectionMap []string, artifact *cpi.ArtifactDetails) error {
+					return s.snapshotArtifact(packageId, workDir, artifactsDir, draftHandling, scriptCollectionMap, artifact)
+				}
+			}
+			if err := export(packageId, workDir, artifactsDir, draftHandling, dirNamingType, scriptCollectionMap, artifact); err != nil {
 				mu.Lock()
 				failed = append(failed, fmt.Sprintf("%s: %v", artifact.Id, err))
 				mu.Unlock()
@@ -196,6 +205,15 @@ func (s *Synchroniser) ArtifactsToGit(packageId string, workDir string, artifact
 	if len(failed) > 0 {
 		sort.Strings(failed)
 		return fmt.Errorf("%d artifact(s) failed: %s", len(failed), strings.Join(failed, "; "))
+	}
+	if s.Snap != nil {
+		tenantIDs := make(map[string]bool, len(artifacts))
+		for _, a := range artifacts {
+			tenantIDs[a.Id] = true
+		}
+		if err := s.SnapshotLeftovers(packageId, artifactsDir, tenantIDs); err != nil {
+			return err
+		}
 	}
 
 	// Clean up working directory
@@ -271,6 +289,10 @@ func (s *Synchroniser) artifactToGit(packageId, workDir, artifactsDir, draftHand
 		return err
 	}
 	log.Info().Msgf("Downloaded artifact unzipped to %v", downloadedArtifactPath)
+	// stable between downloads: no timestamp line, sorted keys
+	if err := file.NormalizeParametersFile(downloadedArtifactPath); err != nil {
+		return err
+	}
 	if s.State != nil && len(scriptCollectionMap) == 0 {
 		// the tenant's content as is (a script collection mapping changes the
 		// local copy, so it cannot serve as an upload baseline)
