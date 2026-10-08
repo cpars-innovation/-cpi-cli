@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.4.0
+
 - `snapshot` for a repository with one copy of every artifact (`packages/` in the tenant layout,
   edited by developers, deployed by the orchestrator). See [docs/snapshot.md](docs/snapshot.md).
   - Per artifact: `new`, `changed`, `unchanged`, `deleted`, `local-modified`, `local-only`,
