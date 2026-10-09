@@ -100,8 +100,8 @@ func (m *Tenant) handleAdmin(w http.ResponseWriter, r *http.Request) {
 				logs[i].End = logs[i].Start.Add(100 * time.Millisecond)
 			}
 		}
-		m.addLogs(logs)
-		writeJSON(w, map[string]int{"added": len(logs)})
+		kept := m.addLogs(logs)
+		writeJSON(w, map[string]int{"added": len(logs), "kept": kept})
 
 	case path == "/systems" && r.Method == http.MethodGet:
 		writeJSON(w, m.systems)

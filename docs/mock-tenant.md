@@ -159,8 +159,10 @@ The built-in demo is a landscape of this format (`internal/cpitest/landscapes/de
 - Message log queries honour the status, time and equality filters, newest first.
 - Message logs added while the mock runs (messages, `--live-traffic`, `/_mock/run`, `/_mock/messagelogs`) are
   kept newest first and bounded: logs older than `--log-retention` (default `168h`; `0` = no age
-  limit) and everything beyond the newest 100 000 are dropped, so a mock left running does not grow
-  without limit. In Go tests: `Tenant.LogRetention` and `Tenant.MaxLogs`.
+  limit) **behind the newest log** and everything beyond the newest 100 000 are dropped, so a mock
+  left running does not grow without limit. The age is measured from the newest log, not the
+  clock: logs added for an earlier period, and a mock seeded in the past, keep their history until
+  newer logs push it out. In Go tests: `Tenant.LogRetention` and `Tenant.MaxLogs`.
 - Data stores and log files answer with empty lists; APIs the mock does not know answer 404.
 
 ## Execution
@@ -213,7 +215,7 @@ part of the SAP API and is protected by a token, TLS or not (encryption is not a
 | `GET /_mock/systems` | | the tier's systems |
 | `PUT /_mock/systems/<name>` | `{"match", "latencyMs", "failRate", "status", "error"}` | add or change a system (e.g. `failRate: 1`: it is down) |
 | `POST /_mock/run` | `{"artifact", "key", "payload", "count"}` | run a deployed flow now, `count` up to 1000 times (also timer and ProcessDirect flows); returns `{runs: [{messageGuid, status, error}]}` |
-| `POST /_mock/messagelogs` | `[{"Guid", "Artifact", "Status", "CorrelationID", "ErrorText", "Headers", "Steps", ...}]` | add message logs as they are |
+| `POST /_mock/messagelogs` | `[{"Guid", "Artifact", "Status", "CorrelationID", "ErrorText", "Headers", "Steps", ...}]` | add message logs as they are; answers `{"added": n, "kept": k}` (`k < n` when the retention or the cap dropped some) |
 | `POST /_mock/faults` | `{"pathPrefix": "/api/v1/IntegrationPackages", "status": 401, "count": 2}` | the next `count` requests on the path answer `status` (expired login, 429, 503 …) |
 | `DELETE /_mock/faults` | | drop pending faults |
 | `GET /_mock/state` / `PUT /_mock/state` | the exported state | export the whole tenant (content, security material, Partner Directory, logs, systems) and load it into another mock |

@@ -18,8 +18,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
   a running mock. It needs `Authorization: Bearer <token>`: `--admin-token`, or a random token
   printed at start as `CPICTL_MOCK_ADMIN_TOKEN`. `/_mock/run` accepts `count` up to 1000. The
   state export contains stored secrets and artifact content: do not load real customer secrets.
-- Message logs are bounded: `--log-retention` (default `168h`) and at most 100 000 logs, oldest
-  dropped first; new logs are merged into the list instead of re-sorting it.
+- Message logs are bounded: `--log-retention` (default `168h`, measured back from the newest log,
+  not the clock) and at most 100 000 logs, oldest dropped first; new logs are merged into the list
+  instead of re-sorting it. `/_mock/messagelogs` reports how many it kept.
 - Two flows on one address: the second deployment ends in `ERROR` with `the address /orders/in is
   already used by Orders_In` in its runtime error information, as on a real tenant; undeploying the
   first flow frees the address.

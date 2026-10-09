@@ -156,3 +156,29 @@ func TestLogRetentionAndCap(t *testing.T) {
 		[]cpitest.MessageLog{mkLog("x1", now.Add(-5*time.Hour)), mkLog("x2", now.Add(-10*time.Hour)), mkLog("x3", now.Add(-time.Minute))}, nil))
 	assert.Equal(t, []string{"new", "x3", "mid"}, guids(m), "beyond the cap the oldest are dropped")
 }
+
+func TestLogRetentionIsMeasuredFromTheNewestLog(t *testing.T) {
+	// logs added for an earlier period are kept (the clock does not count)
+	m := cpitest.NewTenant(t, nil)
+	var res map[string]int
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/messagelogs", []cpitest.MessageLog{mkLog("old", old)}, &res))
+	assert.Equal(t, map[string]int{"added": 1, "kept": 1}, res)
+	assert.Equal(t, []string{"old"}, guids(m))
+
+	// what is older than the retention behind the newest log is dropped, and reported
+	m.LogRetention = 24 * time.Hour
+	require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/messagelogs",
+		[]cpitest.MessageLog{mkLog("now", time.Now()), mkLog("older", old.Add(-time.Hour))}, &res))
+	assert.Equal(t, map[string]int{"added": 2, "kept": 1}, res)
+	assert.Equal(t, []string{"now"}, guids(m))
+
+	// a mock seeded in the past keeps its history when logs of that period are added
+	past := cpitest.NewTenant(t, nil)
+	require.NoError(t, cpitest.SeedDemo(past, "dev", time.Now().Add(-30*24*time.Hour)))
+	before := len(past.MessageLogs())
+	require.Positive(t, before)
+	require.Equal(t, http.StatusOK, admin(t, past, http.MethodPost, "/messagelogs",
+		[]cpitest.MessageLog{mkLog("then", time.Now().Add(-30*24*time.Hour+time.Minute))}, &res))
+	assert.Equal(t, before+1, len(past.MessageLogs()))
+}

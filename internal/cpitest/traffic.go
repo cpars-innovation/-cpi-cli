@@ -115,9 +115,11 @@ const (
 // addLogs adds message logs to the live log list, which stays newest first.
 // The batch (small, from one run) is sorted and merged into the front part
 // of the list it overlaps with: new logs are usually the newest, so the
-// full list is never re-sorted. Logs older than the retention or beyond the
-// cap are dropped.
-func (m *Tenant) addLogs(logs []MessageLog) {
+// full list is never re-sorted. Logs older than the retention behind the
+// newest log, or beyond the cap, are dropped. The age is measured from the
+// newest log, not the clock, so that a mock seeded in the past and logs
+// added for an earlier period stay. It returns how many of logs were kept.
+func (m *Tenant) addLogs(logs []MessageLog) (kept int) {
 	if len(m.MessageLogSteps) == 0 {
 		m.MessageLogSteps = [][]MessageLog{nil}
 	}
@@ -142,15 +144,28 @@ func (m *Tenant) addLogs(logs []MessageLog) {
 		}
 		all = slices.Insert(all[p:], 0, merged...)
 	}
-	if retention := cmp.Or(m.LogRetention, defaultLogRetention); retention > 0 {
-		cutoff := time.Now().Add(-retention)
-		all = all[:sort.Search(len(all), func(i int) bool { return all[i].Start.Before(cutoff) })]
+	if retention := cmp.Or(m.LogRetention, defaultLogRetention); retention > 0 && len(all) > 0 {
+		cutoff := all[0].Start.Add(-retention)
+		n := sort.Search(len(all), func(i int) bool { return all[i].Start.Before(cutoff) })
+		clear(all[n:])
+		all = all[:n]
 	}
 	if limit := cmp.Or(m.MaxLogs, defaultMaxLogs); len(all) > limit {
 		clear(all[limit:])
 		all = all[:limit]
 	}
 	m.MessageLogSteps[last] = all
+	added := make(map[string]int, len(logs))
+	for _, l := range logs {
+		added[l.Guid]++
+	}
+	for _, l := range all {
+		if added[l.Guid] > 0 {
+			added[l.Guid]--
+			kept++
+		}
+	}
+	return kept
 }
 
 // messageKey finds the business key of a received message: the
