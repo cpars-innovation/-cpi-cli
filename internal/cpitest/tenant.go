@@ -36,7 +36,9 @@ type Artifact struct {
 	DesignVersion string // empty: designtime artifact does not exist
 	// ModifiedAt is the designtime artifact's last change (zero: not
 	// reported). ConfigBumpsModified sets it to now on parameter updates.
-	ModifiedAt          time.Time
+	ModifiedAt time.Time
+	// ModifiedBy is reported in the package artifact list when set.
+	ModifiedBy          string
 	ConfigBumpsModified bool
 	// SavedVersions records SaveAsVersion calls (the designtime version is
 	// set to each).
@@ -1099,6 +1101,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			a := m.Artifacts[id]
 			if a.Package == mm[1] && a.Type == mm[2] {
 				row := map[string]string{"Id": id, "Name": a.Name, "Version": a.DesignVersion}
+				if a.ModifiedBy != "" {
+					row["ModifiedBy"] = a.ModifiedBy
+				}
 				if !a.ModifiedAt.IsZero() {
 					row["ModifiedAt"] = odataDate(a.ModifiedAt)
 				}

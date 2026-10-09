@@ -228,7 +228,7 @@ are not written, and reads, uploads and parameter reads run 8 at a time. Details
 
 | Area | Commands |
 |------|----------|
-| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover`, `graph`, `drift` |
+| Inspect | `packages`, `artifacts`, `status`, `endpoints`, `resources`, `discover`, `graph`, `drift`, `compare` (tiers, Git refs, trees) |
 | Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines`, `lint` (reuse, Partner Directory candidates, dead weight, best practices; `--fix`) |
@@ -443,6 +443,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [Snapshot](docs/snapshot.md) | Tenant into the repository: `--dry-run`, local edits protected, deployment copies skipped, stable output, `--prune`, `--incremental`, `--parallel` |
 | [Versioning](docs/versioning.md) | Versions in the repository (`Bundle-Version`), `--versioning manifest\|keep\|tenant-bump`, `version bump --changed` |
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
+| [Compare](docs/compare.md) | Two tiers, Git refs or content trees per artifact: content, version, parameters, file diffs |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Lint and improvements](docs/lint.md) | `lint` rules, `.cpi/lint.yaml`, baseline and CI gate, `--fix` (script collections), [diagram layout](docs/lint.md#diagram-layout) (`iflow layout`), the `cpi-improve` skill |

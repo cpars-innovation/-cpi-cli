@@ -28,7 +28,8 @@ const Instructions = `Tools for SAP Cloud Integration (CPI) on one tenant. Unsur
 skill fits a task? Call help (overview, or a topic: a tool, a skill and its instructions, a CLI
 command). Auth or 403 errors: doctor shows which API areas the credentials can use.
 
-Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
+Build loop: drift (local vs tenant: never overwrite tenant-only edits; compare shows per
+artifact what differs between the tenant, a content tree and Git refs, with diffs) -> download_artifact
 (existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses);
 before a pull request bump_versions changed=true raises Bundle-Version of changed artifacts
 -> edit the files locally -> layout_iflow (tidy the diagram after
@@ -1477,6 +1478,67 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, err
 				}
 				return ops.Drift(ctx, cfg.Exe, dir, a.PackageID, 0)
+			},
+		},
+		{
+			Name: "compare", Title: "Compare two sides per artifact",
+			Description: "Compare two sides per artifact: content (as an upload compares it), version, parameters.prop keys and files. A side is \"tenant\" (this server's tenant, downloaded and normalized as snapshot writes it), " +
+				"a content tree inside the server root, or \"git:<ref>[:<path>]\" of the repository at the root. Status per artifact: same, only_a, only_b, content_differs, version_differs, parameters_differ; " +
+				"for the tenant the designtime and running version, draft flag and who changed it last. diff adds unified diffs, show_values parameter values. Read-only; downloads the tenant's artifacts (limit with packages / artifacts).",
+			InputSchema: object(props{
+				"a":           str(`Side A: "tenant", a directory relative to the root, or "git:<ref>[:<path>]"`),
+				"b":           str("Side B, same forms"),
+				"packages":    strArray("Only these packages (IDs or patterns)"),
+				"artifacts":   strArray("Only these artifacts (IDs or patterns)"),
+				"diff":        boolean("Unified diffs of changed text files"),
+				"show_values": boolean("Parameter values (default: only which keys differ)"),
+			}, "a", "b"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					A          string   `json:"a"`
+					B          string   `json:"b"`
+					Packages   []string `json:"packages"`
+					Artifacts  []string `json:"artifacts"`
+					Diff       bool     `json:"diff"`
+					ShowValues bool     `json:"show_values"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				work, err := os.MkdirTemp("", "cpictl-compare-*")
+				if err != nil {
+					return nil, err
+				}
+				defer os.RemoveAll(work)
+				sides := make([]ops.CompareSide, 2)
+				for i, spec := range []string{a.A, a.B} {
+					switch {
+					case spec == "":
+						return nil, output.Usagef("sides a and b are required")
+					case spec == "tenant":
+						sides[i] = ops.CompareSide{Label: "tenant", Exe: cfg.Exe}
+					case strings.HasPrefix(spec, "git:"):
+						ref, sub, _ := strings.Cut(strings.TrimPrefix(spec, "git:"), ":")
+						root, err := resolvePath(cfg.Root, ".")
+						if err != nil {
+							return nil, err
+						}
+						dir := filepath.Join(work, fmt.Sprintf("git%d", i))
+						if err := ops.GitTree(ctx, root, ref, sub, dir); err != nil {
+							return nil, err
+						}
+						sides[i] = ops.CompareSide{Label: spec, Dir: dir}
+					default:
+						dir, err := resolvePath(cfg.Root, spec)
+						if err != nil {
+							return nil, err
+						}
+						sides[i] = ops.CompareSide{Label: spec, Dir: dir}
+					}
+				}
+				return ops.Compare(ctx, sides[0], sides[1], ops.CompareOptions{Packages: a.Packages, Artifacts: a.Artifacts,
+					Diff: a.Diff, Values: a.ShowValues, WorkDir: filepath.Join(work, "tenant")})
 			},
 		},
 		{

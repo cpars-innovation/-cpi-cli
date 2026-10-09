@@ -39,7 +39,7 @@ var toolEffects = map[string]Effect{
 	"delete_data_store_entry": EffectTenant, "list_variables": EffectRead, "get_variable": EffectRead,
 	"list_jms_queues": EffectRead, "get_jms_broker": EffectRead, "list_number_ranges": EffectRead,
 	"list_log_files": EffectRead, "get_log_file": EffectRead, "list_idempotent_entries": EffectRead, "list_id_mappings": EffectRead,
-	"drift": EffectRead, "doctor": EffectRead, "lint": EffectRead,
+	"drift": EffectRead, "doctor": EffectRead, "lint": EffectRead, "compare": EffectRead,
 	"graph_search": EffectRead, "help": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
 	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 

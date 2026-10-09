@@ -5,6 +5,14 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl compare <A> <B>` (MCP `compare`): two tiers (`tenant:<profile>`), Git refs
+  (`git:<ref>[:<path>]`) or content trees per artifact: `same`, `content_differs`,
+  `version_differs`, `parameters_differ`, `only_a`, `only_b`; changed files (`--diff`: unified
+  diffs), `parameters.prop` keys (`--show-values`), designtime / running version, draft and who
+  changed it last on the tenant; `--fail-on-diff` for CI. Tenants are normalized like `snapshot`,
+  so a snapshot equals its tenant. See [docs/compare.md](docs/compare.md).
+- The package artifact list reads `ModifiedBy` (else `CreatedBy`) where the tenant reports it.
+
 ## 0.5.0
 
 - `cpictl iflow layout <path>...` (MCP `layout_iflow`): lays out the diagram of `.iflw` files:

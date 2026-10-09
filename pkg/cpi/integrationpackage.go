@@ -1,6 +1,7 @@
 package cpi
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,6 +28,8 @@ type artifactData struct {
 			Name       string `json:"Name"`
 			Version    string `json:"Version"`
 			ModifiedAt string `json:"ModifiedAt"`
+			ModifiedBy string `json:"ModifiedBy"`
+			CreatedBy  string `json:"CreatedBy"`
 		} `json:"results"`
 	} `json:"d"`
 }
@@ -59,8 +62,10 @@ type ArtifactDetails struct {
 	Version      string
 	ArtifactType string
 	// ModifiedAt is the last change of the designtime artifact; zero when the
-	// tenant does not report it.
+	// tenant does not report it. ModifiedBy (else CreatedBy) is who made it,
+	// empty when the tenant does not report it.
 	ModifiedAt time.Time
+	ModifiedBy string
 }
 
 // NewIntegrationPackage returns an initialised IntegrationPackage instance.
@@ -195,6 +200,7 @@ func (ip *IntegrationPackage) GetArtifactsData(id string, artifactType string) (
 			Version:      result.Version,
 			ArtifactType: artifactType,
 			ModifiedAt:   modified,
+			ModifiedBy:   cmp.Or(result.ModifiedBy, result.CreatedBy),
 		})
 	}
 	return details, nil

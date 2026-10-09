@@ -7,6 +7,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | Command | Description |
 |---------|-------------|
 | [`artifacts`](#artifacts) | List designtime artifacts of a package |
+| [`compare`](#compare) | Compare two tiers, Git refs or content trees per artifact (content, version, parameters, files) |
 | [`config-generate`](#config-generate) | Generate or refresh the orchestrator deployment config from a packages directory |
 | [`configure`](#configure) | Set artifact parameters from YAML files and optionally deploy |
 | [`configure pull`](#configure-pull) | Write current tenant parameter values into configure YAML files |
@@ -128,6 +129,52 @@ List designtime artifacts of a package
 
 ```
       --package-id string   Integration package ID
+```
+
+## compare
+
+Compare two tiers, Git refs or content trees per artifact (content, version, parameters, files)
+
+```
+Compare two sides per artifact. A side is:
+
+  <directory>          a content tree (<package>/<artifact>, as snapshot writes it)
+  git:<ref>[:<path>]   a Git ref of the repository (--repo), e.g. git:main:packages
+  tenant               the configured tenant (--profile, config, environment)
+  tenant:<profile>     the tenant of a profile (~/.cpictl/<profile>.yaml)
+
+Tenants are only read: their artifacts are downloaded and normalized as snapshot
+writes them, so only real differences show. Per artifact the status is same,
+only_a, only_b, content_differs (as an upload compares: without Bundle-Version and
+parameters.prop), version_differs (same content) or parameters_differ (same content
+and version); per file added / removed / changed (--diff: unified diffs); per
+parameters.prop key differs / only_a / only_b (--show-values: the values). For a
+tenant side the designtime and running versions, the draft flag and, where the
+tenant reports it, who changed the artifact last.
+```
+
+**Usage:** `cpictl compare <side A> <side B> [flags]`
+
+**Flags:**
+
+```
+      --all                Also list artifacts that are the same (text output)
+      --artifact strings   Only these artifacts (IDs or patterns)
+      --diff               Unified diffs of changed text files
+      --fail-on-diff       Exit with code 5 when any artifact differs
+      --package strings    Only these packages (IDs or patterns)
+      --parallel int       Downloads at the same time per tenant (config: compare.parallel) (default 8)
+      --repo string        Git repository for git: sides (default ".")
+      --show-values        Parameter values (default: only which keys differ)
+```
+
+**Examples:**
+
+```
+  cpictl compare tenant:test tenant:prod --package Orders
+  cpictl compare packages tenant --diff                 # repository vs tenant (drift)
+  cpictl compare git:release/2026-10:packages git:main:packages
+  cpictl compare tenant:dev tenant:test --fail-on-diff --output json
 ```
 
 ## config-generate

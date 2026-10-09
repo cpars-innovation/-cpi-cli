@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions", "lint", "lint_fix", "layout_iflow",
 		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "create_package", "upload_artifact", "upload_artifacts", "deploy", "send_test_message", "undeploy", "pd_deploy",
-		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "discover_tenant",
+		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "compare", "discover_tenant",
 		"list_data_stores", "list_data_store_entries", "get_data_store_entry", "delete_data_store_entry", "list_variables", "get_variable",
 		"list_jms_queues", "get_jms_broker", "list_number_ranges", "list_log_files", "get_log_file", "list_idempotent_entries", "list_id_mappings", "graph_search", "graph_neighbors", "graph_path"}, names)
 
@@ -511,4 +511,36 @@ func TestLayoutTool(t *testing.T) {
 	after, _ := os.ReadFile(model)
 	assert.NotEqual(t, string(before), string(after), "laid out")
 	assert.Equal(t, "usage", toolResult(t, resp["4"]).StructuredContent.ErrorCategory, "paths stay inside the root")
+}
+
+func TestCompareTool(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\nBundle-SymbolicName: A\nBundle-Version: 1.0.1\nSAP-BundleType: IntegrationFlow\n",
+		"src/main/resources/script/s.groovy": "local\n",
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		p := filepath.Join(root, "packages", "P", "A", filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		w, _ := zw.Create(name)
+		if name == "src/main/resources/script/s.groovy" {
+			content = "tenant\n"
+		}
+		_, _ = w.Write([]byte(content))
+	}
+	require.NoError(t, zw.Close())
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{"A": {Type: "Integration", DesignVersion: "1.0.1", Package: "P", Name: "A", Zip: buf.Bytes()}})
+	mock.Packages = []cpitest.Package{{ID: "P", Version: "1.0.0"}}
+	resp := session(t, mock, root,
+		call(1, "compare", map[string]any{"a": "packages", "b": "tenant", "diff": true}),
+		call(2, "compare", map[string]any{"a": "../outside", "b": "tenant"}),
+	)
+	res := toolResult(t, resp["1"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	assert.Contains(t, res.Content[0].Text, `"status":"content_differs"`)
+	assert.Contains(t, res.Content[0].Text, `+tenant`)
+	assert.Equal(t, "usage", toolResult(t, resp["2"]).StructuredContent.ErrorCategory)
 }
