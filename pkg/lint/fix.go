@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
 	"github.com/cpars-innovation/cpicli/internal/output"
 )
 
@@ -279,7 +280,7 @@ func applyModelEdits(a *lintArtifact, scripts, removes []Finding, dryRun bool) e
 			continue
 		}
 		p := filepath.Join(a.Dir, filepath.FromSlash(file))
-		doc := etree.NewDocument()
+		doc := iflow.NewDocument()
 		if err := doc.ReadFromFile(p); err != nil {
 			return err
 		}
