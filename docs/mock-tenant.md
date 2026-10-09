@@ -218,6 +218,8 @@ part of the SAP API and is protected by a token, TLS or not (encryption is not a
 | `DELETE /_mock/faults` | | drop pending faults |
 | `GET /_mock/state` / `PUT /_mock/state` | the exported state | export the whole tenant (content, security material, Partner Directory, logs, systems) and load it into another mock |
 
+**`/_mock/state` contains secrets.** The export has the credentials' stored secret fields (passwords, client secrets, as put into the mock) and the content of all artifacts (scripts, models, parameters), and the logs. That is fine for mock data. Do not load real customer secrets into a mock: a real tenant never returns them, and anyone holding the admin token can read them back from this endpoint.
+
 ```bash
 TOKEN=<CPICTL_MOCK_ADMIN_TOKEN from the start output>
 curl -H "Authorization: Bearer $TOKEN" -X PUT localhost:8081/_mock/systems/finance -d '{"match":"finance-*.example.com","failRate":1,"error":"finance down for {key}"}'
