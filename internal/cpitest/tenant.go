@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +99,7 @@ type Artifact struct {
 	Uploads int
 	Deploys int
 
+	cached         *flowInfo
 	triggered      bool
 	runtimeGets    int
 	taskGets       int
@@ -257,14 +259,30 @@ type Tenant struct {
 	// Inbound endpoint are logged, and message log queries honour the status
 	// and time filters (newest first).
 	Live bool
+	// LogRetention is how long live message logs are kept (0: 168h, negative:
+	// forever) and MaxLogs how many (0: 100000); the oldest are dropped when
+	// logs are added.
+	LogRetention time.Duration
+	MaxLogs      int
+	// AdminToken protects the admin API (/_mock/...): requests need
+	// "Authorization: Bearer <token>". Empty: only loopback clients are allowed.
+	AdminToken string
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
 	// requests need the token and session cookie from a "Fetch" request).
 	NoCSRF     bool
 	csrfToken  string
 	csrfSerial int
 	liveSerial int
-	requests   []string
-	server     *httptest.Server
+	// landscape and tierSpec are set by SeedLandscape.
+	landscape   *Landscape
+	traceSerial int64
+	msgSerial   int
+	rng         *mrand.Rand
+	systems     map[string]SystemSpec
+	faults      []fault
+	tierSpec    *TierSpec
+	requests    []string
+	server      *httptest.Server
 }
 
 // NewTenant starts a mock tenant; it is closed when the test ends.
@@ -599,6 +617,10 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(r.Body)
 	m.Received = append(m.Received, ReceivedMessage{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: string(body)})
+	if a := m.Artifacts[in.Artifact]; m.Live && a != nil && a.running() && a.info() != nil {
+		m.liveSend(w, r, in, string(body))
+		return
+	}
 	if m.Live && in.Artifact != "" {
 		m.liveSerial++
 		now := time.Now()
@@ -608,11 +630,7 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 		if a := m.Artifacts[in.Artifact]; a != nil {
 			l.Package = a.Package
 		}
-		if len(m.MessageLogSteps) == 0 {
-			m.MessageLogSteps = [][]MessageLog{nil}
-		}
-		last := len(m.MessageLogSteps) - 1
-		m.MessageLogSteps[last] = append([]MessageLog{l}, m.MessageLogSteps[last]...)
+		m.addLogs([]MessageLog{l})
 		w.Header().Set("SAP_MessageProcessingLogID", l.Guid)
 		w.Header().Set("SAP_MplCorrelationId", l.CorrelationID)
 	} else if in.MessageGuid != "" {
@@ -789,6 +807,14 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	m.requests = append(m.requests, r.Method+" "+path)
 
+	if strings.HasPrefix(path, "/_mock/") {
+		m.handleAdmin(w, r)
+		return
+	}
+	if status := m.fault(path); status != 0 {
+		w.WriteHeader(status)
+		return
+	}
 	for _, prefix := range m.ForbidPaths {
 		if strings.HasPrefix(path, prefix) {
 			w.WriteHeader(http.StatusForbidden)
@@ -1279,7 +1305,8 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			a = &Artifact{}
 			m.Artifacts[body.Id] = a
 		}
-		a.Type, a.DesignVersion, a.Package, a.Name, a.Zip = typ, "1.0.0", body.PackageId, body.Name, zipData
+		a.Type, a.DesignVersion, a.Package, a.Name = typ, "1.0.0", body.PackageId, body.Name
+		a.applyContent(zipData)
 		a.Uploads++
 		if m.Live {
 			a.ModifiedAt, a.ModifiedBy = time.Now(), "mock-user"
@@ -1303,7 +1330,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		a.Zip = zipData
+		a.applyContent(zipData)
 		a.Uploads++
 		a.ModifiedAt = time.Now()
 		if m.Live {
@@ -1368,6 +1395,10 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 				version = a.Runtime.Version
 			}
 			a.Runtime, a.undeployed = &Runtime{Version: version, Status: "STARTED", DeployedOn: time.Now()}, false
+			a.ErrorInfo = ""
+			if conflict := m.registerEndpoints(id, a); conflict != "" {
+				a.Runtime.Status, a.ErrorInfo = "ERROR", conflict
+			}
 			if len(a.TaskStatuses) == 0 {
 				a.TaskStatuses = []string{"SUCCESS"}
 			}
@@ -1432,6 +1463,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		a.undeployed, a.undeployedGets = true, 0
 		if m.Live {
 			a.Runtime, a.undeployed, a.triggered = nil, false, false
+			m.unregisterEndpoints(reRuntime.FindStringSubmatch(path)[1], a)
 		}
 		w.WriteHeader(http.StatusAccepted)
 

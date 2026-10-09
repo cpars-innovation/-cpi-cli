@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><parameters><param_references/><parameter><name>ERP_URL</name><type>xsd:string</type><isRequired>true</isRequired></parameter></parameters>

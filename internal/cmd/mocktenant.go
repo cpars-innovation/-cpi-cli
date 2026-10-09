@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -39,16 +40,25 @@ credentials, keystore and Partner Directory. Any credentials are accepted
   draft), prod has a parameter changed on the tenant, a certificate expiring in
   20 days and no Returns_API credential.
 --seed empty starts without content.
+--seed-dir loads a landscape directory instead (landscape.yaml and content in
+the layout cpictl snapshot writes, see docs/mock-tenant.md): its tiers, systems
+and traffic; --tier names one of its tiers.
 
-The tenant behaves live: a deploy starts the designtime version, uploads are
-recorded, a message sent to a flow's endpoint (POST /http/orders/in) creates
-a message log. State is in memory; a restart resets it.
+The tenant behaves live: a deploy starts the designtime version and registers
+the flow's endpoints, uploads are recorded, and a message sent to an endpoint
+(POST /http/orders/in) runs the flows: one message processing log per flow,
+ProcessDirect and JMS to the next flows, receivers answered by the landscape's
+systems (latency, failures). --live-traffic keeps generating messages.
+The /_mock admin API needs "Authorization: Bearer <token>": --admin-token, or a random
+token generated at start and printed as CPICTL_MOCK_ADMIN_TOKEN.
+State is in memory; a restart resets it.
 
 Plain http is accepted by cpictl for loopback hosts only. To reach the mock
 from another container use --tls: a CA and server certificate are generated
 for --tls-hosts, the CA is written to --ca-out; point the client at it with
 SSL_CERT_FILE.`,
 		Example: `  cpictl mock-tenant --tier dev --addr 127.0.0.1:8081
+  cpictl mock-tenant --seed-dir ./landscapes/retail-b --tier prod-eu --addr 127.0.0.1:8084
   cpictl mock-tenant --tier prod --addr 0.0.0.0:8443 --tls --tls-hosts mock-prod,localhost --ca-out /certs/mock-ca.pem`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -56,10 +66,19 @@ SSL_CERT_FILE.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr, _ := cmd.Flags().GetString("addr")
 			seed, _ := cmd.Flags().GetString("seed")
+			seedDir, _ := cmd.Flags().GetString("seed-dir")
 			tier, _ := cmd.Flags().GetString("tier")
 			useTLS, _ := cmd.Flags().GetBool("tls")
 			if seed != "demo" && seed != "empty" {
 				return output.Usagef("--seed %q: demo or empty", seed)
+			}
+			var landscape *cpitest.Landscape
+			if seedDir != "" {
+				l, err := cpitest.LoadLandscapeDir(seedDir)
+				if err != nil {
+					return output.Usage(err)
+				}
+				landscape, seed = l, l.Name
 			}
 			var tlsConfig *tls.Config
 			scheme := "http"
@@ -84,7 +103,23 @@ SSL_CERT_FILE.`,
 			}
 			m := cpitest.Serve(l, tlsConfig)
 			defer m.Close()
-			m.Live, m.OAuth = true, true
+			m.Live, m.OAuth, m.FilterMessageLogs = true, true, true
+			m.AdminToken, _ = cmd.Flags().GetString("admin-token")
+			m.LogRetention, _ = cmd.Flags().GetDuration("log-retention")
+			if m.LogRetention < 0 {
+				return output.Usagef("--log-retention must not be negative")
+			}
+			if m.LogRetention == 0 {
+				m.LogRetention = -1 // 0 keeps logs forever (up to the cap)
+			}
+			generatedToken := m.AdminToken == ""
+			if generatedToken {
+				b := make([]byte, 24)
+				if _, err := rand.Read(b); err != nil {
+					return err
+				}
+				m.AdminToken = hex.EncodeToString(b)
+			}
 			host := l.Addr().String()
 			if h, p, err := net.SplitHostPort(host); err == nil && (h == "::" || h == "0.0.0.0") {
 				host = net.JoinHostPort("localhost", p)
@@ -93,7 +128,12 @@ SSL_CERT_FILE.`,
 			if m.EndpointBase == "" {
 				m.EndpointBase = scheme + "://" + host
 			}
-			if seed == "demo" {
+			switch {
+			case landscape != nil:
+				if err := cpitest.SeedLandscape(m, landscape, tier, time.Now()); err != nil {
+					return output.Usage(err)
+				}
+			case seed == "demo":
 				if err := cpitest.SeedDemo(m, tier, time.Now()); err != nil {
 					return output.Usage(err)
 				}
@@ -106,6 +146,12 @@ SSL_CERT_FILE.`,
 				caOut, _ := cmd.Flags().GetString("ca-out")
 				fmt.Fprintf(out, "SSL_CERT_FILE=%s\n", caOut)
 			}
+			if generatedToken {
+				fmt.Fprintf(out, "CPICTL_MOCK_ADMIN_TOKEN=%s\n", m.AdminToken)
+			}
+			if speed, _ := cmd.Flags().GetFloat64("live-traffic"); speed > 0 {
+				m.StartTraffic(cmd.Context(), speed)
+			}
 			log.Info().Str("tier", tier).Str("seed", seed).Msgf("Mock tenant listening on %s; stop with Ctrl+C", l.Addr())
 			<-cmd.Context().Done()
 			return nil
@@ -113,8 +159,12 @@ SSL_CERT_FILE.`,
 	}
 	c.Flags().String("addr", "127.0.0.1:8081", "Listen address")
 	c.Flags().String("seed", "demo", "Content: demo or empty")
-	c.Flags().String("tier", "dev", "Demo variant: "+strings.Join(cpitest.DemoTiers, ", "))
+	c.Flags().String("seed-dir", "", "Landscape directory to load instead of --seed (landscape.yaml + packages/)")
+	c.Flags().String("tier", "dev", "Tier of the landscape (demo: "+strings.Join(cpitest.DemoTiers, ", ")+")")
+	c.Flags().Float64("live-traffic", 0, "Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)")
 	c.Flags().String("public-url", "", "Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)")
+	c.Flags().Duration("log-retention", 168*time.Hour, "How long message logs are kept (older ones are dropped; at most 100000 are kept; 0: no age limit)")
+	c.Flags().String("admin-token", "", "Bearer token for the /_mock admin API (default: a random token, printed at start)")
 	c.Flags().Bool("tls", false, "Serve HTTPS with a generated certificate (for access from other containers)")
 	c.Flags().StringSlice("tls-hosts", []string{"localhost", "127.0.0.1"}, "Host names and IPs of the generated certificate")
 	c.Flags().String("ca-out", "", "With --tls: file the generated CA certificate is written to (PEM)")

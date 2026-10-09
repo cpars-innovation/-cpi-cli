@@ -1,0 +1,82 @@
+# The built-in demo landscape of cpictl mock-tenant (--seed demo).
+# Orders_In -> (ProcessDirect) Orders_Route -> (JMS) Billing_In -> (ProcessDirect) Billing_Post,
+# Partner_Notify (timer, SFTP), and on dev Returns_In. The tiers differ like real ones.
+name: demo
+description: Orders to billing, with a partner notification and (on dev) a returns flow.
+keyHeaders: [OrderNo]
+history: 24h
+
+tiers:
+  - name: dev
+    # dev is ahead: a new flow, Billing_Post being edited in the Web UI
+    drafts: [Billing_Post]
+    keystore: [{ alias: finance_client, expiresInDays: 300 }]
+  - name: test
+    versions: { Orders_Route: 1.0.3 }
+    exclude: [Returns_In]
+    parameters:
+      Orders_Route: { ERP_URL: "https://erp-qa.example.com/sap/opu/odata/orders" }
+      Billing_Post: { FINANCE_URL: "https://finance-qa.example.com/api/invoices" }
+    keystore: [{ alias: finance_client, expiresInDays: 200 }]
+    partnerDirectory: { ACME/SFTP_Directory: /inbound/test }
+    systems:
+      erp: { failRate: 0.04 }
+  - name: prod
+    versions: { Orders_Route: 1.0.2 }
+    exclude: [Returns_In]
+    parameters:
+      Orders_Route: { ERP_URL: "https://erp-www.example.com/sap/opu/odata/orders" }
+      # changed on the tenant outside the pipeline (drift)
+      Billing_Post: { FINANCE_URL: "https://finance-www.example.com/api/invoices", Timeout: "120000" }
+    modifiedBy: { Billing_Post: jane.doe@customer.example }
+    missingCredentials: [Returns_API]
+    keystore: [{ alias: finance_client, expiresInDays: 20 }]
+    partnerDirectory: { ACME/SFTP_Directory: /inbound/prod }
+    systems:
+      erp: { failRate: 0.04 }
+
+systems:
+  erp:
+    match: "erp-*.example.com"
+    latencyMs: 450
+    status: 504
+    error: "java.net.SocketTimeoutException: Read timed out calling {host}"
+  finance:
+    match: "finance-*.example.com"
+    latencyMs: 600
+    failRate: 0.05
+    status: 500
+    error: "com.sap.gateway.core.ip.component.odata.exception.OsciException: HTTP 500 from {host}: posting period 2026-10 is closed for order {key}"
+  partner-sftp:
+    match: "sftp.partner.example.com"
+    latencyMs: 3500
+    failRate: 0.08
+    error: "com.jcraft.jsch.JSchException: Auth fail for user acme at {host}"
+  returns:
+    match: "returns-*.example.com"
+    latencyMs: 700
+
+credentials:
+  - { name: ERP_User, kind: basic, user: RFC_ORDERS }
+  - { name: Partner_SFTP, kind: basic, user: acme }
+  - { name: Returns_API, kind: basic, user: returns }
+  - { name: Finance_OAuth, kind: oauth2, tokenUrl: "https://finance.example.com/oauth/token", clientId: cpi }
+
+keystore:
+  - { alias: finance_client, expiresInDays: 300 }
+  - { alias: sap_cloud_root, expiresInDays: 1095 }
+
+partnerDirectory:
+  ACME/SFTP_Directory: /inbound/dev
+  ACME/Format: CSV
+
+traffic:
+  - start: Orders_In
+    perHour: 5
+    key: "{n}"
+    keyStart: 4500017001
+    followUps:
+      # some orders come back through the returns portal with a new correlation ID
+      - { start: Returns_In, every: 4, after: 20m, tiers: [dev] }
+  - start: Partner_Notify
+    perHour: 1

@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Returns inbound
+Bundle-SymbolicName: Returns_In; singleton:=true
+Bundle-Version: 0.1.0
+SAP-BundleType: IntegrationFlow
+SAP-NodeType: IFLMAP
+SAP-RuntimeProfile: iflmap
+Origin-Bundle-Name: Returns inbound
+Origin-Bundle-SymbolicName: Returns_In
+

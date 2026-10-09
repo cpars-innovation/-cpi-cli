@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Billing inbound
+Bundle-SymbolicName: Billing_In; singleton:=true
+Bundle-Version: 1.1.0
+SAP-BundleType: IntegrationFlow
+SAP-NodeType: IFLMAP
+SAP-RuntimeProfile: iflmap
+Origin-Bundle-Name: Billing inbound
+Origin-Bundle-SymbolicName: Billing_In
+

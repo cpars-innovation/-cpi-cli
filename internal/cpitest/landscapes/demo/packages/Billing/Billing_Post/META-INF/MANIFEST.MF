@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Billing posting
+Bundle-SymbolicName: Billing_Post; singleton:=true
+Bundle-Version: 1.3.1
+SAP-BundleType: IntegrationFlow
+SAP-NodeType: IFLMAP
+SAP-RuntimeProfile: iflmap
+Origin-Bundle-Name: Billing posting
+Origin-Bundle-SymbolicName: Billing_Post
+

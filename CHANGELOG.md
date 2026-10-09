@@ -5,7 +5,34 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
-- Fix: paths from flags, config and environment variables were rejected when they contained the
+### Mock tenant
+
+- `cpictl mock-tenant --seed-dir <dir>`: load your own landscape (`landscape.yaml` plus content in
+  the `snapshot` layout) with tiers, receiver systems and message traffic, instead of the demo.
+  See [docs/mock-tenant.md](docs/mock-tenant.md#landscapes---seed-dir).
+- The mock runs flows: one message log per flow, ProcessDirect and JMS hand-over, receivers
+  answered by the landscape's systems (latency, failures), a receiver with a missing credential
+  fails. `--live-traffic <speed>` keeps generating the landscape's traffic in real time (at most
+  one message per millisecond and rule; a negative `trafficScale` is refused).
+- Admin API `/_mock/...` (systems, faults, runs, message logs, state export and import) to change
+  a running mock. It needs `Authorization: Bearer <token>`: `--admin-token`, or a random token
+  printed at start as `CPICTL_MOCK_ADMIN_TOKEN`. `/_mock/run` accepts `count` up to 1000. The
+  state export contains stored secrets and artifact content: do not load real customer secrets.
+- Message logs are bounded: `--log-retention` (default `168h`, measured back from the newest log,
+  not the clock) and at most 100 000 logs, oldest dropped first; new logs are merged into the list
+  instead of re-sorting it. `/_mock/messagelogs` reports how many it kept.
+- Two flows on one address: the second deployment ends in `ERROR` with `the address /orders/in is
+  already used by Orders_In` in its runtime error information, as on a real tenant; undeploying the
+  first flow frees the address.
+- `pkg/mocktenant`: the mock as a Go library for tests of tools built on cpicli (`Start`, `Serve`,
+  `SeedDemo`, `SeedDir`, `SeedLandscape`, `MessageLogs`, `Tenant.AdminToken`). Experimental: the
+  API may change in minor versions until cpicli 1.0.
+
+### Fixes
+
+- Demo landscape: message logs no longer lie in the future (runs that would end after the start
+  are left out), and the test and prod tiers no longer share one failure pattern.
+- Paths from flags, config and environment variables were rejected when they contained the
   tenant user ID or OAuth client ID (e.g. user `cpi` blocked `.cpi/`, `mock` blocked
   `mock-landscapes/`), and every path when a secret was set to an empty value. Only the password
   and the client secret are checked now, and only when at least 8 characters long.

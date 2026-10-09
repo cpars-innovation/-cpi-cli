@@ -1,0 +1,34 @@
+package mocktenant_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cpars-innovation/cpicli/pkg/mocktenant"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDemo(t *testing.T) {
+	m := mocktenant.Start()
+	defer m.Close()
+	require.NoError(t, mocktenant.SeedDemo(m, "prod", time.Now()))
+	pkgs, err := ops.ListPackages(m.Executer())
+	require.NoError(t, err)
+	assert.Len(t, pkgs, 3)
+	assert.NotEmpty(t, m.MessageLogs())
+}
+
+func TestSeedDir(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "packages", "Empty"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "landscape.yaml"), []byte("name: x\ntiers: [{name: qa}]\n"), 0o644))
+	m := mocktenant.Start()
+	defer m.Close()
+	require.NoError(t, mocktenant.SeedDir(m, dir, "qa", time.Now()))
+	assert.Empty(t, m.MessageLogs())
+	assert.Error(t, mocktenant.SeedDir(m, dir, "prod", time.Now()))
+}
