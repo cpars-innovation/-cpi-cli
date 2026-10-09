@@ -53,6 +53,9 @@ type ArtifactState struct {
 	// Derived is set for a deployment copy of another artifact
 	// ("<package>/<artifactDir>"): the snapshot does not write it.
 	Derived string `json:"derived,omitempty"`
+	// Draft is set when the artifact was in draft on the tenant when the
+	// snapshot wrote it (draftHandling ADD).
+	Draft bool `json:"draft,omitempty"`
 }
 
 // LoadSnapshotState reads the state file; a missing file is an empty state.

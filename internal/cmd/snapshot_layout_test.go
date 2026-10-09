@@ -158,7 +158,7 @@ func TestSnapshotSingleLayout(t *testing.T) {
 	jar, _ := os.ReadFile(edm("Outbound", "src", "main", "resources", "lib", "x.jar"))
 	assert.Equal(t, "PK\r\n\x00binary\r\n", string(jar), "binaries byte for byte")
 	meta, _ := os.ReadFile(edm("Outbound", "metainfo.prop"))
-	assert.Equal(t, "#Thu Oct 08 14:11:02 UTC 2026\ndescription=Outbound\n", string(meta), "other .prop files: only LF")
+	assert.Equal(t, "description=Outbound\n", string(meta), "metainfo.prop normalized like parameters.prop: no timestamp")
 	assert.Empty(t, statuses(res)["Herrenberg_Outbound"].Warning, "same as its source")
 	assert.Contains(t, st["Herrenberg_Outbound"].Warning, "not found locally", "dry run on an empty repository: no source to compare")
 

@@ -1,0 +1,116 @@
+package cmd
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// flowWith is a tenant export of a flow with the given manifest version,
+// parameters.prop and parameters.propdef.
+func flowWith(t *testing.T, id, version, props, propdef string) []byte {
+	files := map[string]string{
+		"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nBundle-SymbolicName: " + id + "; singleton:=true\r\nBundle-Name: " + id + "\r\nBundle-Version: " + version + "\r\nSAP-BundleType: IntegrationFlow\r\n\r\n",
+		"metainfo.prop":        "#Fri Oct 09 09:34:25 UTC 2026\r\ndescription=" + id + "\r\nauthor=x\r\n",
+		"src/main/resources/scenarioflows/integrationflow/" + id + ".iflw": "<bpmn2:definitions/>",
+		"src/main/resources/parameters.prop":                               props,
+	}
+	if propdef != "" {
+		files["src/main/resources/parameters.propdef"] = propdef
+	}
+	return zipOf(t, files)
+}
+
+func propdefOf(names ...string) string {
+	s := `<?xml version="1.0" encoding="UTF-8"?><parameters>`
+	for _, n := range names {
+		s += "<parameter><key/><name>" + n + "</name><type>xsd:string</type></parameter>"
+	}
+	return s + "</parameters>"
+}
+
+func snapshotJSON(t *testing.T, mock *cpitest.Tenant, repo string, extra ...string) (cliRun, snapshotResult) {
+	t.Helper()
+	args := append([]string{"snapshot", "--dir-git-repo", repo, "--dir-work", t.TempDir(), "--git-skip-commit",
+		"--sync-package-details=false", "--output", "json"}, extra...)
+	r := runMain(t, append(args, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	var env struct {
+		Result snapshotResult `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env), r.stdout)
+	return r, env.Result
+}
+
+func TestSnapshotFindings(t *testing.T) {
+	modified := time.Now().Add(-time.Hour).Truncate(time.Second)
+	props := "#Fri Oct 09 09:34:25 UTC 2026\r\nSTUB_HTTP_URL=http://old\r\nSTUB_HTTP_BASEURL=http://new\r\n"
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		// in draft: the export says Bundle-Version: Active
+		"Draft": {Type: "Integration", DesignVersion: "Active", Package: "EDM", Name: "Draft", ModifiedAt: modified,
+			Zip: flowWith(t, "Draft", "Active", "Host=h\r\n", ""), Runtime: &cpitest.Runtime{Version: "1.0.4", Status: "STARTED"}},
+		"Renamed": {Type: "Integration", DesignVersion: "1.0.2", Package: "EDM", Name: "Renamed", ModifiedAt: modified,
+			Zip: flowWith(t, "Renamed", "1.0.2", props, propdefOf("STUB_HTTP_BASEURL"))},
+		"Elsewhere": {Type: "Integration", DesignVersion: "1.0.0", Package: "Other", Name: "Elsewhere", ModifiedAt: modified,
+			Zip: flowWith(t, "Elsewhere", "1.0.0", "", "")},
+	})
+	mock.Packages = []cpitest.Package{{ID: "EDM", Version: "1.0.0"}, {ID: "Other", Version: "1.0.0"}, {ID: "Third", Version: "1.0.0"}}
+	repo := t.TempDir()
+	path := func(parts ...string) string { return filepath.Join(append([]string{repo, "EDM"}, parts...)...) }
+
+	r, res := snapshotJSON(t, mock, repo, "--draft-handling", "ADD", "--ids-include", "EDM")
+	st := statuses(res)
+
+	// 8. a draft gets a version number (the running one here), and is marked
+	mf, err := os.ReadFile(path("Draft", "META-INF", "MANIFEST.MF"))
+	require.NoError(t, err)
+	assert.Contains(t, string(mf), "Bundle-Version: 1.0.4")
+	assert.NotContains(t, string(mf), "Active")
+	assert.True(t, st["Draft"].Draft)
+	assert.Equal(t, "new (draft)", st["Draft"].Label())
+	assert.Contains(t, r.stderr, "new (draft)")
+	state, err := sync.LoadSnapshotState(filepath.Join(repo, ".cpi", "snapshot-state.json"))
+	require.NoError(t, err)
+	assert.True(t, state.Artifacts["EDM/Draft"].Draft)
+
+	// 9. metainfo.prop without the timestamp, keys sorted
+	meta, err := os.ReadFile(path("Renamed", "metainfo.prop"))
+	require.NoError(t, err)
+	assert.Equal(t, "author=x\ndescription=Renamed\n", string(meta))
+
+	// 10. a parameter the propdef no longer declares is reported, not written
+	assert.Equal(t, []string{"STUB_HTTP_URL"}, st["Renamed"].OrphanParameters)
+	p, err := os.ReadFile(path("Renamed", "src", "main", "resources", "parameters.prop"))
+	require.NoError(t, err)
+	assert.Equal(t, "STUB_HTTP_BASEURL=http://new\n", string(p))
+
+	// 11. one line for the packages filtered out, no warning per package
+	assert.Contains(t, r.stderr, "2 package(s) not in --ids-include")
+	assert.NotContains(t, r.stderr, "Skipping Other")
+
+	// a second snapshot changes nothing (also with a repository version
+	// higher than the running one, which wins)
+	require.NoError(t, os.WriteFile(path("Draft", "META-INF", "MANIFEST.MF"),
+		[]byte("Manifest-Version: 1.0\nBundle-SymbolicName: Draft; singleton:=true\nBundle-Name: Draft\nBundle-Version: 1.0.9\nSAP-BundleType: IntegrationFlow\n"), 0o644))
+	_, res = snapshotJSON(t, mock, repo, "--draft-handling", "ADD", "--ids-include", "EDM", "--overwrite-local")
+	mf, _ = os.ReadFile(path("Draft", "META-INF", "MANIFEST.MF"))
+	assert.Contains(t, string(mf), "Bundle-Version: 1.0.9", "the repository's version when higher")
+	assert.Equal(t, "unchanged (draft)", statuses(res)["Draft"].Label(), "the repository version is kept: nothing to write")
+	before := treeOf(t, filepath.Join(repo, "EDM"))
+	_, res = snapshotJSON(t, mock, repo, "--draft-handling", "ADD", "--ids-include", "EDM")
+	assert.Equal(t, before, treeOf(t, filepath.Join(repo, "EDM")), "stable")
+	assert.Equal(t, sync.SnapUnchanged, statuses(res)["Renamed"].Status)
+
+	// --keep-orphan-parameters writes them (and still reports them)
+	_, res = snapshotJSON(t, mock, repo, "--ids-include", "EDM", "--keep-orphan-parameters", "--overwrite-local")
+	p, _ = os.ReadFile(path("Renamed", "src", "main", "resources", "parameters.prop"))
+	assert.Equal(t, "STUB_HTTP_BASEURL=http://new\nSTUB_HTTP_URL=http://old\n", string(p))
+	assert.Equal(t, []string{"STUB_HTTP_URL"}, statuses(res)["Renamed"].OrphanParameters)
+}

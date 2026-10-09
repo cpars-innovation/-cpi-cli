@@ -454,7 +454,7 @@ func (s *Synchroniser) ArtifactsToTenant(packageId string, workDir string, artif
 			// Filter in/out artifacts
 			if len(includedIds) > 0 {
 				if !slices.Contains(includedIds, artifactId) {
-					log.Warn().Msgf("Skipping artifact %v as it is not in --ids-include", artifactId)
+					log.Debug().Msgf("Skipping artifact %v as it is not in --ids-include", artifactId)
 					continue
 				}
 			}

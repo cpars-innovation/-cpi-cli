@@ -1893,6 +1893,7 @@ Configuration:
       --git-skip-commit             Skip committing changes to Git repository (config: snapshot.gitSkipCommit)
       --include-derived             Write deployment copies like any other artifact (ignore the deploy config)
       --incremental                 Skip the download of artifacts whose version, ModifiedAt, configured parameters and local copy did not change since the last snapshot (config: snapshot.incremental)
+      --keep-orphan-parameters      Write parameters.prop keys that parameters.propdef no longer declares (values the tenant keeps after a parameter was renamed or removed); they are reported either way (config: snapshot.keepOrphanParameters)
       --overwrite-local             Overwrite artifacts with local edits since the last snapshot (default: skip them as local-modified)
       --parallel int                Artifacts downloaded at the same time, across all packages (config: snapshot.parallel) (default 8)
       --prune                       Remove local artifact folders of artifacts and packages deleted on the tenant, and local folders of derived copies (never when edited locally)

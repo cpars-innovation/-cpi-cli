@@ -195,7 +195,11 @@ func (r *snapshotResult) MarkdownSummary() string {
 		if it.Status == sync.SnapUnchanged && it.Warning == "" {
 			continue
 		}
-		rows = append(rows, []string{it.Package + "/" + it.Artifact, it.Status, it.Action, it.Source, strings.TrimSpace(it.Note + " " + it.Warning)})
+		note := it.Note
+		if len(it.OrphanParameters) > 0 {
+			note = strings.TrimSpace(note + " orphan parameters: " + strings.Join(it.OrphanParameters, ", "))
+		}
+		rows = append(rows, []string{it.Package + "/" + it.Artifact, it.Label(), it.Action, it.Source, strings.TrimSpace(note + " " + it.Warning)})
 	}
 	b.WriteString(mdTable([]string{"Artifact", "Status", "Action", "Source", "Note"}, rows))
 	if len(r.Failed) > 0 {

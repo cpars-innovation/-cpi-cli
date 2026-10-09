@@ -39,7 +39,28 @@ cpictl snapshot --dir-git-repo packages --ids-include UtilitiesBaseEDMEnergyData
 
 The text output has one line per artifact that is not unchanged, and a count per status;
 `--output json` returns `counts`, `warnings` and `artifacts` (package, artifact, status, action,
-source, note, warning). In GitHub Actions the same table goes to the job summary.
+source, note, warning, `draft`, `orphanParameters`). In GitHub Actions the same table goes to the
+job summary. Packages outside `--ids-include` (or in `--ids-exclude`) are counted in one line
+(`180 package(s) not in --ids-include`); `--debug` lists them.
+
+### Drafts
+
+`--draft-handling` decides about artifacts in draft on the tenant (being edited in the Web UI):
+`SKIP` (default) leaves the local folder alone, `ERROR` fails the package, `ADD` writes the draft.
+A draft has no version number (the tenant reports `Active`), so `ADD` writes a numeric
+`Bundle-Version`: the repository's when it is higher, else the last saved version known (the
+snapshot state's, or the running one), else `1.0.0`. The artifact is marked as draft in the report
+(`new (draft)`, `changed (draft)`, JSON `draft: true`) and in the state file. A
+`Bundle-Version: Active` written by an earlier cpictl is replaced the same way.
+
+### Orphan parameters
+
+The tenant keeps configured values for parameters that the flow no longer declares (for example
+`STUB_HTTP_URL` after a rename to `STUB_HTTP_BASEURL`). Keys of `parameters.prop` that
+`parameters.propdef` does not declare are reported per artifact (`orphanParameters`, and in the
+text output) and not written; `--keep-orphan-parameters` (config
+`snapshot.keepOrphanParameters`) writes them anyway. Artifacts without a `parameters.propdef` are
+not checked.
 
 ### Local edits
 
@@ -65,9 +86,10 @@ only reported (`deleted`); `--prune` removes its folder, never when it was edite
 
 Snapshotting the same tenant twice gives an empty `git status`:
 
-- **parameters.prop**: the timestamp comment that the tenant writes (`#Thu Oct 08 14:11:02 UTC 2026`)
-  and every other comment line containing `:` are dropped; other comment lines (such as `#`) are
-  kept at the top; the entries are sorted by key (continuation lines stay with their key).
+- **parameters.prop** and **metainfo.prop**: the timestamp comment that the tenant writes
+  (`#Thu Oct 08 14:11:02 UTC 2026`) and every other comment line containing `:` are dropped; other
+  comment lines (such as `#`) are kept at the top; the entries are sorted by key (continuation
+  lines stay with their key). The first snapshot with this version rewrites `metainfo.prop` once.
 - **Line endings**: text files (`.iflw .groovy .gsh .js .xml .xsd .xsl .xslt .prop .propdef
   .properties .MF .json .wsdl .edmx .mmap .project .txt`) are written with LF; all other files
   (`.jar`, `.zip`, ...) byte for byte.

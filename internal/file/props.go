@@ -2,6 +2,8 @@ package file
 
 import (
 	"bytes"
+	"encoding/xml"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -103,22 +105,25 @@ func PropertiesEqual(a, b []byte) bool {
 	return equalLines(norm(a), norm(b))
 }
 
-// NormalizeParametersFile rewrites dir/src/main/resources/parameters.prop
-// with NormalizeProperties (no file: nothing to do).
+// NormalizeParametersFile rewrites parameters.prop and metainfo.prop of
+// dir with NormalizeProperties (a missing file: nothing to do).
 func NormalizeParametersFile(dir string) error {
-	p := filepath.Join(dir, filepath.FromSlash(ParametersFile))
-	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return nil
+	for _, rel := range []string{ParametersFile, MetainfoFile} {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		data, err := os.ReadFile(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if norm := NormalizeProperties(data); !bytes.Equal(norm, data) {
+			if err := os.WriteFile(p, norm, 0o644); err != nil {
+				return err
+			}
+		}
 	}
-	if err != nil {
-		return err
-	}
-	norm := NormalizeProperties(data)
-	if bytes.Equal(norm, data) {
-		return nil
-	}
-	return os.WriteFile(p, norm, 0o644)
+	return nil
 }
 
 // RestoreProperties returns tenant with the entries of keys taken from local
@@ -144,4 +149,87 @@ func RestoreProperties(tenant, local []byte, keys map[string]bool) []byte {
 		out = append(out, lines...)
 	}
 	return NormalizeProperties([]byte(strings.Join(out, "\n") + "\n"))
+}
+
+// MetainfoFile holds the description of an artifact (a properties file).
+const MetainfoFile = "metainfo.prop"
+
+// PropdefFile declares the externalised parameters of an integration flow.
+const PropdefFile = "src/main/resources/parameters.propdef"
+
+// PropdefNames returns the parameter names declared in
+// dir/src/main/resources/parameters.propdef; ok is false when there is no
+// propdef (nothing can be said about orphans then).
+func PropdefNames(dir string) (names map[string]bool, ok bool, err error) {
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(PropdefFile)))
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var doc struct {
+		Parameters []struct {
+			Name string `xml:"name"`
+		} `xml:"parameter"`
+	}
+	if err := xml.Unmarshal(data, &doc); err != nil {
+		return nil, false, fmt.Errorf("%s: %w", PropdefFile, err)
+	}
+	names = map[string]bool{}
+	for _, p := range doc.Parameters {
+		names[strings.TrimSpace(p.Name)] = true
+	}
+	return names, true, nil
+}
+
+// unescapeKey resolves the escapes of a properties key ("a\ b" -> "a b").
+func unescapeKey(raw string) string {
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '\\' && i+1 < len(raw) {
+			i++
+		}
+		b.WriteByte(raw[i])
+	}
+	return b.String()
+}
+
+// DropOrphanParameters removes from dir's parameters.prop the keys that
+// parameters.propdef does not declare (values the tenant keeps for renamed
+// or deleted parameters) and returns them sorted; keep only reports them.
+// Without a propdef nothing is removed.
+func DropOrphanParameters(dir string, keep bool) ([]string, error) {
+	names, ok, err := PropdefNames(dir)
+	if err != nil || !ok {
+		return nil, err
+	}
+	p := filepath.Join(dir, filepath.FromSlash(ParametersFile))
+	data, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	entries, comments := splitProperties(strings.ReplaceAll(string(data), "\r\n", "\n"))
+	var orphans, out []string
+	out = append(out, comments...)
+	for _, e := range entries {
+		if key := unescapeKey(e.key); !names[key] {
+			orphans = append(orphans, key)
+			if !keep {
+				continue
+			}
+		}
+		out = append(out, e.lines...)
+	}
+	if len(orphans) == 0 {
+		return nil, nil
+	}
+	sort.Strings(orphans)
+	if keep {
+		return orphans, nil
+	}
+	return orphans, os.WriteFile(p, NormalizeProperties([]byte(strings.Join(out, "\n")+"\n")), 0o644)
 }

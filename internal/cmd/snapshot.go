@@ -88,6 +88,7 @@ Configuration:
 	snapshotCmd.Flags().Bool("dry-run", false, "Only report per artifact what the snapshot would do (new, changed, deleted, unchanged, local-modified, derived); writes no files and no state")
 	snapshotCmd.Flags().Bool("overwrite-local", false, "Overwrite artifacts with local edits since the last snapshot (default: skip them as local-modified)")
 	snapshotCmd.Flags().Bool("fail-on-local-modified", false, "Exit with code 5 when an artifact is local-modified (for CI)")
+	snapshotCmd.Flags().Bool("keep-orphan-parameters", false, "Write parameters.prop keys that parameters.propdef no longer declares (values the tenant keeps after a parameter was renamed or removed); they are reported either way (config: snapshot.keepOrphanParameters)")
 	snapshotCmd.Flags().Bool("prune", false, "Remove local artifact folders of artifacts and packages deleted on the tenant, and local folders of derived copies (never when edited locally)")
 	snapshotCmd.Flags().String("deploy-config", "", "Deploy config file or folder of the orchestrator: its deployment copies are not written (config: snapshot.deployConfig, else orchestrator.deployConfig)")
 	snapshotCmd.Flags().StringSlice("deployment-prefix", nil, "Additional deployment prefixes whose copies are not written (the deploy config's deploymentPrefix always counts)")
@@ -140,9 +141,10 @@ func runSnapshot(cmd *cobra.Command) error {
 	}
 
 	snap := &sync.SnapshotOptions{
-		DryRun:         config.GetBoolWithFallback(cmd, "dry-run", "snapshot.dryRun"),
-		OverwriteLocal: config.GetBoolWithFallback(cmd, "overwrite-local", "snapshot.overwriteLocal"),
-		Prune:          config.GetBoolWithFallback(cmd, "prune", "snapshot.prune"),
+		DryRun:               config.GetBoolWithFallback(cmd, "dry-run", "snapshot.dryRun"),
+		OverwriteLocal:       config.GetBoolWithFallback(cmd, "overwrite-local", "snapshot.overwriteLocal"),
+		Prune:                config.GetBoolWithFallback(cmd, "prune", "snapshot.prune"),
+		KeepOrphanParameters: config.GetBoolWithFallback(cmd, "keep-orphan-parameters", "snapshot.keepOrphanParameters"),
 	}
 	if snap.Derived, err = derivedIndex(cmd, artifactsBaseDir); err != nil {
 		return err
@@ -264,11 +266,13 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 	var mu gosync.Mutex
 	sem := make(chan struct{}, opts.parallel)
 	var wg gosync.WaitGroup
+	filtered := 0
 	for i, packageDataFromTenant := range packages {
 		id := packageDataFromTenant.Root.Id
 		tenantPackages[id] = true
 		// Filter in/out packages before any call to the tenant
 		if str.FilterIDs(id, includedIds, excludedIds) {
+			filtered++
 			continue
 		}
 		if packageDataFromTenant.Root.Mode == "READ_ONLY" {
@@ -304,6 +308,13 @@ func getTenantSnapshot(serviceDetails *cpi.ServiceDetails, artifactsBaseDir stri
 		}()
 	}
 	wg.Wait()
+	if filtered > 0 {
+		which := "not in --ids-include"
+		if len(includedIds) == 0 {
+			which = "in --ids-exclude"
+		}
+		log.Info().Msgf("%d package(s) %s", filtered, which)
+	}
 	// deployment copies are compared with their sources once those are written
 	if err := synchroniser.CheckDerived(); err != nil {
 		res.Failed = append(res.Failed, err.Error())

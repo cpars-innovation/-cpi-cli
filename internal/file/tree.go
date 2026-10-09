@@ -26,8 +26,8 @@ func IsTextFile(name string) bool {
 }
 
 // NormalizeTree makes an extracted artifact stable between downloads: text
-// files get LF line endings and parameters.prop is normalized
-// (NormalizeProperties). Binary files are not touched.
+// files get LF line endings, parameters.prop and metainfo.prop are
+// normalized (NormalizeProperties: no timestamp comment, sorted keys). Binary files are not touched.
 func NormalizeTree(dir string) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -35,7 +35,7 @@ func NormalizeTree(dir string) error {
 		}
 		rel, _ := filepath.Rel(dir, p)
 		rel = filepath.ToSlash(rel)
-		if rel != ParametersFile && !IsTextFile(rel) {
+		if rel != ParametersFile && rel != MetainfoFile && !IsTextFile(rel) {
 			return nil
 		}
 		data, err := os.ReadFile(p)
@@ -43,7 +43,7 @@ func NormalizeTree(dir string) error {
 			return err
 		}
 		norm := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
-		if rel == ParametersFile {
+		if rel == ParametersFile || rel == MetainfoFile {
 			norm = NormalizeProperties(norm)
 		}
 		if bytes.Equal(norm, data) {

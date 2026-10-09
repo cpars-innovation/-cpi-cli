@@ -46,6 +46,21 @@ type SnapshotItem struct {
 	Source  string `json:"source,omitempty"`
 	Note    string `json:"note,omitempty"`
 	Warning string `json:"warning,omitempty"`
+	// Draft is set for an artifact in draft on the tenant that was written
+	// (draftHandling ADD): status "new (draft)" or "changed (draft)".
+	Draft bool `json:"draft,omitempty"`
+	// OrphanParameters are parameters.prop keys the tenant keeps that
+	// parameters.propdef no longer declares (not written unless
+	// KeepOrphanParameters).
+	OrphanParameters []string `json:"orphanParameters,omitempty"`
+}
+
+// Label is the status with the draft marker.
+func (it SnapshotItem) Label() string {
+	if it.Draft {
+		return it.Status + " (draft)"
+	}
+	return it.Status
 }
 
 // DerivedSource is the artifact folder a deployment copy is made from.
@@ -74,6 +89,9 @@ type SnapshotOptions struct {
 	DryRun         bool
 	OverwriteLocal bool
 	Prune          bool
+	// KeepOrphanParameters writes parameters.prop keys that
+	// parameters.propdef does not declare (reported either way).
+	KeepOrphanParameters bool
 	// Derived: deployment copies that are not written (nil: none).
 	Derived *DerivedIndex
 
@@ -104,12 +122,15 @@ func (o *SnapshotOptions) add(it SnapshotItem) int {
 	case it.Status == SnapUnchanged:
 		ev = log.Debug()
 	}
-	msg := fmt.Sprintf("%-15s %s/%s (%s)", it.Status, it.Package, it.Artifact, it.Action)
+	msg := fmt.Sprintf("%-15s %s/%s (%s)", it.Label(), it.Package, it.Artifact, it.Action)
 	if it.Source != "" {
 		msg += " source: " + it.Source
 	}
 	if it.Note != "" {
 		msg += " - " + it.Note
+	}
+	if len(it.OrphanParameters) > 0 {
+		msg += " - orphan parameters: " + strings.Join(it.OrphanParameters, ", ")
 	}
 	if it.Warning != "" {
 		msg += " ⚠ " + it.Warning
@@ -229,7 +250,7 @@ func (s *Synchroniser) snapshotArtifact(packageId, workDir, artifactsDir, draftH
 	localExists := hasManifest(dir)
 	modified := havePrev && prev.Derived == "" && localExists && localModified(prev, dir)
 	tenantUnchanged := havePrev && prev.Derived == "" && sigErr == nil && sameSignature(prev, sig)
-	it := SnapshotItem{Package: packageId, Artifact: artifact.Id}
+	it := SnapshotItem{Package: packageId, Artifact: artifact.Id, Draft: artifact.IsDraft}
 
 	switch {
 	case !localExists:
@@ -245,10 +266,11 @@ func (s *Synchroniser) snapshotArtifact(packageId, workDir, artifactsDir, draftH
 		return nil
 	}
 
-	prepared, uploadHash, err := s.prepareSnapshot(packageId, workDir, dir, scriptCollectionMap, artifact)
+	prepared, uploadHash, orphans, err := s.prepareSnapshot(packageId, workDir, dir, scriptCollectionMap, artifact)
 	if err != nil {
 		return err
 	}
+	it.OrphanParameters = orphans
 	tenantTree, err := file.TreeHash(prepared)
 	if err != nil {
 		return err
@@ -258,7 +280,7 @@ func (s *Synchroniser) snapshotArtifact(packageId, workDir, artifactsDir, draftH
 			return nil
 		}
 		st := sig
-		st.UploadHash = uploadHash
+		st.UploadHash, st.Draft = uploadHash, artifact.IsDraft
 		if st.FilesHash, err = file.TreeHash(dir); err != nil {
 			return err
 		}
@@ -320,23 +342,43 @@ func (s *Synchroniser) stateGet(key string) (ArtifactState, bool) {
 // Bundle-Version of the repository kept (or the tenant's when higher), the
 // configOverrides keys of parameters.prop taken from the local folder.
 // It returns the folder and the upload hash of the tenant's content.
-func (s *Synchroniser) prepareSnapshot(packageId, workDir, localDir string, scriptCollectionMap []string, artifact *cpi.ArtifactDetails) (string, string, error) {
+func (s *Synchroniser) prepareSnapshot(packageId, workDir, localDir string, scriptCollectionMap []string, artifact *cpi.ArtifactDetails) (string, string, []string, error) {
 	dir, err := s.downloadNormalized(workDir, artifact)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	uploadHash := ""
 	if len(scriptCollectionMap) == 0 {
 		uploadHash = uploadHashOf(dir, artifact.ArtifactType)
 	} else if artifact.ArtifactType == "Integration" {
 		if err := file.UpdateBPMN(dir, scriptCollectionMap); err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 	}
 	repoVersion, _ := manifest.Version(localDir)
-	if v := versioning.Max(repoVersion, artifact.Version); v != "" {
+	if !numericVersion(repoVersion) {
+		repoVersion = "" // e.g. "Active" written for a draft by an earlier cpictl
+	}
+	tenantVersion := artifact.Version
+	if artifact.IsDraft || !numericVersion(tenantVersion) {
+		// a draft has no version number: the last saved one we know of
+		tenantVersion = ""
+		if prev, ok := s.stateGet(packageId + "/" + artifact.Id); ok && numericVersion(prev.Version) {
+			tenantVersion = prev.Version
+		}
+		if rt, err := cpi.NewRuntime(s.exe).GetArtifact(artifact.Id); err == nil && rt != nil && numericVersion(rt.Version) {
+			tenantVersion = versioning.Max(tenantVersion, rt.Version)
+		}
+	}
+	v := versioning.Max(repoVersion, tenantVersion)
+	if v == "" {
+		if current, _ := manifest.Version(dir); !numericVersion(current) {
+			v = "1.0.0"
+		}
+	}
+	if v != "" {
 		if err := manifest.SetVersion(dir, v); err != nil && !os.IsNotExist(err) {
-			return "", "", err
+			return "", "", nil, err
 		}
 	}
 	if o := s.Snap; o != nil && o.Derived != nil {
@@ -345,12 +387,31 @@ func (s *Synchroniser) prepareSnapshot(packageId, workDir, localDir string, scri
 			if tenant, err := os.ReadFile(tp); err == nil {
 				local, _ := os.ReadFile(filepath.Join(localDir, filepath.FromSlash(file.ParametersFile)))
 				if err := os.WriteFile(tp, file.RestoreProperties(tenant, local, keys), 0o644); err != nil {
-					return "", "", err
+					return "", "", nil, err
 				}
 			}
 		}
 	}
-	return dir, uploadHash, nil
+	keep := s.Snap != nil && s.Snap.KeepOrphanParameters
+	orphans, err := file.DropOrphanParameters(dir, keep)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return dir, uploadHash, orphans, nil
+}
+
+// numericVersion reports whether v is a version number ("1.0.6"), not
+// empty and not the tenant's draft marker "Active".
+func numericVersion(v string) bool {
+	if v == "" {
+		return false
+	}
+	for _, seg := range strings.Split(v, ".") {
+		if seg == "" || strings.Trim(seg, "0123456789") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // downloadNormalized downloads and extracts an artifact into workDir and

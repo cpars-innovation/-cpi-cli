@@ -19,6 +19,17 @@ All notable changes to cpictl. Coming from FlashPipe? See
   - MCP `upload_artifact` / `upload_artifacts` return `SKIPPED` with `skipped: "draft"` and the
     reason; `deploy` (and `deploy --pending`) skip drafts with `skipped: "draft"`, and
     `deploy --pending` keeps them in the pending file for the next run.
+- `snapshot --draft-handling ADD` writes a numeric `Bundle-Version` for drafts (the repository's
+  when higher, else the last saved or running version, else `1.0.0`) instead of
+  `Bundle-Version: Active`, and marks them: `new (draft)` / `changed (draft)`, JSON `draft`, state
+  file `draft`. A `Bundle-Version: Active` left by v0.4.0 is replaced.
+- `snapshot` normalizes `metainfo.prop` like `parameters.prop` (no timestamp comment, sorted keys),
+  so an unchanged artifact gives no diff. The first snapshot rewrites it once. `download` too.
+- `snapshot` no longer writes parameters the tenant keeps but `parameters.propdef` no longer
+  declares (e.g. after a rename); they are reported per artifact as `orphanParameters`.
+  `--keep-orphan-parameters` writes them.
+- `snapshot`: packages outside `--ids-include` / in `--ids-exclude` give one info line with the
+  count instead of one warning per package (listed with `--debug`).
 - `orchestrator` result: `artifacts` (status per deployed ID: `created`, `updated`, `unchanged`,
   `failed`, `skipped-draft`, `not-uploaded`, with the deployment result) and `counts`.
 - `orchestrator --artifact-filter` also takes the artifact folder (`artifactDir`, as change

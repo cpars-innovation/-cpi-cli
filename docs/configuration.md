@@ -217,6 +217,7 @@ when you need something else.
 | Orchestrator comparison | with the snapshot state when one of this tenant is found, else download | `orchestrator` (`snapshotState`, `verifyDownload`) |
 | Artifacts in draft on the tenant | skipped and reported, not uploaded, not deployed (exit 0); `ERROR`: the run fails (exit 5) | `orchestrator` (`draftHandling`: `SKIP`, `ERROR`), MCP `upload_artifact` / `deploy` (always skipped) |
 | Snapshot and local edits | artifacts edited locally since the last snapshot are skipped (`local-modified`); deleted artifacts are reported, not removed; deployment copies of the deploy config are not written | `snapshot` (`overwriteLocal`, `prune`, `includeDerived`) |
+| Snapshot of drafts and orphan parameters | drafts skipped (`ADD`: written with a numeric version); `parameters.prop` keys missing from `parameters.propdef` reported, not written | `snapshot` (`draftHandling`, `keepOrphanParameters`) |
 | Incremental snapshot | off (on once `ModifiedAt` is verified on your tenant, see [snapshot.md](snapshot.md)) | `snapshot` (`incremental`) |
 | MCP list cache | 60 s | `mcp --cache-ttl` |
 | Job summary | `$GITHUB_STEP_SUMMARY` when set | `summary` |

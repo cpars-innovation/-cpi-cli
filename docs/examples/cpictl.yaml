@@ -69,6 +69,8 @@ orchestrator:
 snapshot:
   parallel: 8                 # downloads at the same time, across packages
   incremental: false          # true: skip unchanged artifacts (see docs/snapshot.md)
+  draftHandling: SKIP         # SKIP, ADD (written with a numeric Bundle-Version), ERROR
+  keepOrphanParameters: false # true: also write parameters.prop keys parameters.propdef no longer declares
 
 drift:
   parallel: 8
