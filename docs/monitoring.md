@@ -125,6 +125,36 @@ ID in the tracer), otherwise by scanning the scope (`--max-scan`, default 200). 
 names: `--trace-property`, `--span-property`, `--parent-property`. Tenants whose sender adapters
 need business headers (e.g. `sap-client`) get them with `--header` on `send`.
 
+### Following a message without a tracer
+
+From any message GUID (for example a failed message from the error list), `logs tree --message`
+follows its **correlation ID** across flows (ProcessDirect and JMS keep it). With
+`--key-header`, the custom header properties your flows write (`messageLog.addCustomHeaderProperty`,
+e.g. an order number) join runs that have **another correlation ID**: the message left the tenant
+(Event Mesh, an external system) and came back. Those runs come with all their messages, also
+flows that do not write the header.
+
+```bash
+cpictl logs tree --message <guid>
+cpictl logs tree --message <guid> --key-header OrderNo --package-id Orders --since 2h
+```
+
+The key value is taken from any message of the run. The tenant cannot filter by custom headers,
+so `--key-header` scans the scope like the header search above (`--max-scan`, default 200).
+
+The result has the tree, `hops` (from flow, to flow, both messages, `link`) and a `pathKey` that is
+the same for every message taking the same route. Links:
+
+| Link | Meaning |
+|------|---------|
+| `span` | the tracer's parent span ID |
+| `predecessor` | the message log names the calling message |
+| `inferred` | same correlation ID, attached to the latest message that started before (the log has no predecessor) |
+| `header` | joined by a key header, attached to the latest message that started before |
+
+`inferred` and `header` links follow start times: with parallel branches the parent can be a
+sibling. Store and compare paths by `pathKey` to see which routes messages take.
+
 ## Runtime data
 
 ```bash

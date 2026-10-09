@@ -59,7 +59,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs summary`](#logs-summary) | Message volume and failures per flow, per connection between flows and per error fingerprint |
 | [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
-| [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
+| [`logs tree`](#logs-tree) | Show the path of a message or trace across flows and its first failure |
 | [`matrix`](#matrix) | Version matrix: every artifact's version in Git and on each tier, and what is ready to promote |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`number-ranges`](#number-ranges) | List number ranges |
@@ -1360,13 +1360,25 @@ Show payload, headers and exchange properties of a traced step (ID from 'logs tr
 
 ## logs tree
 
-Show the call tree of a trace across flows and its first failure
+Show the path of a message or trace across flows and its first failure
 
 ```
-Build the call tree of one trace (W3C trace ID, e.g. the traceId of 'cpictl send'):
-messages are found by ApplicationMessageId = trace ID, otherwise by scanning the
-scope (--artifact-ids or --package-id, and --since) for the trace-id custom header.
-Nodes are linked by span-id / parent-span-id (names configurable).
+Build the call tree across flows from a trace ID or from any message GUID.
+
+--trace-id (W3C trace ID, e.g. the traceId of 'cpictl send'): messages are found by
+ApplicationMessageId = trace ID, otherwise by scanning the scope (--artifact-ids or
+--package-id, and --since) for the trace-id custom header.
+
+--message (a message GUID): all messages with its correlation ID. With --key-header
+(custom header properties your flows write, e.g. OrderNo), messages of the scope with
+the same value join the path, with the rest of their run: the path continues when the
+message left the tenant and came back with a new correlation ID. The tenant cannot
+filter by custom headers, so the scope is scanned (at most --max-scan messages).
+
+Nodes are linked by span-id / parent-span-id (names configurable), else by the
+predecessor message, else (--message only) by start time ("inferred", or "header"
+across correlation IDs). The result has the hops between flows and a path key that
+is the same for every message taking the same route.
 ```
 
 **Usage:** `cpictl logs tree [flags]`
@@ -1375,7 +1387,10 @@ Nodes are linked by span-id / parent-span-id (names configurable).
 
 ```
       --artifact-ids strings     Scope of the fallback scan
+      --key-header strings       With --message: custom header properties that join runs with the same value (scans the scope)
+      --max-messages int         With --message: maximum messages of the path (default 200)
       --max-scan int             Maximum messages scanned (default 200)
+      --message string           Message GUID: follow its correlation ID (and --key-header) across flows
       --package-id string        Scope of the fallback scan: all flows of this package
       --parent-property string   Custom header property with the parent span ID (default "parent-span-id")
       --since string             Start of the scan window (duration like 1h or RFC 3339)
@@ -1383,6 +1398,13 @@ Nodes are linked by span-id / parent-span-id (names configurable).
       --trace-id string          Trace ID (32 hex characters)
       --trace-property string    Custom header property with the trace ID (default "trace-id")
       --until string             End of the scan window
+```
+
+**Examples:**
+
+```
+  cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
+  cpictl logs tree --message AGXyz... --key-header OrderNo --package-id Orders --since 2h
 ```
 
 ## matrix

@@ -546,12 +546,16 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			},
 		},
 		{
-			Name: "get_trace_tree", Title: "Get the call tree of a trace",
-			Description: "From one trace ID (traceId of send_test_message, or trace-id custom header) to the call tree across flows (ProcessDirect, JMS, HTTP) and firstFailure, the earliest failed message. " +
-				"Finds the messages by ApplicationMessageId first; otherwise scans the given scope (artifact_ids or package_id, and since) for the trace-id custom header, at most max_scan messages. " +
-				"Next: get_message_steps for firstFailure.messageGuid.",
+			Name: "get_trace_tree", Title: "Get the path of a message or trace across flows",
+			Description: "The call tree across flows, the hops from flow to flow, a pathKey (the same for every message taking the same route) and firstFailure, the earliest failed message. Give trace_id or message_guid. " +
+				"trace_id (traceId of send_test_message, or trace-id custom header): messages by ApplicationMessageId first; otherwise scans the scope (artifact_ids or package_id, and since) for the trace-id custom header, at most max_scan messages. " +
+				"message_guid (any message, e.g. a failed one): all messages with its correlation ID; with key_headers (custom header properties the flows write, such as an order number) messages of the scope with the same value join, " +
+				"with the rest of their run, so the path continues when the message left the tenant and came back (scans the scope). " +
+				"Hop links: span, predecessor, inferred (same correlation ID, by start time), header (joined by a key header). Next: get_message_steps for firstFailure.messageGuid.",
 			InputSchema: object(props{
 				"trace_id":     str("32 hex characters"),
+				"message_guid": str("A message GUID: follow its correlation ID across flows"),
+				"key_headers":  strArray("With message_guid: custom header properties that join runs with the same value (needs a scope)"),
 				"artifact_ids": strArray("Scope of the fallback scan"),
 				"package_id":   str("Scope of the fallback scan: all flows of this package"),
 				"since":        str("Start of the scan window: RFC 3339 or duration back from now (30m, 2h)"),
@@ -559,11 +563,13 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				"max_scan":     map[string]any{"type": "integer", "minimum": 1, "maximum": 1000, "description": "Maximum messages scanned, default 200"},
 				"properties": map[string]any{"type": "object", "additionalProperties": false, "description": "Custom header names of the tracer (default trace-id, span-id, parent-span-id)",
 					"properties": map[string]any{"trace": str("Trace ID property"), "span": str("Span ID property"), "parent": str("Parent span ID property")}},
-			}, "trace_id"),
+			}),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
 					TraceID     string   `json:"trace_id"`
+					MessageGuid string   `json:"message_guid"`
+					KeyHeaders  []string `json:"key_headers"`
 					ArtifactIDs []string `json:"artifact_ids"`
 					PackageID   string   `json:"package_id"`
 					Since       string   `json:"since"`
@@ -591,6 +597,13 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					Scope: ops.ScanScope{ArtifactIDs: a.ArtifactIDs, PackageID: a.PackageID, Since: since, Until: until}}
 				if a.Properties != nil {
 					q.Properties = ops.TraceProperties{Trace: a.Properties.Trace, Span: a.Properties.Span, Parent: a.Properties.Parent}
+				}
+				if (a.TraceID == "") == (a.MessageGuid == "") {
+					return nil, output.Usagef("give either trace_id or message_guid")
+				}
+				if a.MessageGuid != "" {
+					return ops.MessagePathFor(ctx, cfg.Exe, ops.MessagePathQuery{MessageGuid: a.MessageGuid, KeyHeaders: a.KeyHeaders,
+						Scope: q.Scope, MaxScan: a.MaxScan, Properties: q.Properties})
 				}
 				return ops.TraceTreeFor(ctx, cfg.Exe, q)
 			},

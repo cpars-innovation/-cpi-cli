@@ -5,6 +5,12 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl logs tree --message <guid>` (MCP `get_trace_tree` with `message_guid`): the path of any
+  message across flows by its correlation ID; `--key-header` (custom header properties the flows
+  write) joins runs with another correlation ID, e.g. after Event Mesh or an external system.
+  Trees now have `hops` (with how each was linked) and a `pathKey` per route. See
+  [docs/monitoring.md](docs/monitoring.md#following-a-message-without-a-tracer).
+
 - `cpictl mcp --toolset inspect|build|test|monitor|promote|improve|partner-directory|security`:
   offer only the tools of the session's task (combined with `--tools`, the mode still applies).
   See [docs/mcp.md](docs/mcp.md#toolsets).

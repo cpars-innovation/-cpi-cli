@@ -220,11 +220,25 @@ Set the level with 'cpictl log-level --level TRACE' (active for 10 minutes).`,
 
 	tree := &cobra.Command{
 		Use:   "tree",
-		Short: "Show the call tree of a trace across flows and its first failure",
-		Long: `Build the call tree of one trace (W3C trace ID, e.g. the traceId of 'cpictl send'):
-messages are found by ApplicationMessageId = trace ID, otherwise by scanning the
-scope (--artifact-ids or --package-id, and --since) for the trace-id custom header.
-Nodes are linked by span-id / parent-span-id (names configurable).`,
+		Short: "Show the path of a message or trace across flows and its first failure",
+		Long: `Build the call tree across flows from a trace ID or from any message GUID.
+
+--trace-id (W3C trace ID, e.g. the traceId of 'cpictl send'): messages are found by
+ApplicationMessageId = trace ID, otherwise by scanning the scope (--artifact-ids or
+--package-id, and --since) for the trace-id custom header.
+
+--message (a message GUID): all messages with its correlation ID. With --key-header
+(custom header properties your flows write, e.g. OrderNo), messages of the scope with
+the same value join the path, with the rest of their run: the path continues when the
+message left the tenant and came back with a new correlation ID. The tenant cannot
+filter by custom headers, so the scope is scanned (at most --max-scan messages).
+
+Nodes are linked by span-id / parent-span-id (names configurable), else by the
+predecessor message, else (--message only) by start time ("inferred", or "header"
+across correlation IDs). The result has the hops between flows and a path key that
+is the same for every message taking the same route.`,
+		Example: `  cpictl logs tree --trace-id 0af7651916cd43dd8448eb211c80319c
+  cpictl logs tree --message AGXyz... --key-header OrderNo --package-id Orders --since 2h`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			now := time.Now()
@@ -236,11 +250,20 @@ Nodes are linked by span-id / parent-span-id (names configurable).`,
 			if err != nil {
 				return output.Usagef("invalid --until: %v", err)
 			}
-			res, err := ops.TraceTreeFor(cmd.Context(), tenantExecuter(cmd), ops.TraceTreeQuery{
-				TraceID: config.GetString(cmd, "trace-id"), MaxScan: config.GetInt(cmd, "max-scan"),
-				Scope:      ops.ScanScope{ArtifactIDs: nonEmpty(config.GetStringSlice(cmd, "artifact-ids")), PackageID: config.GetString(cmd, "package-id"), Since: since, Until: until},
-				Properties: ops.TraceProperties{Trace: config.GetString(cmd, "trace-property"), Span: config.GetString(cmd, "span-property"), Parent: config.GetString(cmd, "parent-property")},
-			})
+			traceID, message := config.GetString(cmd, "trace-id"), config.GetString(cmd, "message")
+			if (traceID == "") == (message == "") {
+				return output.Usagef("give either --trace-id or --message")
+			}
+			scope := ops.ScanScope{ArtifactIDs: nonEmpty(config.GetStringSlice(cmd, "artifact-ids")), PackageID: config.GetString(cmd, "package-id"), Since: since, Until: until}
+			props := ops.TraceProperties{Trace: config.GetString(cmd, "trace-property"), Span: config.GetString(cmd, "span-property"), Parent: config.GetString(cmd, "parent-property")}
+			var res *ops.TraceTree
+			if message != "" {
+				res, err = ops.MessagePathFor(cmd.Context(), tenantExecuter(cmd), ops.MessagePathQuery{MessageGuid: message, Properties: props,
+					KeyHeaders: nonEmpty(config.GetStringSlice(cmd, "key-header")), Scope: scope, MaxScan: config.GetInt(cmd, "max-scan"),
+					MaxMessages: config.GetInt(cmd, "max-messages")})
+			} else {
+				res, err = ops.TraceTreeFor(cmd.Context(), tenantExecuter(cmd), ops.TraceTreeQuery{TraceID: traceID, MaxScan: config.GetInt(cmd, "max-scan"), Scope: scope, Properties: props})
+			}
 			if err != nil {
 				return err
 			}
@@ -255,6 +278,9 @@ Nodes are linked by span-id / parent-span-id (names configurable).`,
 			for _, r := range res.Roots {
 				print(r, 0)
 			}
+			for _, h := range res.Hops {
+				log.Info().Msgf("hop  %s -> %s (%s)", h.From, h.To, h.Link)
+			}
 			if res.FirstFailure != nil {
 				log.Warn().Msgf("First failure: %s %s%s", res.FirstFailure.ArtifactID, res.FirstFailure.MessageGuid, errSuffix(firstLine(res.FirstFailure.ErrorText)))
 			}
@@ -263,6 +289,9 @@ Nodes are linked by span-id / parent-span-id (names configurable).`,
 	}
 	tf := tree.Flags()
 	tf.String("trace-id", "", "Trace ID (32 hex characters)")
+	tf.String("message", "", "Message GUID: follow its correlation ID (and --key-header) across flows")
+	tf.StringSlice("key-header", nil, "With --message: custom header properties that join runs with the same value (scans the scope)")
+	tf.Int("max-messages", 200, "With --message: maximum messages of the path")
 	tf.StringSlice("artifact-ids", nil, "Scope of the fallback scan")
 	tf.String("package-id", "", "Scope of the fallback scan: all flows of this package")
 	tf.String("since", "", "Start of the scan window (duration like 1h or RFC 3339)")
@@ -271,7 +300,6 @@ Nodes are linked by span-id / parent-span-id (names configurable).`,
 	tf.String("trace-property", ops.DefaultTraceProperties.Trace, "Custom header property with the trace ID")
 	tf.String("span-property", ops.DefaultTraceProperties.Span, "Custom header property with the span ID")
 	tf.String("parent-property", ops.DefaultTraceProperties.Parent, "Custom header property with the parent span ID")
-	_ = tree.MarkFlagRequired("trace-id")
 
 	summary := &cobra.Command{
 		Use:   "summary",

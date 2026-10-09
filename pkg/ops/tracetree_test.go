@@ -151,3 +151,76 @@ func TestSendTraceparent(t *testing.T) {
 	assert.Empty(t, sent.TraceID)
 	assert.Empty(t, mock.Received[2].Header.Get("traceparent"))
 }
+
+// Orders_In -> Orders_Route (ProcessDirect, predecessor) and Orders_Audit
+// (same correlation ID, no predecessor); later the order comes back from
+// outside: Billing_In (new correlation ID, same OrderNo header) ->
+// Billing_Post (no header, failed).
+func pathLogs() []cpitest.MessageLog {
+	t0 := time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	order := map[string]string{"OrderNo": "4711"}
+	return []cpitest.MessageLog{
+		{Guid: "O1", Artifact: "Orders_In", Status: "COMPLETED", CorrelationID: "C1", Start: at(0), End: at(3), Headers: order},
+		{Guid: "O2", Artifact: "Orders_Route", Status: "COMPLETED", CorrelationID: "C1", Predecessor: "O1", Start: at(1), End: at(2)},
+		{Guid: "O3", Artifact: "Orders_Audit", Status: "COMPLETED", CorrelationID: "C1", Start: at(2), End: at(2)},
+		{Guid: "B1", Artifact: "Billing_In", Status: "COMPLETED", CorrelationID: "C2", Start: at(10), End: at(12), Headers: order},
+		{Guid: "B2", Artifact: "Billing_Post", Status: "FAILED", ErrorText: "posting failed", CorrelationID: "C2", Predecessor: "B1", Start: at(11), End: at(11)},
+		{Guid: "N1", Artifact: "Billing_In", Status: "COMPLETED", CorrelationID: "C3", Start: at(5), End: at(5), Headers: map[string]string{"OrderNo": "9999"}},
+	}
+}
+
+func hopList(tree *TraceTree) []string {
+	out := []string{}
+	for _, h := range tree.Hops {
+		out = append(out, h.From+">"+h.To+" "+h.Link)
+	}
+	return out
+}
+
+func TestMessagePath(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	mock.FilterMessageLogs = true
+	mock.MessageLogSteps = [][]cpitest.MessageLog{pathLogs()}
+	ctx := context.Background()
+
+	tree, err := MessagePathFor(ctx, mock.Executer(), MessagePathQuery{MessageGuid: "O2"})
+	require.NoError(t, err)
+	assert.Equal(t, "correlation_id", tree.Source)
+	assert.Equal(t, "C1", tree.CorrelationID)
+	assert.Equal(t, 3, tree.Messages)
+	assert.Equal(t, []string{"Orders_In>Orders_Route predecessor", "Orders_Route>Orders_Audit inferred"}, hopList(tree))
+	require.Len(t, tree.Roots, 1)
+	assert.Nil(t, tree.FirstFailure)
+	fromStart, err := MessagePathFor(ctx, mock.Executer(), MessagePathQuery{MessageGuid: "O1"})
+	require.NoError(t, err)
+	assert.Equal(t, tree.PathKey, fromStart.PathKey, "same route, same key")
+
+	// joined by the key header across correlation IDs
+	scope := ScanScope{ArtifactIDs: []string{"Orders_In", "Billing_In"}, Since: time.Now().Add(-time.Hour)}
+	tree, err = MessagePathFor(ctx, mock.Executer(), MessagePathQuery{MessageGuid: "O2", KeyHeaders: []string{"OrderNo"}, Scope: scope})
+	require.NoError(t, err)
+	assert.Equal(t, "correlation_id+header", tree.Source)
+	assert.Equal(t, map[string]string{"OrderNo": "4711"}, tree.Keys)
+	assert.Equal(t, 5, tree.Messages, "Billing_Post comes with its correlation ID; N1 has another order")
+	assert.Equal(t, []string{"Orders_In>Orders_Route predecessor", "Orders_Route>Orders_Audit inferred",
+		"Orders_Audit>Billing_In header", "Billing_In>Billing_Post predecessor"}, hopList(tree))
+	require.NotNil(t, tree.FirstFailure)
+	assert.Equal(t, "B2", tree.FirstFailure.MessageGuid)
+	assert.NotEqual(t, fromStart.PathKey, tree.PathKey)
+
+	_, err = MessagePathFor(ctx, mock.Executer(), MessagePathQuery{MessageGuid: "O2", KeyHeaders: []string{"OrderNo"}})
+	assert.Equal(t, exitcode.Usage, output.ExitCode(err), "key headers need a scope")
+	_, err = MessagePathFor(ctx, mock.Executer(), MessagePathQuery{})
+	assert.Equal(t, exitcode.Usage, output.ExitCode(err))
+}
+
+func TestTraceTreeHops(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	mock.FilterMessageLogs = true
+	mock.MessageLogSteps = [][]cpitest.MessageLog{traceLogs(true)}
+	tree, err := TraceTreeFor(context.Background(), mock.Executer(), TraceTreeQuery{TraceID: traceA})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Flow_A>Flow_B span", "Flow_B>Flow_C span"}, hopList(tree))
+	assert.NotEmpty(t, tree.PathKey)
+}
