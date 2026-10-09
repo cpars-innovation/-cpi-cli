@@ -61,7 +61,7 @@ var workflows = []Workflow{
 	{Task: "Find who calls a flow, or who uses a credential, script, header or PD parameter",
 		Tools: []string{"graph_search", "graph_neighbors", "graph_path"}, Docs: "graph.md"},
 	{Task: "Diagnose failed messages and runtime errors",
-		Tools: []string{"list_runtime_artifacts", "list_message_logs", "get_message_log", "get_message_steps", "get_trace_tree", "list_log_files", "get_log_file"}, Docs: "monitoring.md"},
+		Tools: []string{"message_summary", "list_runtime_artifacts", "list_message_logs", "get_message_log", "get_message_steps", "get_trace_tree", "list_log_files", "get_log_file"}, Docs: "monitoring.md"},
 	{Task: "Change parameters or Partner Directory values",
 		Tools: []string{"get_parameters", "set_parameters", "config_diff", "pd_dependencies", "pd_diff", "pd_deploy"}, Docs: "partner-directory.md"},
 }

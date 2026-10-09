@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -54,7 +55,8 @@ dead weight, robustness and best practices; lint_fix moves scripts into collecti
 unused scripts and unconnected steps (local files; the cpi-improve skill plans and applies them).
 Inspect: list_packages, list_artifacts (cached briefly; refresh=true re-reads), list_resources,
 get_resource (read without download). get_parameters artifact_ids reads several flows at once.
-Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
+Operate: message_summary (volume and failures per flow, connection and error fingerprint over a
+window: start here for "what is failing"), list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
 list_service_endpoints; runtime data: list_data_stores, list_data_store_entries,
 get_data_store_entry, delete_data_store_entry (confirm), list_variables, get_variable,
 list_jms_queues, get_jms_broker, list_number_ranges, list_log_files / get_log_file (adapter errors
@@ -499,6 +501,48 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, err
 				}
 				return ops.GetTraceMessage(cfg.Exe, a.TraceID, a.MaxBytes)
+			},
+		},
+		{
+			Name: "message_summary", Title: "Summarize messages per flow, connection and error",
+			Description: "Message volume and failures of a time window: per flow the count per status, failures, average and longest duration; per connection between flows the messages and failures " +
+				"(linked by the logs' predecessor, or for the content graph's connections by shared correlation ID, with .cpi/graph.json); failures grouped by error fingerprint with a sample, count, first and last occurrence and the newest message GUID. " +
+				"Start here for \"what is failing\" questions, then get_trace_tree or get_message_log for one message. Read-only; reads at most max_messages (default 5000).",
+			InputSchema: object(props{
+				"since":         str("Start of the window: duration like 1h or RFC 3339 (default 1h)"),
+				"until":         str("End of the window (default now)"),
+				"artifacts":     strArray("Only these flows (IDs or patterns)"),
+				"max_messages":  integer("Messages read at most, newest first (default 5000)"),
+				"error_samples": integer("Error texts read for fingerprints (default 50)"),
+			}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Since        string   `json:"since"`
+					Until        string   `json:"until"`
+					Artifacts    []string `json:"artifacts"`
+					MaxMessages  int      `json:"max_messages"`
+					ErrorSamples int      `json:"error_samples"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				now := time.Now()
+				since, err := ops.ParseTimeArg(cmp.Or(a.Since, "1h"), now)
+				if err != nil {
+					return nil, output.Usagef("invalid since: %v", err)
+				}
+				until, err := ops.ParseTimeArg(a.Until, now)
+				if err != nil {
+					return nil, output.Usagef("invalid until: %v", err)
+				}
+				q := ops.MessageSummaryQuery{Since: since, Until: until, Artifacts: a.Artifacts, MaxMessages: a.MaxMessages, ErrorSamples: a.ErrorSamples}
+				if root, err := resolvePath(cfg.Root, "."); err == nil {
+					if g, err := ops.LoadGraph(filepath.Join(root, ".cpi", "graph.json")); err == nil {
+						q.Graph = g
+					}
+				}
+				return ops.SummarizeMessages(cfg.Exe, q)
 			},
 		},
 		{

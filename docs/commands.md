@@ -56,6 +56,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs get`](#logs-get) | Show one message: status, error text, custom headers, attachments |
 | [`logs payload`](#logs-payload) | Download a persisted message (message store entry ID from 'logs get') |
 | [`logs steps`](#logs-steps) | Show the processing steps of a message and the step that failed |
+| [`logs summary`](#logs-summary) | Message volume and failures per flow, per connection between flows and per error fingerprint |
 | [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
 | [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
@@ -1289,6 +1290,39 @@ Show the processing steps of a message and the step that failed
 
 ```
       --message-guid string   Message GUID
+```
+
+## logs summary
+
+Message volume and failures per flow, per connection between flows and per error fingerprint
+
+```
+Summarize the message processing logs of a time window: per flow the count per
+status, failures, average and longest duration; per connection between flows the
+messages and failures (linked by the logs' predecessor, or for the connections of
+the content graph by shared correlation ID); failures grouped by error fingerprint
+(the error text without IDs, timestamps and long numbers) with a sample, count,
+first and last occurrence. Reads at most --max-messages, newest first.
+```
+
+**Usage:** `cpictl logs summary [flags]`
+
+**Flags:**
+
+```
+      --artifact strings    Only these flows (IDs or patterns)
+      --error-samples int   Error texts read for fingerprints (one request each) (default 50)
+      --graph string        Content graph for connections without predecessor links (default: .cpi/graph.json if it exists)
+      --max-messages int    Messages read at most, newest first (default 5000)
+      --since string        Start of the window (duration like 1h or RFC 3339) (default "1h")
+      --until string        End of the window (default: now)
+```
+
+**Examples:**
+
+```
+  cpictl logs summary --since 1h
+  cpictl logs summary --since 24h --artifact 'Orders_*' --graph .cpi/graph.json --output json
 ```
 
 ## logs trace

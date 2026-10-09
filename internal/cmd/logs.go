@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -272,7 +273,74 @@ Nodes are linked by span-id / parent-span-id (names configurable).`,
 	tf.String("parent-property", ops.DefaultTraceProperties.Parent, "Custom header property with the parent span ID")
 	_ = tree.MarkFlagRequired("trace-id")
 
-	c.AddCommand(get, steps, attachment, payload, trace, traceMessage, tree)
+	summary := &cobra.Command{
+		Use:   "summary",
+		Short: "Message volume and failures per flow, per connection between flows and per error fingerprint",
+		Long: `Summarize the message processing logs of a time window: per flow the count per
+status, failures, average and longest duration; per connection between flows the
+messages and failures (linked by the logs' predecessor, or for the connections of
+the content graph by shared correlation ID); failures grouped by error fingerprint
+(the error text without IDs, timestamps and long numbers) with a sample, count,
+first and last occurrence. Reads at most --max-messages, newest first.`,
+		Example: `  cpictl logs summary --since 1h
+  cpictl logs summary --since 24h --artifact 'Orders_*' --graph .cpi/graph.json --output json`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			now := time.Now()
+			since, err := ops.ParseTimeArg(config.GetString(cmd, "since"), now)
+			if err != nil {
+				return output.Usagef("invalid --since: %v", err)
+			}
+			until, err := ops.ParseTimeArg(config.GetString(cmd, "until"), now)
+			if err != nil {
+				return output.Usagef("invalid --until: %v", err)
+			}
+			q := ops.MessageSummaryQuery{Since: since, Until: until, Artifacts: nonEmpty(config.GetStringSlice(cmd, "artifact")),
+				MaxMessages: config.GetInt(cmd, "max-messages"), ErrorSamples: config.GetInt(cmd, "error-samples")}
+			graphFile := config.GetString(cmd, "graph")
+			if graphFile == "" && fileExists(filepath.Join(".cpi", "graph.json")) {
+				graphFile = filepath.Join(".cpi", "graph.json")
+			}
+			if graphFile != "" {
+				if q.Graph, err = ops.LoadGraph(graphFile); err != nil {
+					return output.Usagef("graph %s: %v", graphFile, err)
+				}
+			}
+			res, err := ops.SummarizeMessages(tenantExecuter(cmd), q)
+			if err != nil {
+				return err
+			}
+			output.SetResult(cmd.Context(), res)
+			for _, f := range res.Flows {
+				ev := log.Info()
+				if f.Failed > 0 {
+					ev = log.Warn()
+				}
+				ev.Msgf("%-40s %5d message(s), %4d failed, avg %dms, max %dms", f.Artifact, f.Total, f.Failed, f.AvgDurationMs, f.MaxDurationMs)
+			}
+			for _, e := range res.Edges {
+				log.Info().Msgf("%s -> %s: %d message(s), %d failed (%s)", e.From, e.To, e.Messages, e.Failed, e.Source)
+			}
+			for _, g := range res.Errors {
+				log.Warn().Msgf("%dx %s %s (last %s, %s)", g.Count, g.Artifact, firstLine(g.Sample), g.Last.Format(time.RFC3339), g.MessageGuid)
+			}
+			trunc := ""
+			if res.Truncated {
+				trunc = " (truncated: raise --max-messages or shorten the window)"
+			}
+			log.Info().Msgf("%d message(s) in %d flow(s)%s", res.Scanned, len(res.Flows), trunc)
+			return nil
+		},
+	}
+	sf := summary.Flags()
+	sf.String("since", "1h", "Start of the window (duration like 1h or RFC 3339)")
+	sf.String("until", "", "End of the window (default: now)")
+	sf.StringSlice("artifact", nil, "Only these flows (IDs or patterns)")
+	sf.String("graph", "", "Content graph for connections without predecessor links (default: .cpi/graph.json if it exists)")
+	sf.Int("max-messages", 5000, "Messages read at most, newest first")
+	sf.Int("error-samples", 50, "Error texts read for fingerprints (one request each)")
+
+	c.AddCommand(get, steps, attachment, payload, trace, traceMessage, tree, summary)
 	return c
 }
 

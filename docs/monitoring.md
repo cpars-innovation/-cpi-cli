@@ -1,5 +1,26 @@
 # Monitoring and checks
 
+
+## Summary: what is failing?
+
+```bash
+cpictl logs summary --since 1h
+cpictl logs summary --since 24h --artifact 'Orders_*' --output json
+```
+
+Reads the message processing logs of the window (newest first, at most `--max-messages`, default
+5000) and summarizes them:
+
+- **per flow**: messages per status, failures, average and longest duration (most failures first);
+- **per connection between flows**: messages and failures, linked by the logs' predecessor, or for
+  the connections of the [content graph](graph.md) (`.cpi/graph.json`, `--graph`) by shared
+  correlation ID;
+- **per error fingerprint**: failures with the same cause grouped (the error text without IDs,
+  timestamps and long numbers), with a sample, count, first and last occurrence and the newest
+  message GUID. Error texts are read for at most `--error-samples` failures (default 50).
+
+The MCP tool `message_summary` returns the same.
+
 ## Before uploading: drift
 
 ```bash

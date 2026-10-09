@@ -11,6 +11,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
   diffs), `parameters.prop` keys (`--show-values`), designtime / running version, draft and who
   changed it last on the tenant; `--fail-on-diff` for CI. Tenants are normalized like `snapshot`,
   so a snapshot equals its tenant. See [docs/compare.md](docs/compare.md).
+- `cpictl logs summary` (MCP `message_summary`): message volume and failures per flow, per
+  connection between flows (predecessor links, or graph connections by correlation ID) and per
+  error fingerprint over a time window. See [docs/monitoring.md](docs/monitoring.md).
+- Error fingerprints are a public function (`ops.ErrorFingerprint`), shared by the loop limits and
+  the summary.
 - `cpictl matrix <tier>...`: version matrix of Git and each tier (designtime, draft, running
   version and status, last changed by) with the tiers each artifact is `behind` on.
 - `cpictl transport deps|check|copy` (MCP `transport_check`): what artifacts need (script

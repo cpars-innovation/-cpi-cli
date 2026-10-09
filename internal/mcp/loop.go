@@ -3,13 +3,11 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -247,23 +245,8 @@ func (l *Ledger) appendJSONL(lp *loop, call LoopCall) {
 	_ = json.NewEncoder(f).Encode(call)
 }
 
-var (
-	reGUIDLike   = regexp.MustCompile(`[A-Za-z0-9_-]{28}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-	reTimestamp  = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?`)
-	reLongNumber = regexp.MustCompile(`\d{6,}`)
-)
-
-// normalizeError removes what differs between two runs of the same error.
-func normalizeError(s string) string {
-	s = reTimestamp.ReplaceAllString(s, "<time>")
-	s = reGUIDLike.ReplaceAllString(s, "<id>")
-	s = reLongNumber.ReplaceAllString(s, "<n>")
-	return strings.Join(strings.Fields(s), " ")
-}
-
 func fingerprint(artifactID, modelStepID, errorText string) string {
-	sum := sha256.Sum256([]byte(artifactID + "|" + modelStepID + "|" + normalizeError(errorText)))
-	return hex.EncodeToString(sum[:8])
+	return ops.ErrorFingerprint(artifactID, modelStepID, errorText)
 }
 
 // failureFingerprint reports whether a test or diagnosis result shows a

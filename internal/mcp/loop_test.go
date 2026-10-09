@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,10 +25,10 @@ func TestExitCodeValues(t *testing.T) {
 }
 
 func TestNormalizeError(t *testing.T) {
-	a := normalizeError("Message AFq478Bblxi4wCjBcDb_G0vAGGZG failed at 2026-10-05T08:00:01.123Z, order 1234567")
-	b := normalizeError("Message AGr123Bblxi4wCjBcDb_G0vAZZZZ failed at 2026-10-05T09:12:44Z, order 7654321")
+	a := ops.NormalizeError("Message AFq478Bblxi4wCjBcDb_G0vAGGZG failed at 2026-10-05T08:00:01.123Z, order 1234567")
+	b := ops.NormalizeError("Message AGr123Bblxi4wCjBcDb_G0vAZZZZ failed at 2026-10-05T09:12:44Z, order 7654321")
 	assert.Equal(t, a, b)
-	assert.NotEqual(t, normalizeError("mapping failed"), normalizeError("timeout"))
+	assert.NotEqual(t, ops.NormalizeError("mapping failed"), ops.NormalizeError("timeout"))
 }
 
 type loopEnv struct {
