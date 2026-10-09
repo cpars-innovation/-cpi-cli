@@ -224,3 +224,14 @@ func TestTraceTreeHops(t *testing.T) {
 	assert.Equal(t, []string{"Flow_A>Flow_B span", "Flow_B>Flow_C span"}, hopList(tree))
 	assert.NotEmpty(t, tree.PathKey)
 }
+
+func TestMessagePathFromTheReturningRun(t *testing.T) {
+	mock := cpitest.NewTenant(t, nil)
+	mock.FilterMessageLogs = true
+	mock.MessageLogSteps = [][]cpitest.MessageLog{pathLogs()}
+	scope := ScanScope{ArtifactIDs: []string{"Orders_In", "Billing_In"}, Since: time.Now().Add(-time.Hour)}
+	tree, err := MessagePathFor(context.Background(), mock.Executer(), MessagePathQuery{MessageGuid: "B2", KeyHeaders: []string{"OrderNo"}, Scope: scope})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Orders_In>Orders_Route predecessor", "Orders_Route>Orders_Audit inferred",
+		"Orders_Audit>Billing_In header", "Billing_In>Billing_Post predecessor"}, hopList(tree), "header only where the correlation ID changes")
+}

@@ -49,14 +49,21 @@ Configuration:
 				return fmt.Errorf("security alert for --dir-git-repo: %w", err)
 			}
 
-			if gitRepoDir != "" {
-				artifactsDir, err := config.GetStringWithEnvExpandAndFallback(cmd, "dir-artifacts", "snapshot.dirArtifacts")
-				if err != nil {
-					return fmt.Errorf("security alert for --dir-artifacts: %w", err)
-				}
-				gitRepoDirClean := filepath.Clean(gitRepoDir) + string(os.PathSeparator)
-				if artifactsDir != "" && !strings.HasPrefix(artifactsDir, gitRepoDirClean) {
-					return fmt.Errorf("--dir-artifacts [%v] should be a subdirectory of --dir-git-repo [%v]", artifactsDir, gitRepoDirClean)
+			// required here: MarkFlagRequired does not apply to persistent flags, and
+			// the value may come from the config file; without it the artifacts
+			// were written relative to the file system root
+			if strings.TrimSpace(gitRepoDir) == "" {
+				return output.Usagef("required flag \"dir-git-repo\" not set (or snapshot.dirGitRepo in the config file)")
+			}
+			artifactsDir, err := config.GetStringWithEnvExpandAndFallback(cmd, "dir-artifacts", "snapshot.dirArtifacts")
+			if err != nil {
+				return fmt.Errorf("security alert for --dir-artifacts: %w", err)
+			}
+			if artifactsDir != "" {
+				repoAbs, err1 := filepath.Abs(gitRepoDir)
+				artAbs, err2 := filepath.Abs(artifactsDir)
+				if err1 != nil || err2 != nil || (artAbs != repoAbs && !strings.HasPrefix(artAbs, repoAbs+string(os.PathSeparator))) {
+					return output.Usagef("--dir-artifacts [%v] should be a subdirectory of --dir-git-repo [%v]", artifactsDir, gitRepoDir)
 				}
 			}
 			return nil
@@ -95,7 +102,6 @@ Configuration:
 	snapshotCmd.Flags().Bool("include-derived", false, "Write deployment copies like any other artifact (ignore the deploy config)")
 	snapshotCmd.Flags().String("state-file", "", "State of the last snapshot (default: <dir-git-repo>/.cpi/snapshot-state.json, committed with the snapshot) (config: snapshot.stateFile)")
 
-	_ = snapshotCmd.MarkFlagRequired("dir-git-repo")
 	snapshotCmd.MarkFlagsMutuallyExclusive("ids-include", "ids-exclude")
 
 	return snapshotCmd

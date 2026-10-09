@@ -119,6 +119,7 @@ func NewCLI(version string) *cobra.Command {
 	rootCmd.AddCommand(NewCompareCommand())
 	rootCmd.AddCommand(NewTransportCommand())
 	rootCmd.AddCommand(NewMatrixCommand())
+	rootCmd.AddCommand(NewMockTenantCommand())
 	rootCmd.AddCommand(NewMCPCommand(version))
 	syncCmd := NewSyncCommand()
 	syncCmd.AddCommand(NewAPIProxyCommand())

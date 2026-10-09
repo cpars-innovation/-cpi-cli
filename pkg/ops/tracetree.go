@@ -131,7 +131,7 @@ func TraceTreeFor(ctx context.Context, exe *httpclnt.HTTPExecuter, q TraceTreeQu
 		tree.Source, tree.Scanned, tree.Truncated, found = "scan", res.Scanned, res.Truncated, res.Matches
 	}
 
-	linkTraceTree(tree, exe, found, props, false, nil)
+	linkTraceTree(tree, exe, found, props, false)
 	return tree, nil
 }
 
@@ -155,12 +155,12 @@ type TraceHop struct {
 // linkTraceTree builds the tree, hops, path key and first failure of the
 // messages found. With infer, a message without span or predecessor link is
 // attached to the latest message that started before it (link header when
-// the message was found by a key header only).
-func linkTraceTree(tree *TraceTree, exe *httpclnt.HTTPExecuter, found []ScannedLog, props TraceProperties, infer bool, viaHeader map[string]bool) {
+// the two have different correlation IDs: joined by a key header).
+func linkTraceTree(tree *TraceTree, exe *httpclnt.HTTPExecuter, found []ScannedLog, props TraceProperties, infer bool) {
 	mpl := cpi.NewMessageLogs(exe)
 	nodes := make([]*TraceNode, 0, len(found))
 	bySpan, byGuid := map[string]*TraceNode{}, map[string]*TraceNode{}
-	predecessor := map[*TraceNode]string{}
+	predecessor, correlation := map[*TraceNode]string{}, map[*TraceNode]string{}
 	for _, l := range found {
 		n := &TraceNode{MessageGuid: l.MessageGuid, ArtifactID: l.ArtifactID, PackageID: l.PackageID, Status: l.Status,
 			LogStart: l.LogStart, LogEnd: l.LogEnd, Children: []*TraceNode{},
@@ -175,7 +175,7 @@ func linkTraceTree(tree *TraceTree, exe *httpclnt.HTTPExecuter, found []ScannedL
 		if n.SpanID != "" {
 			bySpan[n.SpanID] = n
 		}
-		predecessor[n] = l.PredecessorMessageGuid
+		predecessor[n], correlation[n] = l.PredecessorMessageGuid, l.CorrelationID
 	}
 	sortByStart(nodes)
 
@@ -206,11 +206,12 @@ func linkTraceTree(tree *TraceTree, exe *httpclnt.HTTPExecuter, found []ScannedL
 				continue
 			}
 			for j := i - 1; j >= 0; j-- {
+				p := nodes[j]
 				link := HopInferred
-				if viaHeader[n.MessageGuid] {
+				if correlation[p] != correlation[n] {
 					link = HopHeader
 				}
-				if p := nodes[j]; p.LogStart != nil && p.LogStart.Before(*n.LogStart) && setParent(n, p, link) {
+				if p.LogStart != nil && p.LogStart.Before(*n.LogStart) && setParent(n, p, link) {
 					break
 				}
 			}
@@ -321,19 +322,18 @@ func MessagePathFor(ctx context.Context, exe *httpclnt.HTTPExecuter, q MessagePa
 	if err != nil {
 		return nil, err
 	}
-	var viaHeader map[string]bool
 	if len(q.KeyHeaders) > 0 {
-		if viaHeader, err = joinByKeyHeaders(ctx, exe, tree, &found, q); err != nil {
+		if err := joinByKeyHeaders(ctx, exe, tree, &found, q); err != nil {
 			return nil, err
 		}
 	}
-	linkTraceTree(tree, exe, found, props, true, viaHeader)
+	linkTraceTree(tree, exe, found, props, true)
 	return tree, nil
 }
 
 // joinByKeyHeaders adds the messages of the scope that carry the run's key
-// header values, and the rest of their runs; it returns the GUIDs added.
-func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *TraceTree, found *[]ScannedLog, q MessagePathQuery) (map[string]bool, error) {
+// header values, and the rest of their runs.
+func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *TraceTree, found *[]ScannedLog, q MessagePathQuery) error {
 	// the key may be written by any flow of the run, not only the start message's
 	keys := map[string]string{}
 	for _, name := range q.KeyHeaders {
@@ -346,7 +346,7 @@ func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *Tra
 	}
 	tree.Keys = keys
 	if len(keys) == 0 {
-		return nil, nil
+		return nil
 	}
 	if q.MaxScan <= 0 {
 		q.MaxScan = 200
@@ -360,7 +360,7 @@ func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *Tra
 		return false
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	tree.Scanned, tree.Truncated = res.Scanned, tree.Truncated || res.Truncated
 	have := map[string]bool{}
@@ -382,7 +382,7 @@ func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *Tra
 			// the rest of that run, e.g. flows called without the header
 			page, err := QueryMessageLogs(exe, MessageLogQuery{CorrelationID: l.CorrelationID, Top: MaxMessageLogs})
 			if err != nil {
-				return nil, err
+				return err
 			}
 			var more []MessageLog
 			for _, m := range page.Logs {
@@ -392,7 +392,7 @@ func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *Tra
 			}
 			scanned, err := withHeaders(ctx, exe, more)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			for _, m := range scanned {
 				add(m)
@@ -402,7 +402,7 @@ func joinByKeyHeaders(ctx context.Context, exe *httpclnt.HTTPExecuter, tree *Tra
 	if len(added) > 0 {
 		tree.Source += "+header"
 	}
-	return added, nil
+	return nil
 }
 
 func sortByStart(nodes []*TraceNode) {

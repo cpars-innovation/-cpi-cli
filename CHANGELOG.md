@@ -5,6 +5,15 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl mock-tenant`: an in-memory CPI tenant for local development, demos and tests, with a
+  demo landscape per tier (`--tier dev|test|prod`: flows linked by ProcessDirect and JMS, real
+  models with diagrams, a day of messages with failures and the `OrderNo` custom header, tiers
+  that differ like real ones), live deploys and test messages, Basic Auth or OAuth, optional TLS
+  with a generated CA. See [docs/mock-tenant.md](docs/mock-tenant.md).
+- Fix: `snapshot` without `--dir-git-repo` (and no `snapshot.dirGitRepo`) wrote the packages
+  relative to the file system root; it now stops with exit code 2. Relative `--dir-git-repo` and
+  `--dir-artifacts` (`.` and `packages`) are accepted.
+
 - `cpictl logs tree --message <guid>` (MCP `get_trace_tree` with `message_guid`): the path of any
   message across flows by its correlation ID; `--key-header` (custom header properties the flows
   write) joins runs with another correlation ID, e.g. after Event Mesh or an external system.

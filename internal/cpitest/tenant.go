@@ -1,17 +1,21 @@
 // Package cpitest provides an in-memory SAP CPI tenant (httptest server) for
-// offline tests of deploy/undeploy flows. It must only be used from tests.
+// offline tests, and a seeded demo tenant for local development
+// (cpictl mock-tenant). It never talks to a real tenant.
 package cpitest
 
 import (
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -103,6 +107,9 @@ type Artifact struct {
 
 // Inbound is the behaviour of a runtime endpoint.
 type Inbound struct {
+	// Artifact receives the message: in Live mode each call adds a
+	// COMPLETED message processing log for it.
+	Artifact    string
 	Status      int // default 200
 	Response    string
 	ContentType string
@@ -239,11 +246,23 @@ type Tenant struct {
 	// ForbidPaths answers 403 for paths with one of these prefixes (an API
 	// area the credentials have no role for).
 	ForbidPaths []string
+	// OAuth serves client credential tokens at /oauth/token (any client).
+	OAuth bool
+	// EndpointBase is the base URL of runtime endpoints in ServiceEndpoints
+	// (default: the mock's URL), e.g. the name other containers reach it by.
+	EndpointBase string
+	// Live makes the tenant behave like a running system instead of a
+	// scripted one: a deploy starts the designtime version (task SUCCESS), an
+	// undeploy removes it, uploads record who and when, messages sent to an
+	// Inbound endpoint are logged, and message log queries honour the status
+	// and time filters (newest first).
+	Live bool
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
 	// requests need the token and session cookie from a "Fetch" request).
 	NoCSRF     bool
 	csrfToken  string
 	csrfSerial int
+	liveSerial int
 	requests   []string
 	server     *httptest.Server
 }
@@ -251,11 +270,39 @@ type Tenant struct {
 // NewTenant starts a mock tenant; it is closed when the test ends.
 func NewTenant(t *testing.T, artifacts map[string]*Artifact) *Tenant {
 	t.Helper()
-	m := &Tenant{Artifacts: artifacts}
-	m.server = httptest.NewServer(http.HandlerFunc(m.handle))
-	t.Cleanup(m.server.Close)
+	m := Start(artifacts)
+	t.Cleanup(m.Close)
 	return m
 }
+
+// Start starts a mock tenant on a free loopback port; Close stops it.
+func Start(artifacts map[string]*Artifact) *Tenant {
+	m := &Tenant{Artifacts: artifacts}
+	m.server = httptest.NewServer(http.HandlerFunc(m.handle))
+	return m
+}
+
+// Serve starts a mock tenant on a listener the caller opened (any address,
+// optionally TLS with config). Close stops it.
+func Serve(l net.Listener, config *tls.Config) *Tenant {
+	m := &Tenant{}
+	m.server = httptest.NewUnstartedServer(http.HandlerFunc(m.handle))
+	_ = m.server.Listener.Close()
+	m.server.Listener = l
+	if config != nil {
+		m.server.TLS = config
+		m.server.StartTLS()
+	} else {
+		m.server.Start()
+	}
+	return m
+}
+
+// URL is the base URL of the mock (http://127.0.0.1:port).
+func (m *Tenant) URL() string { return m.server.URL }
+
+// Close stops the mock server.
+func (m *Tenant) Close() { m.server.Close() }
 
 // HostPort returns the host and port of the mock server.
 func (m *Tenant) HostPort() (string, int) {
@@ -552,7 +599,23 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(r.Body)
 	m.Received = append(m.Received, ReceivedMessage{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: string(body)})
-	if in.MessageGuid != "" {
+	if m.Live && in.Artifact != "" {
+		m.liveSerial++
+		now := time.Now()
+		l := MessageLog{Guid: fmt.Sprintf("AGLIVE%022d", m.liveSerial), Artifact: in.Artifact, Status: "COMPLETED",
+			CorrelationID: fmt.Sprintf("C-live-%d", m.liveSerial), ApplicationID: r.Header.Get("SAP_ApplicationID"),
+			Start: now, End: now.Add(150 * time.Millisecond)}
+		if a := m.Artifacts[in.Artifact]; a != nil {
+			l.Package = a.Package
+		}
+		if len(m.MessageLogSteps) == 0 {
+			m.MessageLogSteps = [][]MessageLog{nil}
+		}
+		last := len(m.MessageLogSteps) - 1
+		m.MessageLogSteps[last] = append([]MessageLog{l}, m.MessageLogSteps[last]...)
+		w.Header().Set("SAP_MessageProcessingLogID", l.Guid)
+		w.Header().Set("SAP_MplCorrelationId", l.CorrelationID)
+	} else if in.MessageGuid != "" {
 		w.Header().Set("SAP_MessageProcessingLogID", in.MessageGuid)
 	}
 	if in.ContentType != "" {
@@ -564,6 +627,44 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(in.Response))
+}
+
+var (
+	reMPLStatus = regexp.MustCompile(`Status eq '([A-Z]+)'`)
+	reMPLTime   = regexp.MustCompile(`(LogEnd ge|LogStart le) datetime'([^']+)'`)
+)
+
+// liveFilter applies the status and time filters of an MPL query and orders
+// newest first, like the tenant.
+func liveFilter(logs []MessageLog, filter string) []MessageLog {
+	var statuses []string
+	for _, mm := range reMPLStatus.FindAllStringSubmatch(filter, -1) {
+		statuses = append(statuses, mm[1])
+	}
+	var since, until time.Time
+	for _, mm := range reMPLTime.FindAllStringSubmatch(filter, -1) {
+		t, err := time.Parse("2006-01-02T15:04:05.000", mm[2])
+		if err != nil {
+			continue
+		}
+		if mm[1] == "LogEnd ge" {
+			since = t
+		} else {
+			until = t
+		}
+	}
+	out := []MessageLog{}
+	for _, l := range logs {
+		switch {
+		case len(statuses) > 0 && !slices.Contains(statuses, l.Status):
+		case !since.IsZero() && l.End.Before(since):
+		case !until.IsZero() && l.Start.After(until):
+		default:
+			out = append(out, l)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Start.After(out[j].Start) })
+	return out
 }
 
 var reMPLEq = regexp.MustCompile(`(IntegrationFlowName|ApplicationMessageId|CorrelationId) eq '([^']*)'`)
@@ -702,6 +803,10 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		m.handleInbound(w, r)
 		return
 	}
+	if m.OAuth && r.Method == http.MethodPost && path == "/oauth/token" { // client credentials, any client accepted
+		writeJSON(w, map[string]any{"access_token": "mock-token", "token_type": "bearer", "expires_in": 3600})
+		return
+	}
 	if r.Method == http.MethodGet && path == "/api/v1/" { // CSRF token fetch
 		if strings.EqualFold(r.Header.Get("X-CSRF-Token"), "fetch") {
 			if m.csrfToken == "" {
@@ -802,6 +907,10 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		m.mplQueries++
 		total := len(logs)
+		if m.Live {
+			logs = liveFilter(logs, r.URL.Query().Get("$filter"))
+			total = len(logs)
+		}
 		if m.FilterMessageLogs {
 			logs, total = filterMessageLogs(logs, r.URL.Query())
 		}
@@ -1172,6 +1281,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Type, a.DesignVersion, a.Package, a.Name, a.Zip = typ, "1.0.0", body.PackageId, body.Name, zipData
 		a.Uploads++
+		if m.Live {
+			a.ModifiedAt, a.ModifiedBy = time.Now(), "mock-user"
+		}
 		w.WriteHeader(http.StatusCreated)
 
 	case r.Method == http.MethodPut && reDesign.MatchString(path):
@@ -1194,6 +1306,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		a.Zip = zipData
 		a.Uploads++
 		a.ModifiedAt = time.Now()
+		if m.Live {
+			a.ModifiedBy = "mock-user"
+		}
 		w.WriteHeader(http.StatusOK)
 
 	// like the public API: only integration flows can be saved as a version
@@ -1243,6 +1358,20 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		a.triggered, a.runtimeGets, a.taskGets = true, 0, 0
 		a.Deploys++
+		if m.Live && len(a.AfterDeploy) == 0 {
+			if a.DesignVersion == "" {
+				notFound(w)
+				return
+			}
+			version := a.DesignVersion
+			if version == "Active" && a.Runtime != nil { // a draft deploys as its last version
+				version = a.Runtime.Version
+			}
+			a.Runtime, a.undeployed = &Runtime{Version: version, Status: "STARTED", DeployedOn: time.Now()}, false
+			if len(a.TaskStatuses) == 0 {
+				a.TaskStatuses = []string{"SUCCESS"}
+			}
+		}
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte("task-" + id))
 
@@ -1301,6 +1430,9 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.undeployed, a.undeployedGets = true, 0
+		if m.Live {
+			a.Runtime, a.undeployed, a.triggered = nil, false, false
+		}
 		w.WriteHeader(http.StatusAccepted)
 
 	default:

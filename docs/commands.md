@@ -62,6 +62,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs tree`](#logs-tree) | Show the path of a message or trace across flows and its first failure |
 | [`matrix`](#matrix) | Version matrix: every artifact's version in Git and on each tier, and what is ready to promote |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
+| [`mock-tenant`](#mock-tenant) | Run an in-memory SAP CPI tenant for local development and tests (never a real tenant) |
 | [`number-ranges`](#number-ranges) | List number ranges |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
 | [`packages`](#packages) | List integration packages |
@@ -1507,6 +1508,57 @@ listed and cannot be called; a pattern that matches no tool is an error.
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
     "env": {"CPICTL_TMN_HOST": "...", "CPICTL_OAUTH_HOST": "...",
             "CPICTL_OAUTH_CLIENTID": "...", "CPICTL_OAUTH_CLIENTSECRET": "..."}}}}
+```
+
+## mock-tenant
+
+Run an in-memory SAP CPI tenant for local development and tests (never a real tenant)
+
+```
+Serve an in-memory mock of the SAP CPI APIs that cpictl uses: packages,
+artifacts (download, upload, deploy, undeploy), parameters, runtime status,
+endpoints, message processing logs with custom headers, steps and errors,
+credentials, keystore and Partner Directory. Any credentials are accepted
+(Basic Auth with CSRF, or OAuth client credentials at /oauth/token).
+
+--seed demo loads a demo landscape for --tier dev|test|prod:
+  Orders_In -> (ProcessDirect) Orders_Route -> (JMS) Billing_In -> (ProcessDirect)
+  Billing_Post, Partner_Notify (timer, SFTP), and on dev Returns_In; a day of
+  messages with the OrderNo custom header and some failures. The tiers differ
+  like real ones: dev is ahead (newer Orders_Route, a new flow, Billing_Post in
+  draft), prod has a parameter changed on the tenant, a certificate expiring in
+  20 days and no Returns_API credential.
+--seed empty starts without content.
+
+The tenant behaves live: a deploy starts the designtime version, uploads are
+recorded, a message sent to a flow's endpoint (POST /http/orders/in) creates
+a message log. State is in memory; a restart resets it.
+
+Plain http is accepted by cpictl for loopback hosts only. To reach the mock
+from another container use --tls: a CA and server certificate are generated
+for --tls-hosts, the CA is written to --ca-out; point the client at it with
+SSL_CERT_FILE.
+```
+
+**Usage:** `cpictl mock-tenant [flags]`
+
+**Flags:**
+
+```
+      --addr string         Listen address (default "127.0.0.1:8081")
+      --ca-out string       With --tls: file the generated CA certificate is written to (PEM)
+      --public-url string   Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
+      --seed string         Content: demo or empty (default "demo")
+      --tier string         Demo variant: dev, test, prod (default "dev")
+      --tls                 Serve HTTPS with a generated certificate (for access from other containers)
+      --tls-hosts strings   Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
+```
+
+**Examples:**
+
+```
+  cpictl mock-tenant --tier dev --addr 127.0.0.1:8081
+  cpictl mock-tenant --tier prod --addr 0.0.0.0:8443 --tls --tls-hosts mock-prod,localhost --ca-out /certs/mock-ca.pem
 ```
 
 ## number-ranges

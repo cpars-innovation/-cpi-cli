@@ -114,3 +114,27 @@ func TestSnapshotFindings(t *testing.T) {
 	assert.Equal(t, "STUB_HTTP_BASEURL=http://new\nSTUB_HTTP_URL=http://old\n", string(p))
 	assert.Equal(t, []string{"STUB_HTTP_URL"}, statuses(res)["Renamed"].OrphanParameters)
 }
+
+func TestSnapshotDirectories(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Flow": {Type: "Integration", DesignVersion: "1.0.0", Package: "EDM", Name: "Flow", Zip: flowWith(t, "Flow", "1.0.0", "", "")},
+	})
+	mock.Packages = []cpitest.Package{{ID: "EDM", Version: "1.0.0"}}
+
+	// without a repository nothing is downloaded (it used to write next to /)
+	r := runMain(t, append([]string{"snapshot", "--git-skip-commit"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code, r.stderr)
+	assert.Contains(t, r.stderr, "dir-git-repo")
+	assert.Zero(t, mock.Count("GET /api/v1/IntegrationPackages"))
+
+	// relative directories
+	repo := t.TempDir()
+	t.Chdir(repo)
+	r = runMain(t, append([]string{"snapshot", "--dir-git-repo", ".", "--dir-artifacts", "packages", "--dir-work", t.TempDir(),
+		"--git-skip-commit", "--sync-package-details=false"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.FileExists(t, filepath.Join(repo, "packages", "EDM", "Flow", "META-INF", "MANIFEST.MF"))
+
+	r = runMain(t, append([]string{"snapshot", "--dir-git-repo", "repo", "--dir-artifacts", "other/packages", "--git-skip-commit"}, basicAuth(mock)...)...)
+	assert.Equal(t, 2, r.code, "artifacts outside the repository")
+}

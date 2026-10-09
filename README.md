@@ -237,6 +237,7 @@ are not written, and reads, uploads and parameter reads run 8 at a time. Details
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
 | Tiers | `matrix` (versions per tier), `compare`, `transport` (deps, check, copy) |
+| Development | `mock-tenant` (in-memory tenant with a demo landscape per tier) |
 | Git | `sync`, `snapshot`, `snapshot restore` |
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
@@ -446,6 +447,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
 | [Transports](docs/transport.md) | Moving artifacts between tiers: dependencies, pre-checks against the target, copy between trees |
 | [Compare](docs/compare.md) | Two tiers, Git refs or content trees per artifact: content, version, parameters, file diffs |
+| [Mock tenant](docs/mock-tenant.md) | An in-memory CPI tenant with a demo landscape per tier, for local development, demos and tests |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
 | [Lint and improvements](docs/lint.md) | `lint` rules, `.cpi/lint.yaml`, baseline and CI gate, `--fix` (script collections), [diagram layout](docs/lint.md#diagram-layout) (`iflow layout`), the `cpi-improve` skill |
