@@ -9,8 +9,8 @@ tiers.
 ```bash
 cpictl compare tenant:test tenant:prod --package Orders            # what differs?
 cpictl transport deps Orders_In --with-deps                          # what does it need?
-cpictl transport check Orders_In --with-deps --target tenant:prod \
-  --target-dir git:prod:packages --configure config/prod.yaml        # is the target ready?
+cpictl transport check Orders_In --with-deps --source tenant:test --target tenant:prod \
+  --target-dir git:prod:packages --configure config/prod.yaml        # will it run on the target?
 cpictl transport copy Orders_In --with-deps --from git:test:packages --to packages   # branch per tier
 ```
 
@@ -50,7 +50,7 @@ Artifacts are given by ID or folder name. For each, from the local files:
 `--with-deps` adds the referenced artifacts of the repository to the selection (transitively).
 Called flows are reported, not added: they are released on their own.
 
-## Pre-checks (`transport check`)
+## Pre-checks (`transport check`): will it run on the target?
 
 Against the target tenant (`--target tenant` or `tenant:<profile>`), read only. Each check is
 `pass`, `warn`, `fail` or `skip`; any `fail` gives exit code 5.
@@ -62,9 +62,21 @@ Against the target tenant (`--target tenant` or `tenant:<profile>`), read only. 
 | `drift` | **warn** (with `--target-dir`, the target's content in Git): changed on the target outside the pipeline, by whom where the tenant reports it; adopt the change into Git first |
 | `dependency` | **fail**: a referenced script collection or mapping is neither on the target nor in the transport |
 | `flow_call` | **warn**: a called flow is not running on the target |
-| `credential` | **fail**: a credential or key alias is missing on the target (`skip` for names that are `{{parameters}}`) |
+| `credential` | **fail**: a credential or key alias is missing on the target. When a parameter names it (`{{SFTP Credential}}`), the target's value of that parameter is checked; no value is a failure too |
+| `keystore` | **warn**: a key alias the flow uses expires on the target within `--expiry-days` (default 30); **fail**: expired |
 | `pd` | **fail**: a Partner Directory parameter is missing on the target (`skip` for dynamic partner IDs) |
-| `parameters` | **warn** (with `--configure`, the target's configure file): parameters without a value there, so the source tier's value travels; `skip` without `--configure` |
+| `parameters` | the flows' configuration, source vs target: **fail** when a parameter has no value on the target and none travels; **warn** when it is not set on the target, so the source tier's value travels; **warn** when source and target have the same value and it looks environment-specific (a URL or host) |
+
+**Configuration.** The target's values are the target tenant's configured values (when the
+artifact is there) overridden by the target's configure file (`--configure`). The source's values
+are the source tenant's configured values (`--source tenant:<profile>`), else the `parameters.prop`
+of the content tree. Parameter names come from `parameters.propdef`. Values are never printed,
+only the parameter names.
+
+**Accepting gaps.** Sometimes the transport goes ahead while someone else provides the security
+material or the configuration on the target. `--allow-missing credential,keystore,pd,parameters,dependency`
+(MCP `allow_missing`) reports those failures as warnings marked "accepted: provided separately",
+so the gap stays visible in the result and the job summary but does not stop the pipeline.
 
 The MCP tool `transport_check` does the same against the server's tenant (run it on the target
 tier's server).

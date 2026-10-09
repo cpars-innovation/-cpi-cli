@@ -18,6 +18,15 @@ All notable changes to cpictl. Coming from FlashPipe? See
   the summary.
 - `cpictl matrix <tier>...`: version matrix of Git and each tier (designtime, draft, running
   version and status, last changed by) with the tiers each artifact is `behind` on.
+- `transport check` answers "will it run on the target?":
+  - compares each flow's configuration with the source tier (`--source tenant:<profile>`, else
+    `parameters.prop`): parameters without a value on the target fail, values that would travel
+    from the source and identical environment-specific values (URLs, hosts) warn;
+  - resolves credentials and key aliases named by parameters (`{{SFTP Credential}}`) with the
+    target's value and checks them;
+  - warns about key aliases expiring within `--expiry-days` (default 30), fails on expired ones;
+  - `--allow-missing credential,keystore,pd,parameters,dependency` (MCP `allow_missing`) reports
+    gaps that someone else will close as warnings instead of failures.
 - `cpictl transport deps|check|copy` (MCP `transport_check`): what artifacts need (script
   collections and mappings they reference, called flows, credentials, Partner Directory
   parameters; `--with-deps` adds the referenced artifacts), pre-checks against the target tenant

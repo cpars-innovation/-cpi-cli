@@ -2213,10 +2213,14 @@ orchestrator (or configure and deploy --pending) run against the target tier.
   deps   what the selected artifacts need: script collections and mappings they
          reference, flows they call (ProcessDirect / JMS), credentials and key
          aliases, Partner Directory parameters
-  check  the same against the target tenant (read only): drafts, drift against
-         the target's Git content, dependencies and called flows present,
-         credentials, Partner Directory parameters, parameter values in the
-         target's configure file; exit code 5 when a check fails
+  check  is the target ready? Read only: drafts, drift against the target's Git
+         content, dependencies and called flows present, credentials and key
+         aliases (also when a parameter names them), expiring certificates,
+         Partner Directory parameters, and the flows' configuration compared
+         with the source tier (missing values, values that travel, the same
+         environment-specific value on both); exit code 5 when a check fails.
+         --allow-missing turns failures for material someone else provides
+         into warnings
   copy   copy the artifact folders into another content tree (a branch or
          repository per tier), replacing them exactly
 
@@ -2233,12 +2237,15 @@ Check a transport against the target tenant (read only)
 **Flags:**
 
 ```
-      --configure string    The target tier's configure file or folder: reports parameters without a value there
-      --dir string          Source content tree (default: packages if it exists, else the current directory)
-      --repo string         Git repository for git: arguments (default ".")
-      --target string       Target tenant: tenant (the configured one) or tenant:<profile> (default "tenant")
-      --target-dir string   The target tier's content in Git (a directory or git:<ref>[:<path>]): reports changes made on the target outside the pipeline
-      --with-deps           Add the script collections and mappings the artifacts reference
+      --allow-missing strings   Report these failures as warnings, for material someone else provides on the target: credential, keystore, pd, parameters, dependency
+      --configure string        The target tier's configure file or folder: reports parameters without a value there
+      --dir string              Source content tree (default: packages if it exists, else the current directory)
+      --expiry-days int         Warn about certificates and keys used by the artifacts that expire within this many days on the target (default 30)
+      --repo string             Git repository for git: arguments (default ".")
+      --source string           Source tenant (tenant:<profile>): its configured parameter values are compared with the target's (default: parameters.prop of --dir)
+      --target string           Target tenant: tenant (the configured one) or tenant:<profile> (default "tenant")
+      --target-dir string       The target tier's content in Git (a directory or git:<ref>[:<path>]): reports changes made on the target outside the pipeline
+      --with-deps               Add the script collections and mappings the artifacts reference
 ```
 
 **Examples:**

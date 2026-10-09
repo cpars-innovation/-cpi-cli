@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -252,11 +253,24 @@ type TransportCheckOptions struct {
 	// TargetDir is the target tier's content in Git: an artifact whose
 	// tenant content differs from it was changed outside the pipeline.
 	TargetDir string
-	// Configure is the target tier's configure file: every parameter of
-	// parameters.propdef should get a value there, else the source value
-	// travels with the artifact.
+	// Configure is the target tier's configure file: its values win over
+	// the target tenant's configured values.
 	Configure *models.ConfigureConfig
+	// SourceExe is the source tier's tenant: its configured parameter values
+	// are compared with the target's (default: the values in the source
+	// content tree's parameters.prop).
+	SourceExe *httpclnt.HTTPExecuter
+	// AllowMissing lists checks whose failures become warnings, for
+	// material someone else provides on the target: credential, keystore,
+	// pd, parameters, dependency.
+	AllowMissing []string
+	// ExpiryDays warns about certificates and keys used by the artifacts
+	// that expire within this many days on the target (0: 30).
+	ExpiryDays int
 }
+
+// AllowMissingChecks are the checks AllowMissing accepts.
+var AllowMissingChecks = []string{"credential", "keystore", "pd", "parameters", "dependency"}
 
 // TransportCheckResult is the outcome of CheckTransport.
 type TransportCheckResult struct {
@@ -275,8 +289,20 @@ func CheckTransport(ctx context.Context, exe *httpclnt.HTTPExecuter, dir string,
 		return nil, err
 	}
 	res := &TransportCheckResult{TransportSet: set, Checks: []TransportCheck{}, Summary: map[string]int{}}
+	for _, c := range o.AllowMissing {
+		if !slices.Contains(AllowMissingChecks, c) {
+			return nil, output.Usagef("allow missing %q: one of %s", c, strings.Join(AllowMissingChecks, ", "))
+		}
+	}
+	if o.ExpiryDays <= 0 {
+		o.ExpiryDays = 30
+	}
 	add := func(artifact, check, status, format string, args ...any) {
-		res.Checks = append(res.Checks, TransportCheck{Artifact: artifact, Check: check, Status: status, Message: fmt.Sprintf(format, args...)})
+		msg := fmt.Sprintf(format, args...)
+		if status == CheckFail && slices.Contains(o.AllowMissing, check) {
+			status, msg = CheckWarn, msg+" (accepted: provided separately)"
+		}
+		res.Checks = append(res.Checks, TransportCheck{Artifact: artifact, Check: check, Status: status, Message: msg})
 		res.Summary[status]++
 	}
 	ip := cpi.NewIntegrationPackage(exe)
@@ -338,12 +364,30 @@ func CheckTransport(ctx context.Context, exe *httpclnt.HTTPExecuter, dir string,
 		}
 	}
 
+	params := newParamValues(exe, o, dir, set, targetArtifact)
+	var credentials map[string]*cpi.KeystoreEntry
+	checkMaterial := func(artifact, name, prefix string) {
+		entry, ok := credentials[name]
+		now := time.Now()
+		switch {
+		case !ok:
+			add(artifact, "credential", CheckFail, "%s%s is neither a credential nor a key alias on the target: deploy it first (cpictl credentials / keystore)", prefix, name)
+		case entry == nil:
+			add(artifact, "credential", CheckPass, "%s%s exists on the target", prefix, name)
+		case !entry.ValidNotAfter.IsZero() && entry.ValidNotAfter.Before(now):
+			add(artifact, "keystore", CheckFail, "%skey alias %s expired on the target on %s", prefix, name, entry.ValidNotAfter.Format("2006-01-02"))
+		case !entry.ValidNotAfter.IsZero() && entry.ValidNotAfter.Before(now.AddDate(0, 0, o.ExpiryDays)):
+			add(artifact, "keystore", CheckWarn, "%skey alias %s expires on the target on %s", prefix, name, entry.ValidNotAfter.Format("2006-01-02"))
+		default:
+			add(artifact, "keystore", CheckPass, "%skey alias %s exists on the target", prefix, name)
+		}
+	}
+
 	// dependencies on the target
 	selected := map[string]bool{}
 	for _, a := range set.Artifacts {
 		selected[a.ID] = true
 	}
-	var credentials map[string]bool
 	for _, d := range set.Dependencies {
 		by := strings.Join(d.By, ", ")
 		switch d.Kind {
@@ -382,19 +426,30 @@ func CheckTransport(ctx context.Context, exe *httpclnt.HTTPExecuter, dir string,
 				add(by, "flow_call", CheckPass, "calls %s, running on the target (version %s)", d.ID, r.Version)
 			}
 		case DepCredential:
-			if strings.Contains(d.ID, "{{") {
-				add(by, "credential", CheckSkip, "%s is a parameter: check the configured name on the target", d.ID)
-				continue
-			}
 			if credentials == nil {
-				if credentials, err = targetCredentials(exe); err != nil {
+				if credentials, err = targetSecurityMaterial(exe); err != nil {
 					return nil, err
 				}
 			}
-			if credentials[d.ID] {
-				add(by, "credential", CheckPass, "%s exists on the target", d.ID)
-			} else {
-				add(by, "credential", CheckFail, "%s is neither a credential nor a key alias on the target: deploy it first (cpictl credentials / keystore)", d.ID)
+			if strings.Contains(d.ID, "{{") {
+				// a parameter: resolved per artifact with the target's value
+				key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(d.ID), "{{"), "}}"))
+				for _, art := range d.By {
+					vals, err := params.target(art)
+					if err != nil {
+						return nil, err
+					}
+					name := vals[key]
+					if name == "" {
+						add(art, "credential", CheckFail, "parameter %s (a credential or key alias) has no value on the target", key)
+						continue
+					}
+					checkMaterial(art, name, "parameter "+key+" = ")
+				}
+				continue
+			}
+			for _, art := range d.By {
+				checkMaterial(art, d.ID, "")
 			}
 		case DepPD:
 			pid, id, _ := strings.Cut(d.ID, ":")
@@ -414,7 +469,7 @@ func CheckTransport(ctx context.Context, exe *httpclnt.HTTPExecuter, dir string,
 		}
 	}
 
-	// parameter values for the target
+	// parameter values: source vs target
 	for _, a := range set.Artifacts {
 		if a.Type != "Integration" {
 			continue
@@ -423,33 +478,44 @@ func CheckTransport(ctx context.Context, exe *httpclnt.HTTPExecuter, dir string,
 		if err != nil {
 			return nil, err
 		}
-		if !ok || len(names) == 0 {
-			continue
-		}
-		if o.Configure == nil {
-			add(a.ID, "parameters", CheckSkip, "%d parameter(s): give the target's configure file to check their values", len(names))
-			continue
-		}
-		configured := map[string]bool{}
-		for _, p := range o.Configure.Packages {
-			for _, art := range p.Artifacts {
-				if art.ID == a.ID {
-					for _, prm := range art.Parameters {
-						configured[prm.Key] = true
-					}
-				}
+		source := params.source(a.ID)
+		if !ok {
+			names = map[string]bool{}
+			for k := range source {
+				names[k] = true
 			}
 		}
-		var fromSource []string
+		if len(names) == 0 {
+			continue
+		}
+		target, err := params.target(a.ID)
+		if err != nil {
+			return nil, err
+		}
+		var missing, travels, same []string
 		for _, n := range sortedKeys(names) {
-			if !configured[n] {
-				fromSource = append(fromSource, n)
+			tv, sv := target[n], source[n]
+			switch {
+			case tv == "" && sv == "":
+				missing = append(missing, n)
+			case tv == "":
+				travels = append(travels, n)
+			case tv == sv && envSpecific(tv) && params.distinct:
+				same = append(same, n)
 			}
 		}
-		if len(fromSource) == 0 {
-			add(a.ID, "parameters", CheckPass, "all %d parameter(s) have a value in the target's configure file", len(names))
-		} else {
-			add(a.ID, "parameters", CheckWarn, "no value in the target's configure file, the source tier's value travels: %s", strings.Join(fromSource, ", "))
+		where := params.labels[a.ID]
+		if len(missing) > 0 {
+			add(a.ID, "parameters", CheckFail, "no value on the target (%s) and none travels: %s", where, strings.Join(missing, ", "))
+		}
+		if len(travels) > 0 {
+			add(a.ID, "parameters", CheckWarn, "not set on the target (%s): the source tier's value travels: %s", where, strings.Join(travels, ", "))
+		}
+		if len(same) > 0 {
+			add(a.ID, "parameters", CheckWarn, "same value on the source and the target, and it looks environment-specific (host, URL): %s", strings.Join(same, ", "))
+		}
+		if len(missing)+len(travels)+len(same) == 0 {
+			add(a.ID, "parameters", CheckPass, "%d parameter(s) set on the target (%s)", len(names), where)
 		}
 	}
 	return res, nil
@@ -473,28 +539,128 @@ func findTargetArtifact(ip *cpi.IntegrationPackage, id, typ string) (*cpi.Artifa
 	return nil, nil
 }
 
-// targetCredentials are the credential names and key aliases of a tenant.
-func targetCredentials(exe *httpclnt.HTTPExecuter) (map[string]bool, error) {
-	out := map[string]bool{}
+// targetSecurityMaterial maps the credential names (nil entry) and key
+// aliases (with their validity) of a tenant.
+func targetSecurityMaterial(exe *httpclnt.HTTPExecuter) (map[string]*cpi.KeystoreEntry, error) {
+	out := map[string]*cpi.KeystoreEntry{}
 	sec, err := ListCredentials(exe, "")
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range sec.UserCredentials {
-		out[c.Name] = true
+		out[c.Name] = nil
 	}
 	for _, c := range sec.OAuth2Credentials {
-		out[c.Name] = true
+		out[c.Name] = nil
 	}
 	for _, c := range sec.SecureParameters {
-		out[c.Name] = true
+		out[c.Name] = nil
 	}
 	if ks, err := ListKeystore(exe, "", 0, false, time.Now()); err == nil {
 		for _, e := range ks.Entries {
-			out[e.Alias] = true
+			entry := e.KeystoreEntry
+			out[e.Alias] = &entry
 		}
 	}
 	return out, nil
+}
+
+var reEnvSpecific = regexp.MustCompile(`://|^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+(:\d+)?(/.*)?$`)
+
+// envSpecific reports whether a parameter value looks like it belongs to
+// one environment (a URL or a host name).
+func envSpecific(v string) bool { return reEnvSpecific.MatchString(strings.TrimSpace(v)) }
+
+// paramValues reads the parameter values of the source and the target tier
+// once per artifact.
+type paramValues struct {
+	exe      *httpclnt.HTTPExecuter
+	o        TransportCheckOptions
+	dir      string
+	paths    map[string]string
+	packages map[string]string
+	exists   func(pkg, id string) (*cpi.ArtifactDetails, error)
+	// distinct is false when the source and the target are one tenant
+	distinct bool
+	src, tgt map[string]map[string]string
+	labels   map[string]string
+}
+
+func newParamValues(exe *httpclnt.HTTPExecuter, o TransportCheckOptions, dir string, set *TransportSet,
+	exists func(pkg, id string) (*cpi.ArtifactDetails, error)) *paramValues {
+	p := &paramValues{exe: exe, o: o, dir: dir, paths: map[string]string{}, packages: map[string]string{}, exists: exists,
+		distinct: o.SourceExe == nil || o.SourceExe != exe, src: map[string]map[string]string{}, tgt: map[string]map[string]string{},
+		labels: map[string]string{}}
+	for _, a := range set.Artifacts {
+		p.paths[a.ID], p.packages[a.ID] = a.Path, a.Package
+	}
+	return p
+}
+
+func configuredValues(exe *httpclnt.HTTPExecuter, id string) (map[string]string, error) {
+	data, err := cpi.NewConfiguration(exe).Get(id, "active")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range data.Root.Results {
+		out[r.ParameterKey] = r.ParameterValue
+	}
+	return out, nil
+}
+
+// source: the source tenant's configured values, else parameters.prop of
+// the content tree.
+func (p *paramValues) source(id string) map[string]string {
+	if v, ok := p.src[id]; ok {
+		return v
+	}
+	var vals map[string]string
+	if p.o.SourceExe != nil {
+		if v, err := configuredValues(p.o.SourceExe, id); err == nil {
+			vals = v
+		}
+	}
+	if vals == nil {
+		data, _ := os.ReadFile(filepath.Join(p.dir, filepath.FromSlash(p.paths[id]), filepath.FromSlash(file.ParametersFile)))
+		vals = PropertyValues(data)
+	}
+	p.src[id] = vals
+	return vals
+}
+
+// target: the target tenant's configured values (when the artifact is
+// there), overridden by the target's configure file.
+func (p *paramValues) target(id string) (map[string]string, error) {
+	if v, ok := p.tgt[id]; ok {
+		return v, nil
+	}
+	vals := map[string]string{}
+	var from []string
+	t, err := p.exists(p.packages[id], id)
+	if err != nil {
+		return nil, err
+	}
+	if t != nil && !t.IsDraft {
+		if v, err := configuredValues(p.exe, id); err == nil {
+			vals, from = v, append(from, "tenant")
+		}
+	}
+	if p.o.Configure != nil {
+		for _, pkg := range p.o.Configure.Packages {
+			for _, art := range pkg.Artifacts {
+				if art.ID == id {
+					for _, prm := range art.Parameters {
+						vals[prm.Key] = fmt.Sprint(prm.Value)
+					}
+					from = append(from, "configure file")
+				}
+			}
+		}
+	}
+	p.tgt[id] = vals
+	p.labels[id] = cmpOr(strings.Join(from, " + "), "nothing configured")
+	return vals, nil
 }
 
 // CopyResult lists what CopyArtifacts did per artifact.

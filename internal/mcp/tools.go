@@ -1591,23 +1591,27 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		{
 			Name: "transport_check", Title: "Check a transport against this tenant",
 			Description: "Before moving artifacts to this server's tenant (the target tier): their dependencies (script collections and mappings they reference, flows they call, credentials and key aliases, Partner Directory parameters) " +
-				"and pre-checks against the tenant: draft on the target, changes made outside the pipeline (with target_dir, the target's content in Git), dependencies and called flows present, credentials, Partner Directory parameters, " +
-				"parameters without a value in the target's configure file. Each check pass / warn / fail / skip. Read-only. Run it before uploading to a higher tier; with_deps adds referenced script collections and mappings.",
+				"and pre-checks against the tenant: draft on the target, changes made outside the pipeline (with target_dir, the target's content in Git), dependencies and called flows present, credentials and key aliases (also when a parameter names them), expiring certificates, Partner Directory parameters, " +
+				"and the flows' configuration (missing on the target, the source value travels, the same environment-specific value on both). Each check pass / warn / fail / skip; allow_missing turns failures for material someone else provides into warnings. Read-only. Run it before uploading to a higher tier; with_deps adds referenced script collections and mappings.",
 			InputSchema: object(props{
-				"artifacts":  strArray("Artifact IDs or folder names to move"),
-				"dir":        str("Source content tree relative to the root (default: packages if it exists, else the root)"),
-				"with_deps":  boolean("Add the script collections and mappings the artifacts reference"),
-				"target_dir": str(`The target tier's content in Git: a directory relative to the root or "git:<ref>[:<path>]"`),
-				"configure":  str("The target tier's configure file or folder, relative to the root"),
+				"artifacts":     strArray("Artifact IDs or folder names to move"),
+				"dir":           str("Source content tree relative to the root (default: packages if it exists, else the root)"),
+				"with_deps":     boolean("Add the script collections and mappings the artifacts reference"),
+				"target_dir":    str(`The target tier's content in Git: a directory relative to the root or "git:<ref>[:<path>]"`),
+				"configure":     str("The target tier's configure file or folder, relative to the root"),
+				"allow_missing": strArray("Checks whose failures become warnings because someone else provides the material on the target: credential, keystore, pd, parameters, dependency"),
+				"expiry_days":   integer("Warn about certificates and keys expiring within this many days on the target (default 30)"),
 			}, "artifacts"),
 			Annotations: readOnly,
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				var a struct {
-					Artifacts []string `json:"artifacts"`
-					Dir       string   `json:"dir"`
-					WithDeps  bool     `json:"with_deps"`
-					TargetDir string   `json:"target_dir"`
-					Configure string   `json:"configure"`
+					Artifacts    []string `json:"artifacts"`
+					Dir          string   `json:"dir"`
+					WithDeps     bool     `json:"with_deps"`
+					TargetDir    string   `json:"target_dir"`
+					Configure    string   `json:"configure"`
+					AllowMissing []string `json:"allow_missing"`
+					ExpiryDays   int      `json:"expiry_days"`
 				}
 				if err := decode(raw, &a); err != nil {
 					return nil, err
@@ -1616,7 +1620,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				topts := ops.TransportCheckOptions{WithDeps: a.WithDeps}
+				topts := ops.TransportCheckOptions{WithDeps: a.WithDeps, AllowMissing: a.AllowMissing, ExpiryDays: a.ExpiryDays}
 				if a.TargetDir != "" {
 					if strings.HasPrefix(a.TargetDir, "git:") {
 						ref, sub, _ := strings.Cut(strings.TrimPrefix(a.TargetDir, "git:"), ":")

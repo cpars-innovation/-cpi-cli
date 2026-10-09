@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
 	"github.com/cpars-innovation/cpicli/internal/models"
@@ -130,7 +131,7 @@ func TestCheckTransport(t *testing.T) {
 	res, err = CheckTransport(context.Background(), mock.Executer(), root, []string{"Orders"}, TransportCheckOptions{WithDeps: true})
 	require.NoError(t, err)
 	assert.Equal(t, CheckPass, byCheckIn(t, res, "dependency", "Shared_Scripts").Status)
-	assert.Equal(t, CheckSkip, byCheckIn(t, res, "parameters", "configure file").Status)
+	assert.Equal(t, CheckWarn, byCheckIn(t, res, "parameters", "source tier's value travels").Status, "nothing configured on the target")
 }
 
 func byCheckIn(t *testing.T, res *TransportCheckResult, check, contains string) TransportCheck {
@@ -167,4 +168,57 @@ func TestCopyArtifacts(t *testing.T) {
 	res, err = CopyArtifacts(context.Background(), from, to, []string{"Orders"}, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, "unchanged", res.Artifacts[0].Action)
+}
+
+// Readiness of the target: configuration compared with the source tier,
+// credentials named by parameters, expiring keys, accepted gaps.
+func TestCheckTransportReadiness(t *testing.T) {
+	root := t.TempDir()
+	files := testIFlowFiles("Orders")
+	model := strings.Replace(testIFlow, "<key>credentialName</key><value>SFTP_Orders</value>", "<key>credentialName</key><value>{{SFTP Credential}}</value>", 1)
+	model = strings.Replace(model, "<ifl:property><key>ComponentType</key><value>SFTP</value></ifl:property>",
+		"<ifl:property><key>ComponentType</key><value>SFTP</value></ifl:property><ifl:property><key>privateKeyAlias</key><value>orders_key</value></ifl:property>", 1)
+	files["src/main/resources/scenarioflows/integrationflow/Orders.iflw"] = model
+	files["src/main/resources/parameters.prop"] = "Receiver\\ Host=sftp.dev.example.com\nDirectory=/in\nSFTP\\ Credential=SFTP_Dev\n"
+	files["src/main/resources/parameters.propdef"] = `<parameters><parameter><name>Receiver Host</name></parameter><parameter><name>Directory</name></parameter><parameter><name>SFTP Credential</name></parameter></parameters>`
+	writeTree(t, root, "Pkg", "Orders", files)
+
+	dev := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Orders": {Type: "Integration", DesignVersion: "1.0.3", Package: "Pkg", Name: "Orders",
+			Parameters: map[string]string{"Receiver Host": "sftp.dev.example.com", "Directory": "/in", "SFTP Credential": "SFTP_Dev"}},
+	})
+	dev.Packages = []cpitest.Package{{ID: "Pkg", Version: "1.0.0"}}
+	prod := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Orders": {Type: "Integration", DesignVersion: "1.0.2", Package: "Pkg", Name: "Orders",
+			Parameters: map[string]string{"Receiver Host": "sftp.dev.example.com", "SFTP Credential": "SFTP_Prod"}},
+	})
+	prod.Packages = []cpitest.Package{{ID: "Pkg", Version: "1.0.0"}}
+	prod.SecureParametersUnavailable = true
+	prod.Credentials = map[string]map[string]map[string]any{"UserCredentials": {"SFTP_Prod": {"Name": "SFTP_Prod"}}}
+	prod.Keystore = []cpitest.KeystoreEntry{{Alias: "orders_key", NotAfter: time.Now().AddDate(0, 0, 10)}}
+
+	res, err := CheckTransport(context.Background(), prod.Executer(), root, []string{"Orders"}, TransportCheckOptions{SourceExe: dev.Executer()})
+	require.NoError(t, err)
+	assert.Equal(t, CheckWarn, byCheckIn(t, res, "parameters", "looks environment-specific").Status)
+	assert.Contains(t, byCheckIn(t, res, "parameters", "looks environment-specific").Message, "Receiver Host")
+	assert.Contains(t, byCheckIn(t, res, "parameters", "travels").Message, "Directory")
+	assert.Equal(t, CheckPass, byCheckIn(t, res, "credential", "parameter SFTP Credential = SFTP_Prod").Status, "resolved with the target's value")
+	assert.Equal(t, CheckWarn, byCheckIn(t, res, "keystore", "orders_key expires").Status)
+	assert.Zero(t, res.Summary[CheckFail])
+
+	// the credential is not on the target: a failure, unless accepted
+	prod.Credentials = map[string]map[string]map[string]any{"UserCredentials": {}}
+	res, err = CheckTransport(context.Background(), prod.Executer(), root, []string{"Orders"}, TransportCheckOptions{SourceExe: dev.Executer()})
+	require.NoError(t, err)
+	assert.Equal(t, CheckFail, byCheckIn(t, res, "credential", "SFTP_Prod").Status)
+	res, err = CheckTransport(context.Background(), prod.Executer(), root, []string{"Orders"},
+		TransportCheckOptions{SourceExe: dev.Executer(), AllowMissing: []string{"credential"}})
+	require.NoError(t, err)
+	c := byCheckIn(t, res, "credential", "SFTP_Prod")
+	assert.Equal(t, CheckWarn, c.Status)
+	assert.Contains(t, c.Message, "provided separately")
+	assert.Zero(t, res.Summary[CheckFail])
+
+	_, err = CheckTransport(context.Background(), prod.Executer(), root, []string{"Orders"}, TransportCheckOptions{AllowMissing: []string{"everything"}})
+	assert.Error(t, err)
 }
