@@ -59,6 +59,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`logs trace`](#logs-trace) | List the traced steps of a message (flow on log level TRACE) |
 | [`logs trace-message`](#logs-trace-message) | Show payload, headers and exchange properties of a traced step (ID from 'logs trace') |
 | [`logs tree`](#logs-tree) | Show the call tree of a trace across flows and its first failure |
+| [`matrix`](#matrix) | Version matrix: every artifact's version in Git and on each tier, and what is ready to promote |
 | [`mcp`](#mcp) | Run the MCP server (stdio) for AI agents |
 | [`number-ranges`](#number-ranges) | List number ranges |
 | [`orchestrator`](#orchestrator) | Update and deploy many packages from a local directory tree |
@@ -1348,6 +1349,42 @@ Nodes are linked by span-id / parent-span-id (names configurable).
       --trace-id string          Trace ID (32 hex characters)
       --trace-property string    Custom header property with the trace ID (default "trace-id")
       --until string             End of the scan window
+```
+
+## matrix
+
+Version matrix: every artifact's version in Git and on each tier, and what is ready to promote
+
+```
+Show per artifact the Bundle-Version in the content tree (--dir) and on each tier the
+designtime version, draft flag, running version and status, and who changed it last
+where the tenant reports it. Tiers are given in promotion order:
+
+  tenant                 the configured tenant
+  tenant:<profile>       the tenant of a profile (named after the profile)
+  <name>=tenant:<profile>
+
+"behind" lists the tiers whose version is lower than the tier before them (or Git):
+the next promotions. One pass per tenant (package lists and the runtime list), no
+downloads.
+```
+
+**Usage:** `cpictl matrix <tier>... [flags]`
+
+**Flags:**
+
+```
+      --artifact strings   Only these artifacts (IDs or patterns)
+      --differences        Only artifacts whose versions differ
+      --dir string         Content tree with the Git versions (default: packages if it exists)
+      --package strings    Only these packages (IDs or patterns)
+```
+
+**Examples:**
+
+```
+  cpictl matrix tenant:dev tenant:test tenant:prod --dir packages
+  cpictl matrix DEV=tenant:dev PROD=tenant:prod --package Orders --differences --output json
 ```
 
 ## mcp

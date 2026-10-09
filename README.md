@@ -236,7 +236,7 @@ are not written, and reads, uploads and parameter reads run 8 at a time. Details
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
-| Tiers | `compare`, `transport` (deps, check, copy) |
+| Tiers | `matrix` (versions per tier), `compare`, `transport` (deps, check, copy) |
 | Git | `sync`, `snapshot`, `snapshot restore` |
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |

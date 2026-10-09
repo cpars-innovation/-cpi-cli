@@ -72,3 +72,29 @@ func TestCompareTiers(t *testing.T) {
 	assert.Contains(t, r.stderr, "nope")
 	assert.Contains(t, r.stderr, "not found")
 }
+
+func TestMatrixCommand(t *testing.T) {
+	tenant := func(version string) *cpitest.Tenant {
+		m := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+			"Orders": {Type: "Integration", DesignVersion: version, Package: "Pkg", Name: "Orders", Runtime: &cpitest.Runtime{Version: version, Status: "STARTED"}},
+		})
+		m.Packages = []cpitest.Package{{ID: "Pkg", Version: "1.0.0"}}
+		return m
+	}
+	test, prod := tenant("1.0.6"), tenant("1.0.5")
+	r := runMainWith(t, func() {
+		writeProfile(t, "test", test)
+		writeProfile(t, "prod", prod)
+	}, "matrix", "TEST=tenant:test", "tenant:prod", "--output", "json")
+	require.Equal(t, 0, r.code, r.stderr)
+	var env struct {
+		Result ops.VersionMatrix `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &env))
+	assert.Equal(t, []string{"TEST", "prod"}, env.Result.Tiers)
+	require.Len(t, env.Result.Rows, 1)
+	assert.Equal(t, []string{"prod"}, env.Result.Rows[0].Behind)
+
+	r = runMain(t, "matrix", "git:main")
+	assert.Equal(t, 2, r.code)
+}

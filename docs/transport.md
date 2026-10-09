@@ -14,6 +14,19 @@ cpictl transport check Orders_In --with-deps --target tenant:prod \
 cpictl transport copy Orders_In --with-deps --from git:test:packages --to packages   # branch per tier
 ```
 
+## Version matrix (`matrix`)
+
+```bash
+cpictl matrix tenant:dev tenant:test tenant:prod --dir packages --differences
+```
+
+Per artifact: the `Bundle-Version` in the content tree (`--dir`), and per tier (in promotion
+order) the designtime version, draft flag, running version and status, and who changed it last
+where the tenant reports it. `behind` lists the tiers whose version is lower than the tier before
+them (or Git), or that do not have the artifact yet: the next promotions. A tier is `tenant`,
+`tenant:<profile>` or `<name>=tenant:<profile>`. One pass per tenant (package lists and the
+runtime list), no downloads; `--output json` returns `tiers` and `rows`.
+
 ## What moves and what does not
 
 - **Moves**: the artifact folders as tested on the source tier, with the same `Bundle-Version`

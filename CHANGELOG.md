@@ -11,6 +11,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
   diffs), `parameters.prop` keys (`--show-values`), designtime / running version, draft and who
   changed it last on the tenant; `--fail-on-diff` for CI. Tenants are normalized like `snapshot`,
   so a snapshot equals its tenant. See [docs/compare.md](docs/compare.md).
+- `cpictl matrix <tier>...`: version matrix of Git and each tier (designtime, draft, running
+  version and status, last changed by) with the tiers each artifact is `behind` on.
 - `cpictl transport deps|check|copy` (MCP `transport_check`): what artifacts need (script
   collections and mappings they reference, called flows, credentials, Partner Directory
   parameters; `--with-deps` adds the referenced artifacts), pre-checks against the target tenant
