@@ -5,6 +5,10 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl mcp --toolset inspect|build|test|monitor|promote|improve|partner-directory|security`:
+  offer only the tools of the session's task (combined with `--tools`, the mode still applies).
+  See [docs/mcp.md](docs/mcp.md#toolsets).
+
 ## 0.6.0
 
 - `cpictl compare <A> <B>` (MCP `compare`): two tiers (`tenant:<profile>`), Git refs

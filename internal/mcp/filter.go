@@ -194,3 +194,57 @@ func ModeInstructions(mode string) string {
 	}
 	return ""
 }
+
+// Toolsets are named groups of tools for one kind of task. An agent works
+// better with the tools of its task than with all of them; a session for a
+// task gets its toolset(s) (--toolset), combined with --tools and the mode.
+// doctor is in every toolset, help is always added.
+var Toolsets = map[string][]string{
+	"inspect": {"list_packages", "list_artifacts", "list_resources", "get_resource", "get_parameters", "list_runtime_artifacts",
+		"get_runtime_status", "list_service_endpoints", "graph_search", "graph_neighbors", "graph_path", "discover_tenant", "drift", "compare"},
+	"build": {"list_packages", "list_artifacts", "list_resources", "get_resource", "get_parameters", "set_parameters", "download_artifact",
+		"copy_iflow", "layout_iflow", "create_package", "upload_artifact", "upload_artifacts", "validate_artifact", "check_guidelines",
+		"deploy", "get_runtime_status", "drift", "bump_versions", "lint", "graph_search", "graph_neighbors", "list_credentials",
+		"loop_start", "loop_status", "loop_end"},
+	"test": {"send_test_message", "list_service_endpoints", "list_message_logs", "get_message_log", "get_message_steps",
+		"get_message_attachment", "get_message_store_entry", "get_trace_tree", "set_log_level", "get_message_trace",
+		"get_trace_message", "get_runtime_status", "loop_start", "loop_status", "loop_end"},
+	"monitor": {"message_summary", "list_message_logs", "get_message_log", "get_message_steps", "get_message_attachment",
+		"get_message_store_entry", "get_trace_tree", "get_message_trace", "get_trace_message", "set_log_level",
+		"list_runtime_artifacts", "get_runtime_status", "list_log_files", "get_log_file", "list_data_stores",
+		"list_data_store_entries", "get_data_store_entry", "list_variables", "get_variable", "list_jms_queues", "get_jms_broker",
+		"list_number_ranges", "list_idempotent_entries", "list_id_mappings", "list_keystore", "graph_neighbors"},
+	"promote": {"compare", "transport_check", "drift", "list_artifacts", "get_parameters", "config_diff", "list_credentials",
+		"list_keystore", "pd_dependencies", "pd_diff", "get_runtime_status", "list_runtime_artifacts", "graph_neighbors"},
+	"improve": {"lint", "lint_fix", "layout_iflow", "graph_search", "graph_neighbors", "graph_path", "drift", "compare",
+		"bump_versions", "list_artifacts", "get_resource"},
+	"partner-directory": {"get_pd_parameters", "pd_diff", "pd_dependencies", "pd_deploy", "config_diff", "graph_search"},
+	"security":          {"list_credentials", "list_keystore"},
+}
+
+// ToolsetNames lists the toolsets, sorted.
+func ToolsetNames() []string {
+	names := make([]string, 0, len(Toolsets))
+	for n := range Toolsets {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// ToolsetTools expands toolset names to tool names (with doctor).
+func ToolsetTools(names []string) ([]string, error) {
+	out := []string{"doctor"}
+	for _, n := range names {
+		tools, ok := Toolsets[strings.TrimSpace(n)]
+		if !ok {
+			return nil, output.Usagef("invalid toolset %q (%s)", n, strings.Join(ToolsetNames(), ", "))
+		}
+		for _, t := range tools {
+			if !slices.Contains(out, t) {
+				out = append(out, t)
+			}
+		}
+	}
+	return out, nil
+}

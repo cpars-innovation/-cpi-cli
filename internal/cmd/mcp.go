@@ -78,6 +78,14 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			}))
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
+			toolsets := config.GetStringSlice(cmd, "toolset")
+			if len(toolsets) > 0 {
+				names, err := mcp.ToolsetTools(toolsets)
+				if err != nil {
+					return err
+				}
+				filter.Allow = append(filter.Allow, names...)
+			}
 			tools, removed, err := mcp.ApplyFilters(all, mode, filter)
 			if err != nil {
 				return err
@@ -88,7 +96,11 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			// help reports the tools that are really available, so it is added after filtering
 			tools = append(tools, mcp.HelpTool(mcp.HelpInfo{Tools: tools, Removed: removed, Mode: mode, ReadOnly: readOnly,
 				Commands: commandInfos(cmd.Root())}))
-			server := mcp.NewServer("cpicli", version, mcp.FilteredInstructions(mcp.Instructions, filter, removed)+mcp.ModeInstructions(mode), tools)
+			instructions := mcp.FilteredInstructions(mcp.Instructions, filter, removed) + mcp.ModeInstructions(mode)
+			if len(toolsets) > 0 {
+				instructions += "\n\nToolset: " + strings.Join(toolsets, ", ") + ". Only the tools of these tasks are available; call help to see them."
+			}
+			server := mcp.NewServer("cpicli", version, instructions, tools)
 			log.Info().Msgf("MCP server started with %d tools", len(tools))
 			err = server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 			// time-boxed log levels (TRACE) are set back when the server stops
@@ -104,6 +116,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 	c.Flags().String("mode", "", "Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)")
 	c.Flags().Bool("read-only", false, "Offer only tools that do not change the tenant or trigger processing")
 	c.Flags().StringSlice("tools", nil, "Offer only these tools (names or patterns such as list_*)")
+	c.Flags().StringSlice("toolset", nil, "Offer only the tools of these tasks: "+strings.Join(mcp.ToolsetNames(), ", ")+" (combined with --tools; the mode still applies)")
 	c.Flags().StringSlice("disable-tools", nil, "Do not offer these tools (names or patterns); wins over --tools")
 	addRuntimeAuthFlags(c)
 	return c

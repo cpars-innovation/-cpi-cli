@@ -126,6 +126,31 @@ not of a mode.
 
 The mode is added to the server instructions.
 
+### Toolsets
+
+The server has about 65 tools. An agent chooses better among the tools of its task than among all
+of them, and every tool description costs context in every call. `--toolset` (or
+`CPICTL_TOOLSET`) offers only the tools of one or more tasks; it combines with `--tools`, and the
+mode still applies on top (the more restrictive wins). `doctor` and `help` are always there.
+
+| Toolset | For | Tools |
+|---------|-----|-------|
+| `inspect` | understanding content | list and read packages, artifacts, resources, parameters, runtime status, endpoints, graph, discovery, drift, compare |
+| `build` | changing flows on DEV | read tools, `download_artifact`, `copy_iflow`, `layout_iflow`, `create_package`, `upload_artifact(s)`, `validate_artifact`, `check_guidelines`, `set_parameters`, `deploy`, `bump_versions`, `lint`, loop tools |
+| `test` | testing and diagnosing | `send_test_message`, message logs, steps, attachments, store entries, trace tree, `set_log_level`, traced messages, loop tools |
+| `monitor` | operations | `message_summary`, message logs and traces, runtime status, log files, data stores, variables, JMS, number ranges, idempotency, ID mappings, keystore |
+| `promote` | moving between tiers | `compare`, `transport_check`, `drift`, `config_diff`, parameters, credentials, keystore, Partner Directory dependencies and diff, runtime status |
+| `improve` | quality | `lint`, `lint_fix`, `layout_iflow`, graph, `drift`, `compare`, `bump_versions` |
+| `partner-directory` | Partner Directory | `get_pd_parameters`, `pd_diff`, `pd_dependencies`, `pd_deploy`, `config_diff` |
+| `security` | security material (read) | `list_credentials`, `list_keystore` |
+
+`undeploy` and `delete_data_store_entry` are in no toolset: offer them explicitly with `--tools`.
+
+```json
+"cpi-dev":  { "command": "cpictl", "args": ["mcp", "--root", ".", "--mode", "develop", "--toolset", "build,test"] },
+"cpi-prod": { "command": "cpictl", "args": ["mcp", "--root", ".", "--mode", "discover", "--toolset", "monitor,promote"] }
+```
+
 ### Limiting tools
 
 The server enforces the limits itself, for every MCP client: disabled tools are not listed in

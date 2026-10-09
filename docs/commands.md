@@ -1471,6 +1471,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
       --runtime-password string             Password for Basic Auth on runtime endpoints
       --runtime-userid string               User ID for Basic Auth on runtime endpoints
       --tools strings                       Offer only these tools (names or patterns such as list_*)
+      --toolset strings                     Offer only the tools of these tasks: build, improve, inspect, monitor, partner-directory, promote, security, test (combined with --tools; the mode still applies)
       --versioning string                   Versions: manifest (Bundle-Version of the repository, downgrade guard on), keep (the tenant's versions, guard off) or tenant-bump (max(designtime, runtime)+1); env CPICTL_VERSIONING, set it per pipeline/branch (docs/versioning.md)
 ```
 

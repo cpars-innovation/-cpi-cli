@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"os"
 	"testing"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
@@ -83,4 +84,41 @@ func TestFilteredServerHidesAndRejectsTools(t *testing.T) {
 	require.NotNil(t, resp["2"].Error)
 	assert.Equal(t, codeInvalidParams, resp["2"].Error.Code)
 	assert.Empty(t, mock.Requests())
+}
+
+func TestToolsets(t *testing.T) {
+	names := map[string]bool{}
+	for _, tool := range allToolsForTest() {
+		names[tool.Name] = true
+	}
+	inSome := map[string]bool{}
+	for set, tools := range Toolsets {
+		for _, tool := range tools {
+			assert.True(t, names[tool], "toolset %s names unknown tool %s", set, tool)
+			inSome[tool] = true
+		}
+	}
+	// destructive tools are offered only on request (--tools)
+	for name := range names {
+		if name == "undeploy" || name == "delete_data_store_entry" || name == "doctor" {
+			continue
+		}
+		assert.True(t, inSome[name], "tool %s is in no toolset", name)
+	}
+	got, err := ToolsetTools([]string{"promote", "security"})
+	require.NoError(t, err)
+	assert.Contains(t, got, "transport_check")
+	assert.Contains(t, got, "doctor")
+	_, err = ToolsetTools([]string{"everything"})
+	assert.Error(t, err)
+
+	kept, _, err := ApplyFilters(allToolsForTest(), "discover", ToolFilter{Allow: got})
+	require.NoError(t, err)
+	for _, tool := range kept {
+		assert.Contains(t, got, tool.Name)
+	}
+}
+
+func allToolsForTest() []Tool {
+	return NewLedger(os.TempDir()).Wrap(Tools(Config{}))
 }
