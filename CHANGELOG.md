@@ -5,6 +5,21 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `lint`: checks the flows of a content tree (local files only) with 30 rules in 8 groups and
+  reports rule, severity and suggestion. See [docs/lint.md](docs/lint.md).
+  - reuse: scripts and mappings in several flows (-> script collection, global or per package),
+    missing script collections; Partner Directory candidates: routers on many literal values,
+    lookup tables in scripts, flows deployed several times with different `configOverrides`.
+  - dead weight (unconnected steps, unused scripts, resources, parameters, no-op content
+    modifiers, properties nobody reads), simplification, robustness, performance,
+    configuration (fixed endpoints, URLs and secrets in scripts), hygiene.
+  - `.cpi/lint.yaml` for severities, thresholds and script collection names; a baseline
+    (`--update-baseline`) so `--fail-on` fails only on new findings; `--changed --since`.
+  - `--fix` (`--dry-run`): moves scripts into script collections, deletes unused scripts,
+    removes unconnected steps (`--fix-rules all`: also no-op content modifiers).
+- MCP tools `lint` (read) and `lint_fix` (local files).
+- Skill `cpi-improve`: lint, write proposals to `.cpi/improvements/`, apply one at a time.
+
 ## 0.4.0
 
 - `snapshot` for a repository with one copy of every artifact (`packages/` in the tenant layout,

@@ -54,6 +54,8 @@ var workflows = []Workflow{
 		Tools: []string{"send_test_message", "list_message_logs", "get_message_steps", "get_trace_tree", "set_log_level", "get_message_trace", "get_trace_message"}, Docs: "testing.md"},
 	{Task: "Review a flow against conventions and tenant checks", Skill: "cpi-review",
 		Tools: []string{"validate_artifact", "check_guidelines", "graph_neighbors", "get_runtime_status"}, Docs: "plugin.md"},
+	{Task: "Find and apply improvements across flows: script collections, Partner Directory candidates, dead weight, best practices", Skill: "cpi-improve",
+		Tools: []string{"lint", "lint_fix", "graph_neighbors", "drift", "bump_versions", "upload_artifacts", "validate_artifact", "deploy", "pd_dependencies", "pd_deploy"}, Docs: "lint.md"},
 	{Task: "Find who calls a flow, or who uses a credential, script, header or PD parameter",
 		Tools: []string{"graph_search", "graph_neighbors", "graph_path"}, Docs: "graph.md"},
 	{Task: "Diagnose failed messages and runtime errors",

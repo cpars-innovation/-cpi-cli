@@ -48,6 +48,7 @@ stay inside the repository you opened.
 | `cpi-build` | Implement the design: edit files, upload, validate, deploy, fix until it runs | tenant (designtime, runtime) |
 | `cpi-test` | Write test cases in `.cpi/tests/<FlowId>/`, choose the route by trigger (direct, test harness, test entry), send them, trace and diagnose failures ([testing.md](testing.md)) | triggers processing |
 | `cpi-review` | Review against conventions, plan, tenant checks and a checklist | none |
+| `cpi-improve` | Lint packages or flows ([lint.md](lint.md)), write proposals to `.cpi/improvements/` (script collections, Partner Directory, dead steps, best practices), apply one agreed proposal at a time | local files; tenant (dev) when applying |
 | agent `cpi-reviewer` | Does the review for cpi-review with a fresh context and read-only tools | none |
 
 Skills are picked automatically from what you ask ("build an interface that ...", "why do the

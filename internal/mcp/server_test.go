@@ -114,7 +114,7 @@ func TestProtocol(t *testing.T) {
 	assert.Equal(t, []string{"doctor", "list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
 		"get_message_steps", "get_message_attachment", "get_message_store_entry", "set_log_level", "get_message_trace", "get_trace_message", "get_trace_tree",
 		"list_runtime_artifacts", "list_service_endpoints",
-		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions",
+		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions", "lint", "lint_fix",
 		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "create_package", "upload_artifact", "upload_artifacts", "deploy", "send_test_message", "undeploy", "pd_deploy",
 		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "discover_tenant",
@@ -450,4 +450,40 @@ func TestUploadArtifactsBatch(t *testing.T) {
 	assert.Equal(t, 1, mock.Artifacts["B"].Uploads)
 	assert.Contains(t, res.Content[0].Text, `"action":"CREATED"`)
 	assert.Contains(t, res.Content[0].Text, `"id":"C","error"`)
+}
+
+// lint and lint_fix work on the local files below the server root.
+func TestLintTools(t *testing.T) {
+	root := t.TempDir()
+	model := `<?xml version="1.0"?><bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:ifl="http:///com.sap.ifl.model/Ifl.xsd">
+<bpmn2:process id="P"><bpmn2:startEvent id="Start"/><bpmn2:callActivity id="S" name="Log"><bpmn2:extensionElements>
+<ifl:property><key>activityType</key><value>Script</value></ifl:property><ifl:property><key>script</key><value>Log.groovy</value></ifl:property>
+</bpmn2:extensionElements></bpmn2:callActivity><bpmn2:sequenceFlow id="F" sourceRef="Start" targetRef="S"/></bpmn2:process></bpmn2:definitions>`
+	for _, id := range []string{"A", "B"} {
+		dir := filepath.Join(root, "packages", "Pkg", id)
+		for name, content := range map[string]string{
+			"META-INF/MANIFEST.MF": "Bundle-SymbolicName: " + id + "\nSAP-BundleType: IntegrationFlow\n",
+			"src/main/resources/scenarioflows/integrationflow/" + id + ".iflw": model,
+			"src/main/resources/script/Log.groovy":                             "return message\n",
+		} {
+			p := filepath.Join(dir, filepath.FromSlash(name))
+			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+			require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		}
+	}
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+	resp := session(t, mock, root,
+		call(1, "lint", map[string]any{"rules": []string{"duplicate-script"}}),
+		call(2, "lint_fix", map[string]any{"dry_run": true}),
+		call(3, "lint", map[string]any{"dir": "../outside"}),
+	)
+	res := toolResult(t, resp["1"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	assert.Equal(t, 2, strings.Count(res.Content[0].Text, `"rule":"duplicate-script"`))
+	assert.NotContains(t, res.Content[0].Text, `"rule":"no-exception-subprocess"`, "rules filter")
+	res = toolResult(t, resp["2"])
+	require.False(t, res.IsError, res.Content[0].Text)
+	assert.Contains(t, res.Content[0].Text, `"Pkg/Pkg_Scripts"`)
+	assert.FileExists(t, filepath.Join(root, "packages", "Pkg", "A", "src", "main", "resources", "script", "Log.groovy"), "dry run")
+	assert.Equal(t, "usage", toolResult(t, resp["3"]).StructuredContent.ErrorCategory, "paths stay inside the root")
 }

@@ -70,7 +70,7 @@ func TestPluginManifests(t *testing.T) {
 	frontmatter := regexp.MustCompile(`(?s)^---\n(.*?)\n---\n`)
 	skills, err := filepath.Glob(filepath.Join(pluginDir, "skills", "*", "SKILL.md"))
 	require.NoError(t, err)
-	assert.Len(t, skills, 5)
+	assert.Len(t, skills, 6)
 	agents, err := filepath.Glob(filepath.Join(pluginDir, "agents", "*.md"))
 	require.NoError(t, err)
 	for _, f := range append(skills, agents...) {

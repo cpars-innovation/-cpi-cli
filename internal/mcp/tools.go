@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -40,6 +41,10 @@ list_message_logs with since and wait_seconds after triggering them.
 Configuration: get_parameters / set_parameters, then deploy to activate; config_diff compares a
 configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
+Improve: lint checks local flows for reuse (scripts and mappings in several flows -> script
+collections), Partner Directory candidates (routing tables, lookup tables, deployment copies),
+dead weight, robustness and best practices; lint_fix moves scripts into collections and removes
+unused scripts and unconnected steps (local files; the cpi-improve skill plans and applies them).
 Inspect: list_packages, list_artifacts (cached briefly; refresh=true re-reads), list_resources,
 get_resource (read without download). get_parameters artifact_ids reads several flows at once.
 Operate: list_runtime_artifacts statuses=["ERROR"], get_runtime_status, list_message_logs,
@@ -790,6 +795,87 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 			},
 		},
 		{
+			Name: "lint", Title: "Check flows for reuse, dead weight and best practices",
+			Description: "Check the integration flows of a local content tree (<package>/<artifact>, inside the server root) and return findings with rule, severity, file, step and suggestion. " +
+				"Groups: reuse (scripts or mappings in several flows -> script collection or shared mapping), partner-directory (routers on many literal values, lookup tables in scripts, flows deployed several times with different configOverrides), " +
+				"dead-weight (unconnected steps, unused scripts, resources, parameters, no-op content modifiers), simplify, robustness (no exception subprocess, swallowed exceptions), performance (payload logging, body as string), " +
+				"configuration (fixed receiver addresses, URLs and secrets in scripts), hygiene. All flows are read for cross-flow rules; packages/artifacts select what is reported. " +
+				"Settings: .cpi/lint.yaml under the root; known findings: .cpi/lint-baseline.json (baseline=true on a finding). Local files only. Use it for the cpi-improve skill; fixable findings: lint_fix.",
+			InputSchema: object(props{
+				"dir":          str("Content tree relative to the server root (default: packages if it exists, else the root)"),
+				"packages":     strArray("Only report these packages (names or patterns)"),
+				"artifacts":    strArray("Only report these artifacts (names or patterns)"),
+				"min_severity": enum("Do not report findings below this severity (default info)", "info", "warning", "error"),
+				"rules":        strArray("Only these rules (default: all enabled in .cpi/lint.yaml)"),
+				"list_rules":   boolean("Only list the rules"),
+			}),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Dir         string   `json:"dir"`
+					Packages    []string `json:"packages"`
+					Artifacts   []string `json:"artifacts"`
+					MinSeverity string   `json:"min_severity"`
+					Rules       []string `json:"rules"`
+					ListRules   bool     `json:"list_rules"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if a.ListRules {
+					return map[string]any{"rules": ops.LintRules()}, nil
+				}
+				o, err := mcpLintOptions(cfg.Root, a.Dir, a.Packages, a.Artifacts)
+				if err != nil {
+					return nil, err
+				}
+				o.MinSeverity = a.MinSeverity
+				res, err := ops.Lint(ctx, o)
+				if err != nil || len(a.Rules) == 0 {
+					return res, err
+				}
+				keep := res.Findings[:0]
+				for _, f := range res.Findings {
+					if slices.Contains(a.Rules, f.Rule) {
+						keep = append(keep, f)
+					}
+				}
+				res.Findings = keep
+				return res, nil
+			},
+		},
+		{
+			Name: "lint_fix", Title: "Apply lint fixes to local files",
+			Description: "Apply the mechanical fixes of lint to the local files (inside the server root): scripts used by several flows move into a script collection (the package's {package}_Scripts, or the shared collection with scriptCollections.crossPackage in .cpi/lint.yaml) and the flows reference it; " +
+				"scripts equal to one in an existing collection reference it; unused scripts are deleted; unconnected steps are removed. rules=[\"noop-content-modifier\"] also removes content modifiers that do nothing. " +
+				"dry_run lists the changes without writing. Nothing is sent to the tenant: afterwards bump_versions, upload (collections first), validate, deploy and test.",
+			InputSchema: object(props{
+				"dir":       str("Content tree relative to the server root (default: packages if it exists, else the root)"),
+				"packages":  strArray("Only these packages"),
+				"artifacts": strArray("Only these artifacts"),
+				"rules":     strArray(`Rules to fix (default: duplicate-script, use-script-collection, unused-script, unconnected-step; ["all"]: every fixable rule)`),
+				"dry_run":   boolean("Only list the changes"),
+			}),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Dir       string   `json:"dir"`
+					Packages  []string `json:"packages"`
+					Artifacts []string `json:"artifacts"`
+					Rules     []string `json:"rules"`
+					DryRun    bool     `json:"dry_run"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				o, err := mcpLintOptions(cfg.Root, a.Dir, a.Packages, a.Artifacts)
+				if err != nil {
+					return nil, err
+				}
+				return ops.LintFix(ctx, o, ops.LintFixOptions{Rules: a.Rules, DryRun: a.DryRun})
+			},
+		},
+		{
 			Name: "list_credentials", Title: "List security credentials",
 			Description: "Names and metadata of user credentials, OAuth2 client credentials and secure parameters deployed on the tenant (never secrets). Use it to check that the credentials an iFlow references exist. Credentials cannot be created through MCP; ask the user to run 'cpictl credentials'.",
 			InputSchema: object(props{"kind": enum("Only this kind", cpi.CredentialKinds...)}),
@@ -1530,4 +1616,28 @@ func checkMaxBytes(n int) error {
 		return output.Usagef("max_bytes must be between 1 and 1048576")
 	}
 	return nil
+}
+
+// mcpLintOptions resolves the lint paths inside the server root.
+func mcpLintOptions(root, dir string, packages, artifacts []string) (ops.LintOptions, error) {
+	if dir == "" {
+		dir = "."
+		if info, err := os.Stat(filepath.Join(root, "packages")); err == nil && info.IsDir() {
+			dir = "packages"
+		}
+	}
+	abs, err := resolvePath(root, dir)
+	if err != nil {
+		return ops.LintOptions{}, err
+	}
+	base, err := resolvePath(root, ".")
+	if err != nil {
+		return ops.LintOptions{}, err
+	}
+	cfg, err := ops.LoadLintConfig(filepath.Join(base, ".cpi", "lint.yaml"))
+	if err != nil {
+		return ops.LintOptions{}, err
+	}
+	return ops.LintOptions{Dir: abs, Packages: packages, Artifacts: artifacts, Config: cfg,
+		Baseline: filepath.Join(base, ".cpi", "lint-baseline.json")}, nil
 }
