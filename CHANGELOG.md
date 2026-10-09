@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.6.0
+
 - `cpictl compare <A> <B>` (MCP `compare`): two tiers (`tenant:<profile>`), Git refs
   (`git:<ref>[:<path>]`) or content trees per artifact: `same`, `content_differs`,
   `version_differs`, `parameters_differ`, `only_a`, `only_b`; changed files (`--diff`: unified
