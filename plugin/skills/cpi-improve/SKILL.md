@@ -67,14 +67,16 @@ One proposal = one branch / pull request. For each:
      modifiers): `lint_fix` with `dry_run: true`, show the changes, then without dry run, scoped
      with `packages` / `artifacts` and `rules` to this proposal;
    - everything else: edit the files as in the cpi-build skill (one flow at a time).
-3. `bump_versions` with `changed: true` (when the repository uses versioning manifest).
-4. `lint` again for the affected flows: the proposal's findings are gone, nothing new appeared.
-5. Upload and deploy on the **development** tenant, dependencies first: script collections and
+3. `layout_iflow` for every `.iflw` the proposal changed (removed or added steps leave gaps and
+   crooked lines); a proposal "tidy the diagrams" is `lint_fix` with `rules: ["layout"]`.
+4. `bump_versions` with `changed: true` (when the repository uses versioning manifest).
+5. `lint` again for the affected flows: the proposal's findings are gone, nothing new appeared.
+6. Upload and deploy on the **development** tenant, dependencies first: script collections and
    mapping artifacts, then Partner Directory parameters (`pd_deploy`, dry run first), then the flows
    (`upload_artifacts`, `validate_artifact`, `deploy`).
-6. Test every affected flow with the cpi-test skill (also flows that only use a changed script
+7. Test every affected flow with the cpi-test skill (also flows that only use a changed script
    collection). Compare behaviour before and after: same output for the same input.
-7. cpi-review for larger changes. Set the proposal's status to `done` (or `blocked` with the
+8. cpi-review for larger changes. Set the proposal's status to `done` (or `blocked` with the
    reason) in the proposal file.
 
 Use `loop_start` / `loop_end` for the build/test loop. Never change QA or production, never delete

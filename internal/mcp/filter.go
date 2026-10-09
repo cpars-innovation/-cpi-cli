@@ -43,7 +43,7 @@ var toolEffects = map[string]Effect{
 	"graph_search": EffectRead, "help": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
 	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 
-	"download_artifact": EffectLocal, "discover_tenant": EffectLocal, "copy_iflow": EffectLocal, "bump_versions": EffectLocal, "lint_fix": EffectLocal,
+	"download_artifact": EffectLocal, "discover_tenant": EffectLocal, "copy_iflow": EffectLocal, "bump_versions": EffectLocal, "lint_fix": EffectLocal, "layout_iflow": EffectLocal,
 
 	"create_package": EffectTenant, "upload_artifact": EffectTenant, "upload_artifacts": EffectTenant, "set_parameters": EffectTenant,
 	"deploy": EffectTenant, "undeploy": EffectTenant, "pd_deploy": EffectTenant,

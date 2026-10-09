@@ -400,6 +400,34 @@ func TestFix(t *testing.T) {
 	require.NotNil(t, next)
 	assert.Equal(t, "M2", next.ID, "Log -> Set X")
 
+	// the layout rule draws the diagram (the fixture's shapes have no bounds)
+	before = readTree(t, root)
+	res, err = Fix(context.Background(), Options{Dir: root, Artifacts: []string{"FlowA"}}, FixOptions{Rules: []string{"layout"}})
+	require.NoError(t, err)
+	require.Len(t, res.Changes, 1)
+	assert.Equal(t, "layout", res.Changes[0].Rule)
+	modelA, _ = os.ReadFile(filepath.Join(root, "P1", "FlowA", "src", "main", "resources", "scenarioflows", "integrationflow", "FlowA.iflw"))
+	assert.Contains(t, string(modelA), "<dc:Bounds")
+	assert.Contains(t, string(modelA), `xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"`, "prefix declared")
+	laid, err := iflow.Parse(modelA)
+	require.NoError(t, err)
+	assert.Equal(t, len(m.Elements), len(laid.Elements), "only the diagram changed")
+	issues, err := iflow.CheckLayout(modelA)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+	after, err = Run(context.Background(), Options{Dir: root, Artifacts: []string{"FlowA"}})
+	require.NoError(t, err)
+	for _, f := range after.Findings {
+		assert.NotEqual(t, "layout", f.Rule, f.Message)
+	}
+	changed := 0
+	for p, content := range readTree(t, root) {
+		if before[p] != content {
+			changed++
+		}
+	}
+	assert.Equal(t, 1, changed, "only FlowA's model")
+
 	_, err = Fix(context.Background(), Options{Dir: root}, FixOptions{Rules: []string{"println"}})
 	assert.Error(t, err, "no fix for println")
 }

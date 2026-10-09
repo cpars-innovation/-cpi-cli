@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/cpars-innovation/cpicli/internal/config"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
+	"github.com/cpars-innovation/cpicli/pkg/lint"
 	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -14,7 +17,7 @@ import (
 func NewIFlowCommand() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "iflow",
-		Short: "Work with integration flow files (copy a template under a new ID)",
+		Short: "Work with integration flow files (copy a template under a new ID, lay out the diagram)",
 	}
 	cp := &cobra.Command{
 		Use:   "copy",
@@ -105,6 +108,103 @@ error the target directory is left as it was.`,
 	cp.Flags().StringArray("address", nil, "New sender address: NEW (one sender) or OLD=NEW (repeatable)")
 	cp.Flags().Bool("keep-addresses", false, "Allow sender addresses that stay the same as in the source")
 	_ = cp.MarkFlagRequired("id")
-	c.AddCommand(cp)
+	c.AddCommand(cp, newIFlowLayoutCommand())
 	return c
+}
+
+func newIFlowLayoutCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "layout <path>...",
+		Short: "Lay out the diagram of integration flows: steps in flow order, no overlaps, right-angled lines (local files)",
+		Long: `Recompute the diagram (BPMNDiagram) of .iflw files: steps left to right in flow
+order, branches one below the other, exception subprocesses below the main flow,
+senders left and receivers right of the integration process, level with the steps
+they talk to, and right-angled lines that bend between columns. Only the diagram
+changes, never the steps, their configuration or the sequence flows; a second run
+changes nothing.
+
+Paths are .iflw files or directories (searched recursively: an artifact folder, a
+package, the whole content tree).
+
+  --mode tidy   keeps the order of steps and branches (default)
+  --mode full   also reorders branches to reduce crossing lines
+  --check       only reports problems (missing shapes, overlaps, shapes outside the
+                pool, lines through steps, cramped shapes); exit code 5 when any
+
+Spacing and mode can be set in .cpi/lint.yaml (layout: {mode, hgap, vgap}).
+Review the result in the Web UI before deploying.`,
+		Example: `  cpictl iflow layout packages/Orders/OrderIntake
+  cpictl iflow layout packages --check
+  cpictl iflow layout packages/Orders --mode full --dry-run`,
+		Args:         cobra.MinimumNArgs(1),
+		SilenceUsage: true,
+		Annotations:  map[string]string{annotationOffline: "true"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := lint.LoadConfig(config.GetStringWithFallback(cmd, "rules", "lint.rules"))
+			if err != nil {
+				return err
+			}
+			o := cfg.Layout
+			if cmd.Flags().Changed("mode") || o.Mode == "" {
+				o.Mode = config.GetString(cmd, "mode")
+			}
+			if v, _ := cmd.Flags().GetFloat64("hgap"); cmd.Flags().Changed("hgap") {
+				o.HGap = v
+			}
+			if v, _ := cmd.Flags().GetFloat64("vgap"); cmd.Flags().Changed("vgap") {
+				o.VGap = v
+			}
+			if _, err := o.Normalized(); err != nil {
+				return output.Usage(err)
+			}
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			check, _ := cmd.Flags().GetBool("check")
+			rep, err := iflow.LayoutPaths(args, o, dryRun, check)
+			if err != nil {
+				return output.Usage(err)
+			}
+			output.SetResult(cmd.Context(), rep)
+			logLayout(rep)
+			switch {
+			case rep.Failed > 0:
+				return output.Failed(fmt.Errorf("%d file(s) failed", rep.Failed))
+			case check && rep.Changed > 0:
+				return output.Failed(fmt.Errorf("%d file(s) with layout problems", rep.Changed))
+			}
+			return nil
+		},
+	}
+	c.Flags().String("mode", iflow.LayoutTidy, "tidy (keep the order of steps and branches) or full (also reorder branches) (config: .cpi/lint.yaml layout.mode)")
+	c.Flags().Float64("hgap", iflow.DefaultHGap, "Space between columns of steps (config: .cpi/lint.yaml layout.hgap)")
+	c.Flags().Float64("vgap", iflow.DefaultVGap, "Space between rows (config: .cpi/lint.yaml layout.vgap)")
+	c.Flags().Bool("check", false, "Only report layout problems; exit code 5 when any")
+	c.Flags().Bool("dry-run", false, "Compute the layout but write nothing")
+	c.Flags().String("rules", ".cpi/lint.yaml", "Lint config with the layout settings (config: lint.rules)")
+	return c
+}
+
+func logLayout(rep *iflow.LayoutReport) {
+	prefix := ""
+	if rep.DryRun {
+		prefix = "[DRY RUN] "
+	}
+	for _, f := range rep.Files {
+		switch {
+		case f.Error != "":
+			log.Error().Msgf("%s: %s", f.Path, f.Error)
+		case rep.Check:
+			for _, i := range f.Issues {
+				log.Warn().Str("kind", i.Kind).Msgf("%s: %s", f.Path, i.Message)
+			}
+		case f.Changed:
+			log.Info().Msgf("%s%s: %d shape(s) moved, %d line(s) rerouted, %d added (%d problem(s) before)", prefix, f.Path, f.Moved, f.Rerouted, f.Added, len(f.Issues))
+		default:
+			log.Debug().Msgf("%s: unchanged", f.Path)
+		}
+	}
+	what := "laid out"
+	if rep.Check {
+		what = "with problems"
+	}
+	log.Info().Msgf("%s%d file(s), %d %s, %d problem(s) found, %d failed (mode %s)", prefix, len(rep.Files), rep.Changed, what, rep.Issues, rep.Failed, rep.Mode)
 }

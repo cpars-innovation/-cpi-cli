@@ -39,6 +39,10 @@ server then enforces the limits (iterations, repeated errors, time, deploys): wh
 user the summary (`.cpi/loops/<loop_id>.md`). Call `loop_end` as well when the flow works.
 
 1. Edit the local files. Keep changes minimal and consistent with the conventions.
+   After changing an `.iflw` (steps or sequence flows added, removed or rewired), call
+   `layout_iflow` on it: the server lays out the diagram (flow order, branches, no overlaps,
+   right-angled lines). Do not compute or edit coordinates yourself; a new element only needs a
+   `BPMNShape` / `BPMNEdge` (without bounds is fine), `layout_iflow` places it.
 2. New package? `create_package` (never changes an existing one).
 3. `upload_artifact` (action UNCHANGED means the tenant already has exactly these files).
 4. `validate_artifact`. On FAILED read the details, fix, go back to 1. Then `check_guidelines`:

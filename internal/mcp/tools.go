@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
 	"github.com/cpars-innovation/cpicli/pkg/lint"
 	"os"
 	"path/filepath"
@@ -30,7 +31,8 @@ command). Auth or 403 errors: doctor shows which API areas the credentials can u
 Build loop: drift (local vs tenant: never overwrite tenant-only edits) -> download_artifact
 (existing flow, once), or copy_iflow (new flow from a template: new ID, name, sender addresses);
 before a pull request bump_versions changed=true raises Bundle-Version of changed artifacts
--> edit the files locally -> create_package (new
+-> edit the files locally -> layout_iflow (tidy the diagram after
+editing an .iflw; never place shapes by hand) -> create_package (new
 package) -> upload_artifact (upload_artifacts for several, in parallel) -> validate_artifact -> deploy -> send_test_message (wait_seconds=60)
 -> on failure get_trace_tree (traceId of the result: the call tree across flows and firstFailure),
 get_message_steps (failing step) and get_message_log / get_message_attachment /
@@ -874,6 +876,63 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, err
 				}
 				return lint.Fix(ctx, o, lint.FixOptions{Rules: a.Rules, DryRun: a.DryRun})
+			},
+		},
+		{
+			Name: "layout_iflow", Title: "Lay out flow diagrams",
+			Description: "Recompute the diagram of local .iflw files (inside the server root): steps left to right in flow order, branches one below the other, exception subprocesses below the main flow, senders and receivers next to their steps, right-angled lines, no overlaps. " +
+				"Only the diagram changes, never steps, configuration or sequence flows. Call it after editing an .iflw and before upload_artifact, instead of placing shapes by hand. " +
+				"mode tidy (default) keeps the order of steps and branches, full also reorders branches; check only reports problems; dry_run writes nothing. Spacing from .cpi/lint.yaml (layout).",
+			InputSchema: object(props{
+				"paths":   strArray(".iflw files or directories (artifact, package, content tree) relative to the server root"),
+				"mode":    enum("Layout mode (default tidy)", iflow.LayoutTidy, iflow.LayoutFull),
+				"check":   boolean("Only report layout problems (missing shapes, overlaps, lines through steps)"),
+				"dry_run": boolean("Compute the layout but write nothing"),
+			}, "paths"),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Paths  []string `json:"paths"`
+					Mode   string   `json:"mode"`
+					Check  bool     `json:"check"`
+					DryRun bool     `json:"dry_run"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				if len(a.Paths) == 0 {
+					return nil, output.Usagef("paths is required")
+				}
+				paths := make([]string, len(a.Paths))
+				for i, p := range a.Paths {
+					abs, err := resolvePath(cfg.Root, p)
+					if err != nil {
+						return nil, err
+					}
+					paths[i] = abs
+				}
+				base, err := resolvePath(cfg.Root, ".")
+				if err != nil {
+					return nil, err
+				}
+				lc, err := lint.LoadConfig(filepath.Join(base, ".cpi", "lint.yaml"))
+				if err != nil {
+					return nil, err
+				}
+				o := lc.Layout
+				if a.Mode != "" {
+					o.Mode = a.Mode
+				}
+				rep, err := iflow.LayoutPaths(paths, o, a.DryRun, a.Check)
+				if err != nil {
+					return nil, output.Usage(err)
+				}
+				for i := range rep.Files { // paths relative to the root, as given
+					if rel, err := filepath.Rel(base, filepath.FromSlash(rep.Files[i].Path)); err == nil {
+						rep.Files[i].Path = filepath.ToSlash(rel)
+					}
+				}
+				return rep, nil
 			},
 		},
 		{

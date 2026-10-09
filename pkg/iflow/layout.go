@@ -1071,6 +1071,14 @@ func (l *layouter) write(doc *etree.Document, plane *etree.Element) *LayoutResul
 			setChildren(edge, kids)
 		}
 	}
+	// the prefixes used must be declared (SAP's files declare them all)
+	root := doc.Root()
+	for prefix, ns := range map[string]string{prefix.dc: "http://www.omg.org/spec/DD/20100524/DC", prefix.di: "http://www.omg.org/spec/DD/20100524/DI",
+		prefix.xsi: "http://www.w3.org/2001/XMLSchema-instance"} {
+		if res.Moved+res.Rerouted+res.Added > 0 && root.SelectAttr("xmlns:"+prefix) == nil {
+			root.CreateAttr("xmlns:"+prefix, ns)
+		}
+	}
 	if len(added) > 0 {
 		setChildren(plane, append(plane.ChildElements(), added...))
 		for _, el := range added {

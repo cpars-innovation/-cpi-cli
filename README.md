@@ -232,7 +232,7 @@ are not written, and reads, uploads and parameter reads run 8 at a time. Details
 | Runtime data | `datastore`, `variables`, `jms`, `number-ranges`, `log-files`, `idempotent`, `id-mappings` |
 | Testing and monitoring | `send`, `log-level`, `logs`, `logs get`, `logs steps`, `logs trace`, `logs trace-message`, `logs attachment`, `logs payload` |
 | Quality | `validate`, `guidelines`, `lint` (reuse, Partner Directory candidates, dead weight, best practices; `--fix`) |
-| Designtime | `download`, `iflow copy`, `packages create`, `update artifact`, `update package`, `version bump` |
+| Designtime | `download`, `iflow copy`, `iflow layout` (tidy the diagram), `packages create`, `update artifact`, `update package`, `version bump` |
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
@@ -351,7 +351,7 @@ The runtime credentials are only needed for `send_test_message`
 ([configuration.md](docs/configuration.md#runtime-endpoints-test-messages)).
 
 Tools cover the whole loop: `doctor`, `create_package`, `download_artifact`, `drift`,
-`upload_artifact` / `upload_artifacts` (`dry_run`), `validate_artifact`, `check_guidelines`, `lint` / `lint_fix`,
+`upload_artifact` / `upload_artifacts` (`dry_run`), `validate_artifact`, `check_guidelines`, `lint` / `lint_fix`, `layout_iflow`,
 `deploy` (`dry_run`: what would be deployed and why), `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
 `get_message_store_entry`, parameters, resources, `discover_tenant`, `graph_search`, `graph_neighbors`,
@@ -445,7 +445,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |
-| [Lint and improvements](docs/lint.md) | `lint` rules, `.cpi/lint.yaml`, baseline and CI gate, `--fix` (script collections), the `cpi-improve` skill |
+| [Lint and improvements](docs/lint.md) | `lint` rules, `.cpi/lint.yaml`, baseline and CI gate, `--fix` (script collections), [diagram layout](docs/lint.md#diagram-layout) (`iflow layout`), the `cpi-improve` skill |
 | [Monitoring and checks](docs/monitoring.md) | Message logs, steps, attachments, payloads, validation, guidelines |
 | [Configure](docs/configure.md) | Parameters from YAML (`configure`, `configure pull`) |
 | [Security material](docs/security.md) | Credentials, `credentials apply`, keystore and certificate expiry |

@@ -36,8 +36,9 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`guidelines`](#guidelines) | Check an integration flow against the design guidelines activated on the tenant |
 | [`id-mappings`](#id-mappings) | Show ID mapper entries of a source or target ID |
 | [`idempotent`](#idempotent) | List idempotent repository entries (messages or files skipped as duplicates) |
-| [`iflow`](#iflow) | Work with integration flow files (copy a template under a new ID) |
+| [`iflow`](#iflow) | Work with integration flow files (copy a template under a new ID, lay out the diagram) |
 | [`iflow copy`](#iflow-copy) | Copy an integration flow under a new ID, name and sender address |
+| [`iflow layout`](#iflow-layout) | Lay out the diagram of integration flows: steps in flow order, no overlaps, right-angled lines (local files) |
 | [`jms`](#jms) | JMS queues and broker capacity |
 | [`jms broker`](#jms-broker) | Show JMS broker capacity and usage |
 | [`jms queues`](#jms-queues) | List JMS queues, fullest first |
@@ -814,7 +815,7 @@ List idempotent repository entries (messages or files skipped as duplicates)
 
 ## iflow
 
-Work with integration flow files (copy a template under a new ID)
+Work with integration flow files (copy a template under a new ID, lay out the diagram)
 
 ## iflow copy
 
@@ -881,6 +882,51 @@ error the target directory is left as it was.
   # then
   cpictl update artifact --artifact-id SD_Orders_S4_Sync --package-id SDOrders \
     --dir-artifact content/SDOrders/SD_Orders_S4_Sync
+```
+
+## iflow layout
+
+Lay out the diagram of integration flows: steps in flow order, no overlaps, right-angled lines (local files)
+
+```
+Recompute the diagram (BPMNDiagram) of .iflw files: steps left to right in flow
+order, branches one below the other, exception subprocesses below the main flow,
+senders left and receivers right of the integration process, level with the steps
+they talk to, and right-angled lines that bend between columns. Only the diagram
+changes, never the steps, their configuration or the sequence flows; a second run
+changes nothing.
+
+Paths are .iflw files or directories (searched recursively: an artifact folder, a
+package, the whole content tree).
+
+  --mode tidy   keeps the order of steps and branches (default)
+  --mode full   also reorders branches to reduce crossing lines
+  --check       only reports problems (missing shapes, overlaps, shapes outside the
+                pool, lines through steps, cramped shapes); exit code 5 when any
+
+Spacing and mode can be set in .cpi/lint.yaml (layout: {mode, hgap, vgap}).
+Review the result in the Web UI before deploying.
+```
+
+**Usage:** `cpictl iflow layout <path>... [flags]`
+
+**Flags:**
+
+```
+      --check          Only report layout problems; exit code 5 when any
+      --dry-run        Compute the layout but write nothing
+      --hgap float     Space between columns of steps (config: .cpi/lint.yaml layout.hgap) (default 60)
+      --mode string    tidy (keep the order of steps and branches) or full (also reorder branches) (config: .cpi/lint.yaml layout.mode) (default "tidy")
+      --rules string   Lint config with the layout settings (config: lint.rules) (default ".cpi/lint.yaml")
+      --vgap float     Space between rows (config: .cpi/lint.yaml layout.vgap) (default 40)
+```
+
+**Examples:**
+
+```
+  cpictl iflow layout packages/Orders/OrderIntake
+  cpictl iflow layout packages --check
+  cpictl iflow layout packages/Orders --mode full --dry-run
 ```
 
 ## jms

@@ -14,6 +14,8 @@ Apply `.cpi/conventions.md` first; its "Review checklist additions" are mandator
 ## Design
 - Matches the plan; deviations are explained.
 - No unreachable steps, every route of a router has a sensible end, default routes exist.
+- The diagram is readable: `lint` reports no `layout` finding for the flow (otherwise
+  `layout_iflow` / `cpictl iflow layout` fixes it).
 - Exception subprocess present where the conventions require it; the sender gets a defined
   answer on errors; errors are not swallowed silently.
 - Idempotency / duplicate handling where messages can be resent.

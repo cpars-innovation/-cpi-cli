@@ -76,6 +76,9 @@ type Config struct {
 	Naming struct {
 		IFlowID string `yaml:"iflowId" json:"iflowId,omitempty"`
 	} `yaml:"naming" json:"naming"`
+	// Layout is the spacing and mode of the layout rule's fix and of
+	// cpictl iflow layout.
+	Layout iflow.LayoutOptions `yaml:"layout" json:"layout"`
 	// Ignore suppresses findings: artifact and rule patterns ("*" for all).
 	Ignore []struct {
 		Artifact string `yaml:"artifact" json:"artifact"`

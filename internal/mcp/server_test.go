@@ -114,7 +114,7 @@ func TestProtocol(t *testing.T) {
 	assert.Equal(t, []string{"doctor", "list_packages", "list_artifacts", "get_runtime_status", "list_message_logs", "get_message_log",
 		"get_message_steps", "get_message_attachment", "get_message_store_entry", "set_log_level", "get_message_trace", "get_trace_message", "get_trace_tree",
 		"list_runtime_artifacts", "list_service_endpoints",
-		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions", "lint", "lint_fix",
+		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions", "lint", "lint_fix", "layout_iflow",
 		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "create_package", "upload_artifact", "upload_artifacts", "deploy", "send_test_message", "undeploy", "pd_deploy",
 		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "discover_tenant",
@@ -486,4 +486,29 @@ func TestLintTools(t *testing.T) {
 	assert.Contains(t, res.Content[0].Text, `"Pkg/Pkg_Scripts"`)
 	assert.FileExists(t, filepath.Join(root, "packages", "Pkg", "A", "src", "main", "resources", "script", "Log.groovy"), "dry run")
 	assert.Equal(t, "usage", toolResult(t, resp["3"]).StructuredContent.ErrorCategory, "paths stay inside the root")
+}
+
+func TestLayoutTool(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "packages", "Pkg", "A")
+	require.NoError(t, os.CopyFS(dir, os.DirFS(filepath.Join("..", "..", "test", "testdata", "artifacts", "collection", "IFlow1"))))
+	model := filepath.Join(dir, "src", "main", "resources", "scenarioflows", "integrationflow", "IFlow1.iflw")
+	before, err := os.ReadFile(model)
+	require.NoError(t, err)
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{})
+	resp := session(t, mock, root,
+		call(1, "layout_iflow", map[string]any{"paths": []string{"packages/Pkg/A"}, "check": true}),
+		call(2, "layout_iflow", map[string]any{"paths": []string{"packages/Pkg"}, "dry_run": true}),
+		call(3, "layout_iflow", map[string]any{"paths": []string{"packages"}, "mode": "full"}),
+		call(4, "layout_iflow", map[string]any{"paths": []string{"../outside"}}),
+	)
+	for _, id := range []string{"1", "2", "3"} {
+		res := toolResult(t, resp[id])
+		require.False(t, res.IsError, res.Content[0].Text)
+		assert.Contains(t, res.Content[0].Text, `"path":"packages/Pkg/A/src/main/resources/scenarioflows/integrationflow/IFlow1.iflw"`, "relative to the root")
+	}
+	assert.Contains(t, toolResult(t, resp["3"]).Content[0].Text, `"changed":1`)
+	after, _ := os.ReadFile(model)
+	assert.NotEqual(t, string(before), string(after), "laid out")
+	assert.Equal(t, "usage", toolResult(t, resp["4"]).StructuredContent.ErrorCategory, "paths stay inside the root")
 }

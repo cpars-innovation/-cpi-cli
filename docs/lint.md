@@ -49,6 +49,7 @@ cpictl lint --list-rules
 | | `hardcoded-secret` | error | a password, token or key assigned in a script or parameter | |
 | hygiene | `outdated-component` | info | a step or adapter older than the newest version used in the repository | |
 | | `default-step-name` | info | "Groovy Script 1", "Content Modifier 2", ... | |
+| | `layout` | info | the diagram has steps or lines that are not drawn, overlapping shapes, shapes outside their pool, lines through steps or shapes that nearly touch ([diagram layout](#diagram-layout)) | yes |
 | | `naming` | warning | a flow ID not matching `naming.iflowId` | |
 
 All flows are read for the cross-flow rules (duplicates, versions); `--package`, `--artifact` and
@@ -75,6 +76,10 @@ scriptCollections:
   sharedCollection: Shared_Scripts
 naming:
   iflowId: "^[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)+$"
+layout:                     # cpictl iflow layout and the layout rule's fix
+  mode: tidy                # tidy (keep the order of branches) or full
+  hgap: 60                  # space between columns of steps
+  vgap: 40                  # space between rows
 ignore:                     # findings that stay (say why in a comment)
   - artifact: Legacy_*
     rule: "*"
@@ -106,11 +111,44 @@ In GitHub Actions the new findings also go to the job summary.
 | `unused-script` | the file is deleted |
 | `unconnected-step` | the step, its sequence flows and its diagram shapes are removed |
 | `noop-content-modifier` | only with `--fix-rules noop-content-modifier` (or `all`): the step is removed and its neighbours connected |
+| `layout` | only with `--fix-rules layout` (or `all`): the diagram is laid out (`tidy`); models that lose steps through other fixes in the same run are laid out too |
 
 Afterwards: review the diff, `cpictl version bump --changed`, add new script collections to the
 deploy config and deploy them **before** the flows, then deploy and test the flows. Whether flows
 may reference a collection in another package depends on the tenant: check it once before setting
 `crossPackage: true`.
+
+## Diagram layout
+
+`.iflw` files keep the flow (steps, configuration, sequence flows) apart from the drawing
+(`BPMNDiagram`: one shape with position and size per step, one line with waypoints per sequence
+flow). The Web UI draws what the file says, so diagrams written by hand or by an agent are often
+cramped. `cpictl iflow layout <path>...` (MCP `layout_iflow`) recomputes only the drawing:
+
+- steps left to right in flow order, every step in the column after its predecessor;
+- branches of a router one below the other, centred on the router, and joined again;
+- right-angled lines that bend in the gap between two columns, so they cross no step;
+- exception subprocesses below the main flow, inside the pool; local processes as their own
+  pools below the integration process;
+- senders left of the pool, level with their start event; receivers right of the pool, level
+  with the step that calls them;
+- standard sizes (events 32, gateways 40, steps 100 × 60; widened steps keep their width).
+
+| Option | Meaning |
+|--------|---------|
+| `--mode tidy` (default) | keeps the order of steps and branches as they are drawn now |
+| `--mode full` | also reorders branches to reduce crossing lines |
+| `--check` | only reports problems; exit code 5 when any (for CI) |
+| `--dry-run` | computes the layout, writes nothing |
+| `--hgap`, `--vgap` | spacing (also `layout` in `.cpi/lint.yaml`) |
+
+Paths are `.iflw` files or directories (an artifact, a package, the whole tree). The result is
+stable: a second run changes nothing, and the rest of the file stays byte for byte. Steps and
+lines missing from the diagram are added. Look at the result in the Web UI once before relying
+on it in a pipeline (the Web UI shows what the file says; we have not seen it re-layout a file).
+
+The agent skills call `layout_iflow` after every change to an `.iflw` instead of computing
+coordinates.
 
 ## With an agent: the `cpi-improve` skill
 

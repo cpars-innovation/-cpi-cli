@@ -136,7 +136,7 @@ leaves a tool enabled by accident.
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
 | read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `lint`, `doctor`, `graph_*`, `loop_status`, runtime data tools | kept |
-| local files (inside `--root`) | `download_artifact`, `copy_iflow`, `bump_versions`, `lint_fix`, `discover_tenant`, `loop_start`, `loop_end` | kept |
+| local files (inside `--root`) | `download_artifact`, `copy_iflow`, `bump_versions`, `lint_fix`, `layout_iflow`, `discover_tenant`, `loop_start`, `loop_end` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `upload_artifacts`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
 
 ```json
@@ -197,6 +197,7 @@ read roles.
 | `list_keystore` | | Keystore entries with validity and days left; `expiring_within_days` flags soon-expiring ones |
 | `lint` | | Local flows: findings per rule (reuse, Partner Directory candidates, dead weight, simplify, robustness, performance, configuration, hygiene) with suggestions; `.cpi/lint.yaml`, baseline. See [lint.md](lint.md) |
 | `lint_fix` | local files | Apply the mechanical fixes: scripts into script collections, unused scripts deleted, unconnected steps removed; `dry_run` |
+| `layout_iflow` | local files | Lay out the diagram of `.iflw` files: flow order left to right, branches one below the other, no overlaps, right-angled lines; only the diagram changes. `mode` tidy / full, `check`, `dry_run`. See [lint.md](lint.md#diagram-layout) |
 | `drift` | | Local artifacts vs tenant: in_sync / tenant_newer / local_newer / diverged / not_on_tenant, runtimeOutdated |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`, and the content graph to `.cpi/graph.json`; `local_dir` for a local repository |
 | `graph_search` | | Find flows, endpoints, systems, credentials, scripts, headers, Partner Directory parameters in `.cpi/graph.json` (local file). See [graph.md](graph.md) |
@@ -277,7 +278,8 @@ malformed request).
 
 1. `download_artifact` once to get the iFlow into the local repository (inside `--root`),
    or start from files that are already there. New package: `create_package`.
-2. Edit the files; `upload_artifact`; `validate_artifact` (and `check_guidelines`).
+2. Edit the files; `layout_iflow` after changing an `.iflw` (the server lays out the diagram, the
+   agent does not place shapes); `upload_artifact`; `validate_artifact` (and `check_guidelines`).
 3. `deploy`; on `failed`, read `error` (the tenant's runtime error), fix and go back to 2.
 4. `send_test_message` with `wait_seconds` (e.g. 60): HTTP status, response and the final
    message log in one call. (For flows without an HTTP sender: trigger them otherwise and use

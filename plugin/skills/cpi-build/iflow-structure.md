@@ -33,7 +33,9 @@ What `download_artifact` extracts and `upload_artifact` expects:
   e.g. `ctype::FlowstepVariant/cname::GroovyScript/version::1.1.2`
   (Enricher = Content Modifier, GroovyScript, MessageMapping, XSLTMapping, ...).
 - `bpmndi:BPMNDiagram` holds the layout (shapes and edges with coordinates). Every element and
-  sequence flow needs a shape/edge there, or the Web UI cannot display the flow.
+  sequence flow needs a shape/edge there, or the Web UI cannot display the flow. Never compute
+  coordinates: run `layout_iflow` (or `cpictl iflow layout`) after editing; it draws missing
+  shapes and lines and changes nothing outside the diagram.
 - `{{Key}}` in a property value refers to an externalised parameter in parameters.prop.
 - `get_message_steps` returns `modelStepId`: the `id` attribute of the failing element.
 
@@ -42,7 +44,7 @@ What `download_artifact` extracts and `upload_artifact` expects:
 - Change property values in place; keep `id`s unique and references (`sourceRef`, `targetRef`,
   `incoming`, `outgoing`, `processRef`, diagram `bpmnElement`) consistent.
 - To add a step, copy a complete element of the same type from a flow of this tenant, including
-  its diagram shape, give it a new unique id and rewire the sequence flows.
+  its diagram shape, give it a new unique id and rewire the sequence flows; then `layout_iflow`.
 - Keep component versions (`componentVersion`, `cmdVariantUri`) as copied; the tenant's
   check (`validate_artifact`) reports unsupported combinations.
 - Contents of table properties (headers and properties of a Content Modifier) are escaped XML

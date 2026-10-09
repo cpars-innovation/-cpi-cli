@@ -20,6 +20,7 @@ const (
 	fixToCollection lintFixKind = iota + 1
 	fixDeleteFile
 	fixRemoveElement
+	fixLayout
 )
 
 // lintFix is what --fix does for a finding.
@@ -101,6 +102,7 @@ func Fix(ctx context.Context, o Options, fo FixOptions) (*FixResult, error) {
 		scripts []Finding // to collection
 		removes []Finding
 		deletes []Finding
+		layouts []Finding
 	}
 	edits := map[string]*artifactEdits{}
 	var order []string
@@ -125,6 +127,8 @@ func Fix(ctx context.Context, o Options, fo FixOptions) (*FixResult, error) {
 			e.removes = append(e.removes, f)
 		case fixDeleteFile:
 			e.deletes = append(e.deletes, f)
+		case fixLayout:
+			e.layouts = append(e.layouts, f)
 		}
 	}
 	sort.Strings(order)
@@ -156,8 +160,22 @@ func Fix(ctx context.Context, o Options, fo FixOptions) (*FixResult, error) {
 	}
 	for _, rel := range order {
 		e := edits[rel]
-		if err := applyModelEdits(e.a, e.scripts, e.removes, fo.DryRun); err != nil {
+		// with the layout rule, models that lose steps are laid out too
+		relayout := map[string]bool{}
+		for _, f := range e.layouts {
+			relayout[f.fix.model] = true
+		}
+		if rules["layout"] {
+			for _, f := range e.removes {
+				relayout[f.fix.model] = true
+			}
+		}
+		laidOut, err := applyModelEdits(e.a, e.scripts, e.removes, relayout, lc.cfg.Layout, fo.DryRun)
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", rel, err)
+		}
+		for _, file := range laidOut {
+			out.Changes = append(out.Changes, FixChange{Rule: "layout", Artifact: e.a.ID, Path: e.a.Rel, Action: "diagram laid out: " + file})
 		}
 		for _, f := range e.removes {
 			action := fmt.Sprintf("removed %q (%s)", f.ElementName, f.Element)
@@ -185,7 +203,7 @@ func Fix(ctx context.Context, o Options, fo FixOptions) (*FixResult, error) {
 				out.Changes = append(out.Changes, FixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel, Action: "deleted " + file})
 			}
 		}
-		if len(e.scripts)+len(e.removes)+len(e.deletes) > 0 && !changed[rel] {
+		if len(e.scripts)+len(e.removes)+len(e.deletes)+len(laidOut) > 0 && !changed[rel] {
 			changed[rel] = true
 			out.Changed = append(out.Changed, rel)
 		}
@@ -267,22 +285,24 @@ func placeInCollection(collDir string, fx *lintFix, a *lintArtifact, written map
 	return name, os.WriteFile(filepath.Join(scriptDir, name), []byte(normalizeScript(data)+"\n"), 0o644)
 }
 
-// applyModelEdits rewrites script references to collections and removes
-// elements in the models of an artifact.
-func applyModelEdits(a *lintArtifact, scripts, removes []Finding, dryRun bool) error {
+// applyModelEdits rewrites script references to collections, removes
+// elements and lays out the models in relayout; it returns the models laid
+// out.
+func applyModelEdits(a *lintArtifact, scripts, removes []Finding, relayout map[string]bool, layout iflow.LayoutOptions, dryRun bool) ([]string, error) {
 	byModel := map[string][]Finding{}
 	for _, f := range removes {
 		byModel[f.fix.model] = append(byModel[f.fix.model], f)
 	}
+	var laidOut []string
 	models := sortedModelFiles(a)
 	for _, file := range models {
-		if len(scripts) == 0 && len(byModel[file]) == 0 {
+		if len(scripts) == 0 && len(byModel[file]) == 0 && !relayout[file] {
 			continue
 		}
 		p := filepath.Join(a.Dir, filepath.FromSlash(file))
 		doc := iflow.NewDocument()
 		if err := doc.ReadFromFile(p); err != nil {
-			return err
+			return nil, err
 		}
 		touched := false
 		for _, f := range scripts {
@@ -295,13 +315,30 @@ func applyModelEdits(a *lintArtifact, scripts, removes []Finding, dryRun bool) e
 				touched = true
 			}
 		}
+		if !touched && !relayout[file] {
+			continue
+		}
+		data, err := doc.WriteToBytes()
+		if err != nil {
+			return nil, err
+		}
+		if relayout[file] {
+			out, res, err := iflow.Layout(data, layout)
+			if err != nil {
+				return nil, err
+			}
+			if res.Changed {
+				data, touched = out, true
+				laidOut = append(laidOut, file)
+			}
+		}
 		if touched && !dryRun {
-			if err := doc.WriteToFile(p); err != nil {
-				return err
+			if err := os.WriteFile(p, data, 0o644); err != nil {
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return laidOut, nil
 }
 
 func walkXML(el *etree.Element, fn func(*etree.Element)) {

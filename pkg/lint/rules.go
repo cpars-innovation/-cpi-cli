@@ -4,13 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/cpars-innovation/cpicli/pkg/iflow"
-	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"path"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 )
 
 // Lint rule groups.
@@ -44,6 +47,7 @@ type RuleInfo struct {
 // fixableRules can be applied by lint --fix (fixByDefault: without --fix-rules).
 var fixableRules = map[string]bool{
 	"duplicate-script": true, "use-script-collection": true, "unused-script": true, "unconnected-step": true, "noop-content-modifier": true,
+	"layout": true,
 }
 var fixByDefault = map[string]bool{"duplicate-script": true, "use-script-collection": true, "unused-script": true, "unconnected-step": true}
 
@@ -85,6 +89,7 @@ var lintRules = []lintRule{
 	// hygiene
 	{id: "outdated-component", group: GroupHygiene, severity: SevInfo, title: "A step or adapter uses an older version than other flows", cross: ruleOutdatedComponents},
 	{id: "default-step-name", group: GroupHygiene, severity: SevInfo, title: "A step has its default name", artifact: ruleDefaultNames},
+	{id: "layout", group: GroupHygiene, severity: SevInfo, title: "The diagram has overlapping or undrawn shapes, or lines through steps", artifact: ruleLayout},
 	{id: "naming", group: GroupHygiene, severity: SevWarning, title: "The flow ID does not follow the naming rule of .cpi/lint.yaml", artifact: ruleNaming},
 }
 
@@ -1117,4 +1122,39 @@ func ruleNaming(lc *lintContext, a *lintArtifact) []Finding {
 	}
 	return []Finding{a.finding("naming", "", "", "", a.ID,
 		fmt.Sprintf("the ID %s does not match %s", a.ID, pattern), "rename it with iflow copy (a new ID) when it is next changed")}
+}
+
+func ruleLayout(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	for _, file := range sortedModelFiles(a) {
+		data, err := readArtifactFile(a, file)
+		if err != nil {
+			continue
+		}
+		issues, err := iflow.CheckLayout(data)
+		if err != nil || len(issues) == 0 {
+			continue
+		}
+		count := map[string]int{}
+		var related []string
+		for _, i := range issues {
+			count[i.Kind]++
+			if i.Element != "" && len(related) < 10 && !slices.Contains(related, i.Element) {
+				related = append(related, i.Element)
+			}
+		}
+		var parts []string
+		for _, k := range []string{iflow.IssueMissing, iflow.IssueOverlap, iflow.IssueOutside, iflow.IssueCrossing, iflow.IssueCramped} {
+			if n := count[k]; n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", n, k))
+			}
+		}
+		f := a.finding("layout", file, "", "", file,
+			fmt.Sprintf("diagram: %s (%s)", strings.Join(parts, ", "), issues[0].Message),
+			"cpictl iflow layout "+filepath.ToSlash(filepath.Join(a.Rel, file))+" (or lint --fix --fix-rules layout); only the diagram changes")
+		f.Related = related
+		f.fix = &lintFix{kind: fixLayout, model: file}
+		out = append(out, f)
+	}
+	return out
 }

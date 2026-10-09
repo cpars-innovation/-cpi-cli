@@ -5,6 +5,19 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- `cpictl iflow layout <path>...` (MCP `layout_iflow`): lays out the diagram of `.iflw` files:
+  flow order left to right, router branches one below the other, right-angled lines that cross no
+  step, exception subprocesses below the main flow, senders and receivers next to their steps.
+  Only the diagram changes; a second run changes nothing. `--mode tidy` (keeps the order of
+  branches, default) or `full`, `--check` (exit 5 on problems), `--dry-run`, spacing in
+  `.cpi/lint.yaml` (`layout`). See [docs/lint.md](docs/lint.md#diagram-layout).
+- Lint rule `layout` (missing shapes or lines, overlaps, shapes outside their pool, lines through
+  steps, cramped shapes); `--fix-rules layout` lays out the flagged diagrams.
+- The `cpi-build`, `cpi-improve` and `cpi-review` skills use `layout_iflow` instead of placing
+  shapes by hand.
+- `lint --fix` no longer rewrites `'` as `&apos;` in the models it edits.
+- Lint and the flow model moved to `pkg/lint` and `pkg/iflow` (Go API; the CLI is unchanged).
+
 - **Drafts no longer fail the orchestrator.** An artifact in draft on the tenant (someone edits
   it in the Web UI) is skipped: not uploaded, not deployed, one warning per ID, and the run goes
   on (exit 0 when drafts are the only problem). See [docs/orchestrator.md](docs/orchestrator.md#drafts).
