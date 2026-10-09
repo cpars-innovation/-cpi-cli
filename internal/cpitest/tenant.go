@@ -271,6 +271,7 @@ type Tenant struct {
 	msgSerial   int
 	rng         *mrand.Rand
 	systems     map[string]SystemSpec
+	faults      []fault
 	tierSpec    *TierSpec
 	requests    []string
 	server      *httptest.Server
@@ -802,6 +803,14 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	m.requests = append(m.requests, r.Method+" "+path)
 
+	if strings.HasPrefix(path, "/_mock/") {
+		m.handleAdmin(w, r)
+		return
+	}
+	if status := m.fault(path); status != 0 {
+		w.WriteHeader(status)
+		return
+	}
 	for _, prefix := range m.ForbidPaths {
 		if strings.HasPrefix(path, prefix) {
 			w.WriteHeader(http.StatusForbidden)

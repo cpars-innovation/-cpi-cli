@@ -185,6 +185,26 @@ executed: the payload passes through unchanged.
   differ. `--live-traffic <speed>` keeps generating messages in real time (`60`: an hour per
   minute).
 
+## Admin API (`/_mock/...`)
+
+Tests and demos change the running mock over HTTP instead of restarting it. The admin API answers
+only on loopback or over TLS, needs no credentials, and is not part of the SAP API.
+
+| Method and path | Body | Effect |
+|-----------------|------|--------|
+| `GET /_mock/systems` | | the tier's systems |
+| `PUT /_mock/systems/<name>` | `{"match", "latencyMs", "failRate", "status", "error"}` | add or change a system (e.g. `failRate: 1`: it is down) |
+| `POST /_mock/run` | `{"artifact", "key", "payload", "count"}` | run a deployed flow now (also timer and ProcessDirect flows); returns `{runs: [{messageGuid, status, error}]}` |
+| `POST /_mock/messagelogs` | `[{"Guid", "Artifact", "Status", "CorrelationID", "ErrorText", "Headers", "Steps", ...}]` | add message logs as they are |
+| `POST /_mock/faults` | `{"pathPrefix": "/api/v1/IntegrationPackages", "status": 401, "count": 2}` | the next `count` requests on the path answer `status` (expired login, 429, 503 …) |
+| `DELETE /_mock/faults` | | drop pending faults |
+| `GET /_mock/state` / `PUT /_mock/state` | the exported state | export the whole tenant (content, security material, Partner Directory, logs, systems) and load it into another mock |
+
+```bash
+curl -X PUT localhost:8081/_mock/systems/finance -d '{"match":"finance-*.example.com","failRate":1,"error":"finance down for {key}"}'
+curl -X POST localhost:8081/_mock/run -d '{"artifact":"Billing_Post","key":"4711"}'
+```
+
 ## From other containers
 
 cpictl accepts plain `http://` only for loopback hosts, so credentials never travel unencrypted.
