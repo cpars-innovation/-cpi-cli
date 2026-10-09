@@ -117,7 +117,7 @@ func TestProtocol(t *testing.T) {
 		"validate_artifact", "check_guidelines", "list_resources", "get_resource", "download_artifact", "copy_iflow", "bump_versions", "lint", "lint_fix", "layout_iflow",
 		"list_credentials", "list_keystore",
 		"get_parameters", "set_parameters", "create_package", "upload_artifact", "upload_artifacts", "deploy", "send_test_message", "undeploy", "pd_deploy",
-		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "compare", "discover_tenant",
+		"get_pd_parameters", "pd_diff", "pd_dependencies", "config_diff", "drift", "compare", "transport_check", "discover_tenant",
 		"list_data_stores", "list_data_store_entries", "get_data_store_entry", "delete_data_store_entry", "list_variables", "get_variable",
 		"list_jms_queues", "get_jms_broker", "list_number_ranges", "list_log_files", "get_log_file", "list_idempotent_entries", "list_id_mappings", "graph_search", "graph_neighbors", "graph_path"}, names)
 
@@ -516,7 +516,7 @@ func TestLayoutTool(t *testing.T) {
 func TestCompareTool(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\nBundle-SymbolicName: A\nBundle-Version: 1.0.1\nSAP-BundleType: IntegrationFlow\n",
+		"META-INF/MANIFEST.MF":               "Manifest-Version: 1.0\nBundle-SymbolicName: A\nBundle-Version: 1.0.1\nSAP-BundleType: IntegrationFlow\n",
 		"src/main/resources/script/s.groovy": "local\n",
 	}
 	var buf bytes.Buffer

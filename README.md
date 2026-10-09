@@ -236,6 +236,7 @@ are not written, and reads, uploads and parameter reads run 8 at a time. Details
 | Runtime | `deploy`, `undeploy` |
 | Parameters | `params get`, `params set`, `configure`, `configure pull` |
 | Many packages | `orchestrator`, `config-generate` |
+| Tiers | `compare`, `transport` (deps, check, copy) |
 | Git | `sync`, `snapshot`, `snapshot restore` |
 | API Management | `sync apiproxy`, `sync apiproduct` |
 | Partner Directory | `pd-snapshot`, `pd-deploy` |
@@ -351,7 +352,7 @@ The runtime credentials are only needed for `send_test_message`
 ([configuration.md](docs/configuration.md#runtime-endpoints-test-messages)).
 
 Tools cover the whole loop: `doctor`, `create_package`, `download_artifact`, `drift`,
-`upload_artifact` / `upload_artifacts` (`dry_run`), `validate_artifact`, `check_guidelines`, `lint` / `lint_fix`, `layout_iflow`,
+`upload_artifact` / `upload_artifacts` (`dry_run`), `validate_artifact`, `check_guidelines`, `lint` / `lint_fix`, `layout_iflow`, `compare`, `transport_check`,
 `deploy` (`dry_run`: what would be deployed and why), `send_test_message`, `get_runtime_status`,
 `list_message_logs`, `get_message_log`, `get_message_steps`, `get_message_attachment`,
 `get_message_store_entry`, parameters, resources, `discover_tenant`, `graph_search`, `graph_neighbors`,
@@ -443,6 +444,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [Snapshot](docs/snapshot.md) | Tenant into the repository: `--dry-run`, local edits protected, deployment copies skipped, stable output, `--prune`, `--incremental`, `--parallel` |
 | [Versioning](docs/versioning.md) | Versions in the repository (`Bundle-Version`), `--versioning manifest\|keep\|tenant-bump`, `version bump --changed` |
 | [New flows from templates](docs/new-flows.md) | Templates, briefs, `iflow copy` (what it renames, sender addresses), upload and deploy |
+| [Transports](docs/transport.md) | Moving artifacts between tiers: dependencies, pre-checks against the target, copy between trees |
 | [Compare](docs/compare.md) | Two tiers, Git refs or content trees per artifact: content, version, parameters, file diffs |
 | [Content graph](docs/graph.md) | `.cpi/graph.json`: which flows call which, shared credentials, scripts, PD parameters |
 | [Testing](docs/testing.md) | Test messages by trigger type, test harness, test entries, tracing |

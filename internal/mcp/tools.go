@@ -45,6 +45,9 @@ list_message_logs with since and wait_seconds after triggering them.
 Configuration: get_parameters / set_parameters, then deploy to activate; config_diff compares a
 configure file with the tenant.
 Review: check_guidelines (tenant design guidelines) before a release.
+Promote: on the target tier's server, transport_check lists what the artifacts need and checks the
+target (drafts, outside changes, dependencies, credentials, Partner Directory, parameter values)
+before anything is uploaded; compare shows the differences between tiers.
 Improve: lint checks local flows for reuse (scripts and mappings in several flows -> script
 collections), Partner Directory candidates (routing tables, lookup tables, deployment copies),
 dead weight, robustness and best practices; lint_fix moves scripts into collections and removes
@@ -1539,6 +1542,69 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				}
 				return ops.Compare(ctx, sides[0], sides[1], ops.CompareOptions{Packages: a.Packages, Artifacts: a.Artifacts,
 					Diff: a.Diff, Values: a.ShowValues, WorkDir: filepath.Join(work, "tenant")})
+			},
+		},
+		{
+			Name: "transport_check", Title: "Check a transport against this tenant",
+			Description: "Before moving artifacts to this server's tenant (the target tier): their dependencies (script collections and mappings they reference, flows they call, credentials and key aliases, Partner Directory parameters) " +
+				"and pre-checks against the tenant: draft on the target, changes made outside the pipeline (with target_dir, the target's content in Git), dependencies and called flows present, credentials, Partner Directory parameters, " +
+				"parameters without a value in the target's configure file. Each check pass / warn / fail / skip. Read-only. Run it before uploading to a higher tier; with_deps adds referenced script collections and mappings.",
+			InputSchema: object(props{
+				"artifacts":  strArray("Artifact IDs or folder names to move"),
+				"dir":        str("Source content tree relative to the root (default: packages if it exists, else the root)"),
+				"with_deps":  boolean("Add the script collections and mappings the artifacts reference"),
+				"target_dir": str(`The target tier's content in Git: a directory relative to the root or "git:<ref>[:<path>]"`),
+				"configure":  str("The target tier's configure file or folder, relative to the root"),
+			}, "artifacts"),
+			Annotations: readOnly,
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Artifacts []string `json:"artifacts"`
+					Dir       string   `json:"dir"`
+					WithDeps  bool     `json:"with_deps"`
+					TargetDir string   `json:"target_dir"`
+					Configure string   `json:"configure"`
+				}
+				if err := decode(raw, &a); err != nil {
+					return nil, err
+				}
+				o, err := mcpLintOptions(cfg.Root, a.Dir, nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				topts := ops.TransportCheckOptions{WithDeps: a.WithDeps}
+				if a.TargetDir != "" {
+					if strings.HasPrefix(a.TargetDir, "git:") {
+						ref, sub, _ := strings.Cut(strings.TrimPrefix(a.TargetDir, "git:"), ":")
+						root, err := resolvePath(cfg.Root, ".")
+						if err != nil {
+							return nil, err
+						}
+						work, err := os.MkdirTemp("", "cpictl-transport-*")
+						if err != nil {
+							return nil, err
+						}
+						defer os.RemoveAll(work)
+						if err := ops.GitTree(ctx, root, ref, sub, work); err != nil {
+							return nil, err
+						}
+						topts.TargetDir = work
+					} else if topts.TargetDir, err = resolvePath(cfg.Root, a.TargetDir); err != nil {
+						return nil, err
+					}
+				}
+				if a.Configure != "" {
+					p, err := resolvePath(cfg.Root, a.Configure)
+					if err != nil {
+						return nil, err
+					}
+					files, err := ops.LoadConfigureFiles(p)
+					if err != nil {
+						return nil, output.Usage(err)
+					}
+					topts.Configure = ops.MergeConfigureFiles(files, "")
+				}
+				return ops.CheckTransport(ctx, cfg.Exe, o.Dir, a.Artifacts, topts)
 			},
 		},
 		{

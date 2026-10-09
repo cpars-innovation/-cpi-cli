@@ -11,6 +11,12 @@ All notable changes to cpictl. Coming from FlashPipe? See
   diffs), `parameters.prop` keys (`--show-values`), designtime / running version, draft and who
   changed it last on the tenant; `--fail-on-diff` for CI. Tenants are normalized like `snapshot`,
   so a snapshot equals its tenant. See [docs/compare.md](docs/compare.md).
+- `cpictl transport deps|check|copy` (MCP `transport_check`): what artifacts need (script
+  collections and mappings they reference, called flows, credentials, Partner Directory
+  parameters; `--with-deps` adds the referenced artifacts), pre-checks against the target tenant
+  (draft, changes outside the pipeline, dependencies, called flows, credentials, PD parameters,
+  parameters without a value in the target's configure file; exit 5 on a failed check), and
+  copying artifact folders between content trees or Git refs. See [docs/transport.md](docs/transport.md).
 - The package artifact list reads `ModifiedBy` (else `CreatedBy`) where the tenant reports it.
 
 ## 0.5.0

@@ -135,7 +135,7 @@ leaves a tool enabled by accident.
 
 | Tool class | Tools | `--read-only` |
 |------------|-------|---------------|
-| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `compare`, `lint`, `doctor`, `graph_*`, `loop_status`, runtime data tools | kept |
+| read | list_\*, get_\*, `validate_artifact`, `check_guidelines`, `pd_diff`, `pd_dependencies`, `config_diff`, `drift`, `compare`, `transport_check`, `lint`, `doctor`, `graph_*`, `loop_status`, runtime data tools | kept |
 | local files (inside `--root`) | `download_artifact`, `copy_iflow`, `bump_versions`, `lint_fix`, `layout_iflow`, `discover_tenant`, `loop_start`, `loop_end` | kept |
 | tenant changes / processing | `create_package`, `upload_artifact`, `upload_artifacts`, `set_parameters`, `deploy`, `undeploy`, `pd_deploy`, `send_test_message`, `set_log_level`, `delete_data_store_entry` | removed |
 
@@ -199,6 +199,7 @@ read roles.
 | `lint_fix` | local files | Apply the mechanical fixes: scripts into script collections, unused scripts deleted, unconnected steps removed; `dry_run` |
 | `layout_iflow` | local files | Lay out the diagram of `.iflw` files: flow order left to right, branches one below the other, no overlaps, right-angled lines; only the diagram changes. `mode` tidy / full, `check`, `dry_run`. See [lint.md](lint.md#diagram-layout) |
 | `compare` | | Two sides per artifact (`tenant`, a content tree, `git:<ref>[:<path>]`): same / only_a / only_b / content_differs / version_differs / parameters_differ, files with `diff`, parameter keys (values with `show_values`), designtime / running version, draft, last changed by. See [compare.md](compare.md) |
+| `transport_check` | | Before moving artifacts to this tenant: their dependencies (script collections, mappings, called flows, credentials, Partner Directory) and pre-checks (draft, outside changes with `target_dir`, dependencies present, credentials, PD parameters, parameter values in the target's `configure` file), pass / warn / fail / skip. See [transport.md](transport.md) |
 | `drift` | | Local artifacts vs tenant: in_sync / tenant_newer / local_newer / diverged / not_on_tenant, runtimeOutdated |
 | `discover_tenant` | local file | Inventory of packages and flows (adapters, steps, error handling, scripts, naming) to `.cpi/discovery.json`, and the content graph to `.cpi/graph.json`; `local_dir` for a local repository |
 | `graph_search` | | Find flows, endpoints, systems, credentials, scripts, headers, Partner Directory parameters in `.cpi/graph.json` (local file). See [graph.md](graph.md) |

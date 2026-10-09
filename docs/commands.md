@@ -91,6 +91,10 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`sync`](#sync) | Synchronise the artifacts of a package between tenant and Git |
 | [`sync apiproduct`](#sync-apiproduct) | Synchronise API Management products between tenant and Git |
 | [`sync apiproxy`](#sync-apiproxy) | Synchronise API Management proxies (with dependent artifacts) between tenant and Git |
+| [`transport`](#transport) | Prepare a transport between tiers: dependencies, pre-checks against the target, copy artifact folders |
+| [`transport check`](#transport-check) | Check a transport against the target tenant (read only) |
+| [`transport copy`](#transport-copy) | Copy artifact folders into another content tree (local files) |
+| [`transport deps`](#transport-deps) | List what the selected artifacts depend on (local files) |
 | [`undeploy`](#undeploy) | Remove artifacts from runtime and wait until they are gone |
 | [`update`](#update) | Create or update designtime artifacts and packages |
 | [`update artifact`](#update-artifact) | Create or update a designtime artifact from a local directory |
@@ -2126,6 +2130,94 @@ Configuration:
 ```
 
 **Usage:** `cpictl sync apiproxy`
+
+## transport
+
+Prepare a transport between tiers: dependencies, pre-checks against the target, copy artifact folders
+
+```
+Helpers to move artifacts from one tier to the next. The deployment itself is the
+orchestrator (or configure and deploy --pending) run against the target tier.
+
+  deps   what the selected artifacts need: script collections and mappings they
+         reference, flows they call (ProcessDirect / JMS), credentials and key
+         aliases, Partner Directory parameters
+  check  the same against the target tenant (read only): drafts, drift against
+         the target's Git content, dependencies and called flows present,
+         credentials, Partner Directory parameters, parameter values in the
+         target's configure file; exit code 5 when a check fails
+  copy   copy the artifact folders into another content tree (a branch or
+         repository per tier), replacing them exactly
+
+Artifacts are given by ID or folder name; --with-deps adds the script
+collections and mappings they reference.
+```
+
+## transport check
+
+Check a transport against the target tenant (read only)
+
+**Usage:** `cpictl transport check <artifact>... [flags]`
+
+**Flags:**
+
+```
+      --configure string    The target tier's configure file or folder: reports parameters without a value there
+      --dir string          Source content tree (default: packages if it exists, else the current directory)
+      --repo string         Git repository for git: arguments (default ".")
+      --target string       Target tenant: tenant (the configured one) or tenant:<profile> (default "tenant")
+      --target-dir string   The target tier's content in Git (a directory or git:<ref>[:<path>]): reports changes made on the target outside the pipeline
+      --with-deps           Add the script collections and mappings the artifacts reference
+```
+
+**Examples:**
+
+```
+  cpictl transport check Orders_In --target tenant:prod --target-dir git:prod:packages \
+    --configure config/prod.yaml --with-deps
+```
+
+## transport copy
+
+Copy artifact folders into another content tree (local files)
+
+**Usage:** `cpictl transport copy <artifact>... [flags]`
+
+**Flags:**
+
+```
+      --dry-run       Only list what would be copied
+      --from string   Source content tree: a directory or git:<ref>[:<path>]
+      --repo string   Git repository for git: arguments (default ".")
+      --to string     Target content tree (directory)
+      --with-deps     Also copy the script collections and mappings the artifacts reference
+```
+
+**Examples:**
+
+```
+  cpictl transport copy Orders_In --from git:dev:packages --to packages --with-deps
+  cpictl transport copy Orders_In --from ../repo-dev/packages --to packages --dry-run
+```
+
+## transport deps
+
+List what the selected artifacts depend on (local files)
+
+**Usage:** `cpictl transport deps <artifact>... [flags]`
+
+**Flags:**
+
+```
+      --dir string   Content tree (default: packages if it exists, else the current directory)
+      --with-deps    Add the script collections and mappings the artifacts reference
+```
+
+**Examples:**
+
+```
+  cpictl transport deps Orders_In Billing --dir packages --with-deps
+```
 
 ## undeploy
 

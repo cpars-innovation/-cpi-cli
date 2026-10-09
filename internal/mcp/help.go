@@ -56,6 +56,8 @@ var workflows = []Workflow{
 		Tools: []string{"validate_artifact", "check_guidelines", "graph_neighbors", "get_runtime_status"}, Docs: "plugin.md"},
 	{Task: "Find and apply improvements across flows: script collections, Partner Directory candidates, dead weight, best practices", Skill: "cpi-improve",
 		Tools: []string{"lint", "lint_fix", "layout_iflow", "graph_neighbors", "drift", "bump_versions", "upload_artifacts", "validate_artifact", "deploy", "pd_dependencies", "pd_deploy"}, Docs: "lint.md"},
+	{Task: "Compare tiers and prepare moving artifacts to the next tier (dependencies, pre-checks on the target)",
+		Tools: []string{"compare", "transport_check", "drift", "get_runtime_status"}, Docs: "transport.md"},
 	{Task: "Find who calls a flow, or who uses a credential, script, header or PD parameter",
 		Tools: []string{"graph_search", "graph_neighbors", "graph_path"}, Docs: "graph.md"},
 	{Task: "Diagnose failed messages and runtime errors",
