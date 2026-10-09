@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,4 +97,35 @@ func TestDeferredDeploymentsAreDeployedOnce(t *testing.T) {
 	// nothing pending: nothing to do
 	r = runMain(t, append([]string{"deploy", "--pending"}, basicAuth(mock)...)...)
 	assert.Equal(t, 0, r.code, r.stderr)
+}
+
+// A pending artifact that is in draft on the tenant by the time of deploy
+// --pending is not deployed and stays in the file for the next run.
+func TestPendingDraftStays(t *testing.T) {
+	mock := cpitest.NewTenant(t, map[string]*cpitest.Artifact{
+		"Ok":    {Type: "Integration", DesignVersion: "1.0.6", Package: "Pkg", Runtime: &cpitest.Runtime{Version: "1.0.6", Status: "STARTED"}},
+		"Draft": {Type: "Integration", DesignVersion: "Active", Package: "Pkg", Runtime: &cpitest.Runtime{Version: "1.0.5", Status: "STARTED"}},
+	})
+	dir := t.TempDir()
+	t.Chdir(dir)
+	host, port := mock.HostPort()
+	p := &pendingDeploy{Format: 1, Tenant: cpi.TenantID("http://" + host + ":" + strconv.Itoa(port)), Artifacts: map[string]*pendingArtifact{
+		"Ok":    {Type: "IntegrationFlow", Package: "Pkg", Reasons: []string{"test"}},
+		"Draft": {Type: "IntegrationFlow", Package: "Pkg", Reasons: []string{"test"}, Seq: 1},
+	}}
+	path := filepath.Join(dir, ".cpi", "pending-deploy.json")
+	require.NoError(t, p.save(path))
+
+	r := runMain(t, append([]string{"deploy", "--pending", "--plan", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Contains(t, r.stdout, "draft on the tenant")
+
+	r = runMain(t, append([]string{"deploy", "--pending", "--delay-length", "0", "--output", "json"}, basicAuth(mock)...)...)
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Equal(t, 0, mock.Artifacts["Draft"].Deploys)
+	assert.Contains(t, r.stdout, `"skipped": "draft"`)
+	left, err := loadPending(path)
+	require.NoError(t, err)
+	assert.Len(t, left.Artifacts, 1)
+	assert.NotNil(t, left.Artifacts["Draft"], "deployed by a later run")
 }

@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
-	"github.com/cpars-innovation/cpicli/pkg/iflow"
 	"github.com/cpars-innovation/cpicli/internal/output"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
 )
 
 type lintFixKind int

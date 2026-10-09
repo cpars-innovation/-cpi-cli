@@ -104,7 +104,10 @@ type Result struct {
 	Reason string `json:"reason,omitempty"`
 	// Versioning is the versioning mode the artifact was deployed with.
 	Versioning string `json:"versioning,omitempty"`
-	Error      string `json:"error,omitempty"`
+	// Skipped is "draft" when the artifact was not deployed because it is
+	// in draft on the tenant (Status SKIPPED).
+	Skipped string `json:"skipped,omitempty"`
+	Error   string `json:"error,omitempty"`
 
 	// Err is the underlying error for FAILED/TIMEOUT results (not serialised).
 	Err error `json:"-"`
@@ -237,6 +240,17 @@ func forEach(ctx context.Context, artifacts []Artifact, parallelism int, fn func
 	return results
 }
 
+// SkippedDraft marks an artifact left alone because it is in draft on the
+// tenant: someone is editing it in the Web UI.
+const (
+	SkippedDraft = "draft"
+	DraftReason  = "draft on the tenant (someone is editing it in the Web UI): save the version first; not deployed"
+)
+
+// IsDraftVersion reports whether a designtime version is the tenant's
+// marker of a draft ("Active" instead of a version number).
+func IsDraftVersion(v string) bool { return strings.EqualFold(v, "active") }
+
 func fail(r Result, err error) Result {
 	r.Status, r.Err, r.Error = StatusFailed, err, err.Error()
 	return r
@@ -262,6 +276,11 @@ func deployOne(ctx context.Context, tenant Tenant, a Artifact, opts Options) Res
 		return fail(r, fmt.Errorf("designtime artifact %v does not exist", a.ID))
 	}
 	r.Version, r.DesigntimeVersion = version, version
+	if IsDraftVersion(version) {
+		r.Status, r.Skipped, r.Reason = StatusSkipped, SkippedDraft, DraftReason
+		logger.Warn().Msgf("%v is in draft on the tenant: not deployed", a.ID)
+		return r
+	}
 
 	// The runtime state before the trigger is the baseline used to tell a
 	// fresh deployment from the previous one that is still visible.

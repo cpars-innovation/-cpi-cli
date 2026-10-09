@@ -50,10 +50,14 @@ type ProcessingStats struct {
 	// ArtifactsChanged were created or updated, ArtifactsUnchanged had the
 	// tenant's content already. Existing artifacts were compared with the
 	// snapshot state (ComparedWithSnapshot) or downloaded (DownloadedForComparison).
-	ArtifactsChanged          int             `json:"artifactsChanged"`
-	ArtifactsUnchanged        int             `json:"artifactsUnchanged"`
-	ComparedWithSnapshot      int             `json:"comparedWithSnapshot"`
-	DownloadedForComparison   int             `json:"downloadedForComparison"`
+	ArtifactsChanged        int `json:"artifactsChanged"`
+	ArtifactsUnchanged      int `json:"artifactsUnchanged"`
+	ComparedWithSnapshot    int `json:"comparedWithSnapshot"`
+	DownloadedForComparison int `json:"downloadedForComparison"`
+	// ArtifactsSkippedDraft were in draft on the tenant (draftHandling SKIP):
+	// not uploaded, not deployed; SkippedDrafts lists them.
+	ArtifactsSkippedDraft     int             `json:"artifactsSkippedDraft"`
+	SkippedDrafts             []DraftSkip     `json:"skippedDrafts"`
 	SuccessfulPackageUpdates  map[string]bool `json:"successfulPackageUpdates"`
 	SuccessfulArtifactUpdates map[string]bool `json:"successfulArtifactUpdates"`
 	SuccessfulArtifactDeploys map[string]bool `json:"successfulArtifactDeploys"`
@@ -64,7 +68,68 @@ type ProcessingStats struct {
 	// created or updated, and content changed with the running version (to
 	// be deployed with force; the runtime was not undeployed).
 	changed, redeploy map[string]bool
+	// skippedDraft and draftFailed (draftHandling ERROR) are keyed by the
+	// final artifact ID; artifacts holds the status of each.
+	skippedDraft map[string]bool
+	draftFailed  int
+	artifacts    map[string]*ArtifactStatus
 }
+
+// DraftSkip is an artifact left alone because it is in draft on the tenant.
+type DraftSkip struct {
+	ID      string `json:"id"`
+	Package string `json:"package"`
+	// Designtime is what the tenant reports for the draft ("Active"),
+	// Running the deployed version, LocalVersion the repository's
+	// Bundle-Version.
+	Designtime   string `json:"designtime,omitempty"`
+	Running      string `json:"running,omitempty"`
+	LocalVersion string `json:"localVersion,omitempty"`
+}
+
+// Artifact statuses of the orchestrator.
+const (
+	StatusCreated      = "created"
+	StatusUpdated      = "updated"
+	StatusUnchanged    = "unchanged"
+	StatusFailed       = "failed"
+	StatusSkippedDraft = "skipped-draft"
+	StatusNotUploaded  = "not-uploaded" // deploy only, or sync: false
+)
+
+// ArtifactStatus is the outcome for one deployed artifact ID.
+type ArtifactStatus struct {
+	ID      string `json:"id"`
+	Package string `json:"package"`
+	// Source is the artifact folder (for deployment copies and prefixes).
+	Source       string `json:"source,omitempty"`
+	Status       string `json:"status"`
+	Designtime   string `json:"designtime,omitempty"`
+	LocalVersion string `json:"localVersion,omitempty"`
+	// Deploy is the deployment result (DEPLOYED, SKIPPED, FAILED, ...);
+	// empty when not deployed.
+	Deploy string `json:"deploy,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// status returns the entry of an artifact ID (callers hold the lock).
+func (s *ProcessingStats) status(id, pkg, source string) *ArtifactStatus {
+	if s.artifacts == nil {
+		s.artifacts = map[string]*ArtifactStatus{}
+	}
+	a := s.artifacts[id]
+	if a == nil {
+		a = &ArtifactStatus{ID: id, Package: pkg, Source: source}
+		s.artifacts[id] = a
+	}
+	return a
+}
+
+// draftHandling of the orchestrator.
+const (
+	draftSkip  = "SKIP"
+	draftError = "ERROR"
+)
 
 func NewOrchestratorCommand() *cobra.Command {
 	var (
@@ -213,7 +278,7 @@ Configuration:
 	orchestratorCmd.Flags().StringVarP(&deployConfig, "deploy-config", "c", "", "Path to deployment config file/folder/URL (config: orchestrator.deployConfig)")
 	orchestratorCmd.Flags().StringVarP(&deploymentPrefix, "deployment-prefix", "p", "", "Deployment prefix for package/artifact IDs (config: orchestrator.deploymentPrefix)")
 	orchestratorCmd.Flags().StringVar(&packageFilter, "package-filter", "", "Comma-separated list of packages to include (config: orchestrator.packageFilter)")
-	orchestratorCmd.Flags().StringVar(&artifactFilter, "artifact-filter", "", "Comma-separated list of artifacts to include (config: orchestrator.artifactFilter)")
+	orchestratorCmd.Flags().StringVar(&artifactFilter, "artifact-filter", "", "Comma-separated artifacts to include: artifact IDs, artifact folders or source IDs (a folder or source ID selects every ID deployed from it) (config: orchestrator.artifactFilter)")
 	orchestratorCmd.Flags().BoolVar(&keepTemp, "keep-temp", false, "Keep temporary directory after execution (config: orchestrator.keepTemp)")
 	orchestratorCmd.Flags().StringVar(&configPattern, "config-pattern", "*.y*ml", "File pattern for config files in folders (config: orchestrator.configPattern)")
 	orchestratorCmd.Flags().BoolVar(&mergeConfigs, "merge-configs", false, "Merge multiple configs into single deployment (config: orchestrator.mergeConfigs)")
@@ -228,6 +293,8 @@ Configuration:
 	orchestratorCmd.Flags().Int("parallel", 8, "Artifacts uploaded at the same time, across all packages (config: orchestrator.parallel)")
 	orchestratorCmd.Flags().Bool("plan", false, "Only show what would be uploaded and deployed, and why; nothing is written to the tenant")
 	orchestratorCmd.Flags().Bool("verify-download", false, "Download every existing artifact for the comparison, even when the snapshot state covers it (config: orchestrator.verifyDownload)")
+	orchestratorCmd.Flags().String("draft-handling", draftSkip, "Artifacts in draft on the tenant (someone edits them in the Web UI): SKIP (not uploaded, not deployed, reported) or ERROR (the run fails) (config: orchestrator.draftHandling)")
+	orchestratorCmd.Flags().Bool("fail-on-draft", false, "Same as --draft-handling ERROR")
 	orchestratorCmd.Flags().IntVar(&parallelDeployments, "parallel-deployments", defaultParallelDeployments, "Deployments at the same time per package (config: orchestrator.parallelDeployments)")
 
 	return orchestratorCmd
@@ -265,6 +332,9 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		FailedArtifactDeploys:     make(map[string]bool),
 		changed:                   make(map[string]bool),
 		redeploy:                  make(map[string]bool),
+		skippedDraft:              make(map[string]bool),
+		artifacts:                 make(map[string]*ArtifactStatus),
+		SkippedDrafts:             []DraftSkip{},
 	}
 
 	// Setup config loader
@@ -330,7 +400,15 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 	if parallel < 1 {
 		return output.Usagef("--parallel must be at least 1")
 	}
-	upload := uploadOptions{versionMode: versionMode, slots: make(chan struct{}, parallel), wg: &sync.WaitGroup{}, mu: &sync.Mutex{}}
+	draftHandling := strings.ToUpper(config.GetStringWithFallback(cmd, "draft-handling", "orchestrator.draftHandling"))
+	if failOnDraft, _ := cmd.Flags().GetBool("fail-on-draft"); failOnDraft {
+		draftHandling = draftError
+	}
+	if draftHandling != draftSkip && draftHandling != draftError {
+		return output.Usagef("--draft-handling %q: SKIP or ERROR", draftHandling)
+	}
+	upload := uploadOptions{versionMode: versionMode, slots: make(chan struct{}, parallel), wg: &sync.WaitGroup{}, mu: &sync.Mutex{},
+		draftError: draftHandling == draftError, drafts: newDraftChecker(cpi.InitHTTPExecuter(serviceDetails))}
 	if plan, _ := cmd.Flags().GetBool("plan"); plan {
 		upload.plan = &planCollector{index: map[string]int{}}
 		log.Info().Msg("PLAN: nothing is written to the tenant")
@@ -389,7 +467,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 	if deferDeploy, _ := cmd.Flags().GetBool("defer-deploy"); deferDeploy && upload.plan == nil && mode != ModeUpdateOnly {
 		printSummary(&stats)
-		output.SetResult(cmd.Context(), orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: []ops.Result{}})
+		output.SetResult(cmd.Context(), newOrchestratorResult(mode, &stats, []ops.Result{}, nil))
 		err := deferDeployments(pendingFile(cmd), serviceDetails.Host, deploymentTasks, func(t DeploymentTask) string {
 			switch {
 			case stats.redeploy[t.ArtifactID]:
@@ -409,8 +487,8 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 		if mode != ModeUpdateOnly {
 			planDeployments(deploymentTasks, upload.plan, serviceDetails)
 		}
-		res := orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: []ops.Result{}, Plan: upload.plan.items}
-		output.SetResult(cmd.Context(), res)
+		output.SetResult(cmd.Context(), newOrchestratorResult(mode, &stats, []ops.Result{}, upload.plan.items))
+		logSkippedDrafts(&stats)
 		return logPlan(upload.plan.items)
 	}
 
@@ -431,7 +509,7 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 
 	// Print summary
 	printSummary(&stats)
-	output.SetResult(cmd.Context(), orchestratorResult{Mode: string(mode), Stats: &stats, Deployments: deployments})
+	output.SetResult(cmd.Context(), newOrchestratorResult(mode, &stats, deployments, nil))
 
 	return orchestratorErr(&stats)
 }
@@ -439,6 +517,9 @@ func runOrchestrator(cmd *cobra.Command, mode OperationMode, packagesDir, deploy
 // orchestratorErr is the error of a run with failures (partial when
 // anything succeeded).
 func orchestratorErr(stats *ProcessingStats) error {
+	if stats.draftFailed > 0 {
+		return output.Failed(fmt.Errorf("%d artifact(s) in draft on the tenant (--draft-handling ERROR)", stats.draftFailed))
+	}
 	if stats.PackagesFailed > 0 || stats.UpdateFailures > 0 || stats.DeployFailures > 0 {
 		err := fmt.Errorf("deployment completed with failures")
 		if len(stats.SuccessfulArtifactUpdates) > 0 || stats.ArtifactsDeployedSuccess > 0 {
@@ -536,7 +617,7 @@ func processPackages(config *models.DeployConfig, applyPrefix bool, mode Operati
 			pkg, packageDir, finalPackageID := pkg, packageDir, finalPackageID
 			collect = append(collect, func() {
 				tasks := collectDeploymentTasks(&pkg, packageDir, finalPackageID, config.DeploymentPrefix,
-					artifactFilter, stats, versionMode)
+					artifactFilter, stats, versionMode, upload)
 				deploymentTasks = append(deploymentTasks, tasks...)
 			})
 		}
@@ -630,7 +711,7 @@ func updateArtifacts(pkg *models.Package, packageDir, finalPackageID, finalPacka
 
 	for _, artifact := range pkg.Artifacts {
 		// Apply artifact filter
-		if !shouldInclude(artifact.Id, artifactFilter) {
+		if !artifactSelected(&artifact, packageDir, artifactFilter) {
 			log.Debug().Msgf("Skipping artifact %s (filtered)", artifact.Id)
 			locked(func() { stats.ArtifactsFiltered++ })
 			continue
@@ -683,11 +764,14 @@ func uploadOneArtifact(exe *httpclnt.HTTPExecuter, pkg *models.Package, artifact
 	stats *ProcessingStats, upload uploadOptions, locked func(func())) {
 
 	log.Info().Msgf("  Updating: %s", finalArtifactID)
+	localVersion, _ := manifest.Version(artifactDir)
 	fail := func(err error) {
 		log.Error().Msgf("Update failed for %s: %v", finalArtifactName, err)
 		locked(func() {
 			stats.UpdateFailures++
 			stats.FailedArtifactUpdates[artifact.Id] = true
+			st := stats.status(finalArtifactID, finalPackageID, artifact.ArtifactDir)
+			st.Status, st.LocalVersion, st.Reason = StatusFailed, localVersion, err.Error()
 		})
 	}
 
@@ -770,6 +854,21 @@ func uploadOneArtifact(exe *httpclnt.HTTPExecuter, pkg *models.Package, artifact
 	synchroniser.Versioning = mode
 	outcome, err := synchroniser.UploadArtifact(finalArtifactID, finalArtifactName, artifactType,
 		finalPackageID, tempArtifactDir, jobDir, "", nil)
+	if artifactsync.IsDraft(err) {
+		running := ""
+		if rt, rerr := cpi.NewRuntime(exe).GetArtifact(finalArtifactID); rerr == nil && rt != nil {
+			running = rt.Version
+		}
+		locked(func() {
+			recordDraft(stats, upload, DraftSkip{ID: finalArtifactID, Package: finalPackageID, Designtime: "Active", Running: running,
+				LocalVersion: localVersion}, artifact.ArtifactDir, artifactType, true)
+			if upload.draftError {
+				stats.UpdateFailures++
+				stats.FailedArtifactUpdates[artifact.Id] = true
+			}
+		})
+		return
+	}
 
 	locked(func() {
 		switch outcome.Compared {
@@ -791,6 +890,10 @@ func uploadOneArtifact(exe *httpclnt.HTTPExecuter, pkg *models.Package, artifact
 		if err != nil {
 			return
 		}
+		st := stats.status(finalArtifactID, finalPackageID, artifact.ArtifactDir)
+		st.Status = map[string]string{"CREATED": StatusCreated, "UPDATED": StatusUpdated}[outcome.Action]
+		st.Status = cmp.Or(st.Status, StatusUnchanged)
+		st.Designtime, st.LocalVersion = outcome.Version, localVersion
 		if outcome.Action == "UNCHANGED" {
 			stats.ArtifactsUnchanged++
 		} else {
@@ -810,7 +913,7 @@ func uploadOneArtifact(exe *httpclnt.HTTPExecuter, pkg *models.Package, artifact
 }
 
 func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, prefix string,
-	artifactFilter []string, stats *ProcessingStats, versionMode versioning.Mode) []DeploymentTask {
+	artifactFilter []string, stats *ProcessingStats, versionMode versioning.Mode, upload uploadOptions) []DeploymentTask {
 
 	var tasks []DeploymentTask
 
@@ -822,7 +925,7 @@ func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, pre
 		}
 
 		// Apply artifact filter
-		if !shouldInclude(artifact.Id, artifactFilter) {
+		if !artifactSelected(&artifact, packageDir, artifactFilter) {
 			log.Debug().Msgf("Skipping artifact %s (filtered)", artifact.Id)
 			continue
 		}
@@ -840,6 +943,34 @@ func collectDeploymentTasks(pkg *models.Package, packageDir, finalPackageID, pre
 		artifactType := artifact.Type
 		if artifactType == "" {
 			artifactType = "IntegrationFlow"
+		}
+		if stats.skippedDraft[finalArtifactID] {
+			log.Debug().Msgf("Skipping deployment of %s (draft on the tenant)", finalArtifactID)
+			continue
+		}
+		if _, uploaded := stats.artifacts[finalArtifactID]; !uploaded && upload.drafts != nil {
+			// deployed without an upload in this run: is it a draft?
+			typ := mapArtifactTypeForSync(artifactType)
+			draft, err := upload.drafts.isDraft(finalPackageID, typ, finalArtifactID)
+			if err != nil {
+				log.Warn().Msgf("Cannot tell whether %s is in draft: %v", finalArtifactID, err)
+			}
+			if draft {
+				localVersion, _ := manifest.Version(filepath.Join(packageDir, artifact.ArtifactDir))
+				running := ""
+				if rt, rerr := cpi.NewRuntime(upload.drafts.exe).GetArtifact(finalArtifactID); rerr == nil && rt != nil {
+					running = rt.Version
+				}
+				recordDraft(stats, upload, DraftSkip{ID: finalArtifactID, Package: finalPackageID, Designtime: "Active", Running: running,
+					LocalVersion: localVersion}, artifact.ArtifactDir, typ, false)
+				if upload.draftError {
+					stats.ArtifactsDeployedFailed++
+					stats.DeployFailures++
+					stats.FailedArtifactDeploys[finalArtifactID] = true
+				}
+				continue
+			}
+			stats.status(finalArtifactID, finalPackageID, artifact.ArtifactDir).Status = StatusNotUploaded
 		}
 
 		mode, err := resolveVersioning(artifact.Versioning, pkg.Versioning, versionMode)
@@ -893,6 +1024,9 @@ func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, max
 			packageOrder = append(packageOrder, r.PackageID)
 			failedByPackage[r.PackageID] = 0
 		}
+		if st := stats.artifacts[r.ID]; st != nil {
+			st.Deploy = string(r.Status)
+		}
 		if r.Status.Succeeded() {
 			stats.ArtifactsDeployedSuccess++
 			stats.SuccessfulArtifactDeploys[r.ID] = true
@@ -916,11 +1050,119 @@ func deployAllArtifactsParallel(ctx context.Context, tasks []DeploymentTask, max
 
 // orchestratorResult is the JSON result of orchestrator.
 type orchestratorResult struct {
-	Mode        string           `json:"mode"`
-	Stats       *ProcessingStats `json:"stats"`
+	Mode  string           `json:"mode"`
+	Stats *ProcessingStats `json:"stats"`
+	// Artifacts is the status of each deployed artifact ID, Counts the
+	// number per status (created, updated, unchanged, failed, skippedDraft,
+	// notUploaded) and deployment (deployed, deployFailed).
+	Artifacts   []ArtifactStatus `json:"artifacts"`
+	Counts      map[string]int   `json:"counts"`
 	Deployments []ops.Result     `json:"deployments"`
 	// Plan lists per artifact what would be done (--plan).
 	Plan []PlanItem `json:"plan,omitempty"`
+}
+
+func newOrchestratorResult(mode OperationMode, stats *ProcessingStats, deployments []ops.Result, plan []PlanItem) orchestratorResult {
+	res := orchestratorResult{Mode: string(mode), Stats: stats, Deployments: deployments, Plan: plan, Artifacts: []ArtifactStatus{},
+		Counts: map[string]int{"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "skippedDraft": 0, "notUploaded": 0, "deployed": 0, "deployFailed": 0}}
+	key := map[string]string{StatusCreated: "created", StatusUpdated: "updated", StatusUnchanged: "unchanged", StatusFailed: "failed",
+		StatusSkippedDraft: "skippedDraft", StatusNotUploaded: "notUploaded"}
+	for _, a := range stats.artifacts {
+		res.Artifacts = append(res.Artifacts, *a)
+		if k := key[a.Status]; k != "" {
+			res.Counts[k]++
+		}
+		switch {
+		case a.Deploy == "":
+		case ops.Status(a.Deploy).Succeeded():
+			res.Counts["deployed"]++
+		default:
+			res.Counts["deployFailed"]++
+		}
+	}
+	slices.SortFunc(res.Artifacts, func(a, b ArtifactStatus) int {
+		return cmp.Or(cmp.Compare(a.Package, b.Package), cmp.Compare(a.ID, b.ID))
+	})
+	slices.SortFunc(stats.SkippedDrafts, func(a, b DraftSkip) int { return cmp.Or(cmp.Compare(a.Package, b.Package), cmp.Compare(a.ID, b.ID)) })
+	return res
+}
+
+// recordDraft notes an artifact in draft on the tenant: skipped (SKIP) or
+// failed (ERROR). Callers hold the lock (or run alone).
+func recordDraft(stats *ProcessingStats, upload uploadOptions, d DraftSkip, source, typ string, uploadStep bool) {
+	st := stats.status(d.ID, d.Package, source)
+	st.Designtime, st.LocalVersion = d.Designtime, d.LocalVersion
+	reason := "draft on the tenant: not uploaded, not deployed"
+	if upload.draftError {
+		st.Status, st.Reason = StatusFailed, "draft on the tenant (--draft-handling ERROR): save the version in the Web UI first"
+		stats.draftFailed++
+		log.Error().Msgf("%s is in draft on the tenant (--draft-handling ERROR): save the version in the Web UI first", d.ID)
+	} else {
+		st.Status, st.Reason = StatusSkippedDraft, reason
+		stats.ArtifactsSkippedDraft++
+		if stats.skippedDraft == nil {
+			stats.skippedDraft = map[string]bool{}
+		}
+		stats.skippedDraft[d.ID] = true
+		stats.SkippedDrafts = append(stats.SkippedDrafts, d)
+		log.Warn().Msgf("%s is in draft on the tenant: not uploaded, not deployed", d.ID)
+	}
+	if upload.plan != nil {
+		upload.plan.upsert(d.ID, func(it *PlanItem) {
+			it.Package, it.Type, it.Deploy = d.Package, cmp.Or(it.Type, typ), false
+			it.Designtime, it.Running = d.Designtime, d.Running
+			if upload.draftError {
+				it.Upload, it.Error = "fails", st.Reason
+				if !uploadStep {
+					it.Upload = ""
+				}
+			} else {
+				it.Upload, it.Reason = StatusSkippedDraft, reason
+			}
+		})
+	}
+}
+
+// draftChecker tells whether a designtime artifact is in draft, with one
+// request per package and artifact type.
+type draftChecker struct {
+	exe   *httpclnt.HTTPExecuter
+	mu    sync.Mutex
+	cache map[string]map[string]bool
+}
+
+func newDraftChecker(exe *httpclnt.HTTPExecuter) *draftChecker {
+	return &draftChecker{exe: exe, cache: map[string]map[string]bool{}}
+}
+
+func (d *draftChecker) isDraft(pkg, typ, id string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := pkg + "\x00" + typ
+	drafts, ok := d.cache[key]
+	if !ok {
+		details, err := cpi.NewIntegrationPackage(d.exe).GetArtifactsData(pkg, typ)
+		if err != nil {
+			return false, err
+		}
+		drafts = map[string]bool{}
+		for _, a := range details {
+			drafts[a.Id] = a.IsDraft
+		}
+		d.cache[key] = drafts
+	}
+	return drafts[id], nil
+}
+
+// logSkippedDrafts lists the artifacts left alone because of drafts.
+func logSkippedDrafts(stats *ProcessingStats) {
+	if len(stats.SkippedDrafts) == 0 {
+		return
+	}
+	log.Warn().Msgf("%d artifact(s) in draft on the tenant, not uploaded and not deployed:", len(stats.SkippedDrafts))
+	for _, d := range stats.SkippedDrafts {
+		log.Warn().Msgf("  - %s (package %s, tenant %s, running %s, repository %s)", d.ID, d.Package, d.Designtime, cmp.Or(d.Running, "-"), cmp.Or(d.LocalVersion, "-"))
+	}
 }
 
 // uploadOptions are the settings of the update phase.
@@ -932,6 +1174,10 @@ type uploadOptions struct {
 	verifyDownload bool
 	// plan collects what would be done (--plan); nil: do it.
 	plan *planCollector
+	// draftError fails artifacts in draft on the tenant instead of skipping
+	// them; drafts checks artifacts that are deployed without an upload.
+	draftError bool
+	drafts     *draftChecker
 	// slots limits the uploads running at the same time (--parallel), wg
 	// waits for them, mu guards the statistics and the plan.
 	slots chan struct{}
@@ -1000,6 +1246,10 @@ func planDeployments(tasks []DeploymentTask, plan *planCollector, serviceDetails
 				version = v
 				it.Designtime = v
 			}
+			if ops.IsDraftVersion(version) {
+				it.Deploy, it.Reason = false, ops.DraftReason
+				return
+			}
 			running, err := rt.GetArtifact(t.ArtifactID)
 			if err != nil {
 				it.Error = err.Error()
@@ -1024,8 +1274,11 @@ func planDeployments(tasks []DeploymentTask, plan *planCollector, serviceDetails
 
 // logPlan prints the plan and returns an error when anything would fail.
 func logPlan(items []PlanItem) error {
-	uploads, deploys, failures := 0, 0, 0
+	uploads, deploys, failures, drafts := 0, 0, 0, 0
 	for _, it := range items {
+		if it.Upload == StatusSkippedDraft {
+			drafts++
+		}
 		if it.Upload == "create" || it.Upload == "update" {
 			uploads++
 		}
@@ -1042,9 +1295,9 @@ func logPlan(items []PlanItem) error {
 			failures++
 			ev = log.Error()
 		}
-		ev.Msgf("[PLAN] %-40s upload: %-9s %-9s %s%s", it.Artifact, what, dep, it.Reason, map[bool]string{true: " ❌ " + it.Error, false: ""}[it.Error != ""])
+		ev.Msgf("[PLAN] %-40s upload: %-13s %-9s %s%s", it.Artifact, what, dep, it.Reason, map[bool]string{true: " ❌ " + it.Error, false: ""}[it.Error != ""])
 	}
-	log.Info().Msgf("[PLAN] %d artifact(s): %d upload(s), %d deployment(s), %d failure(s)", len(items), uploads, deploys, failures)
+	log.Info().Msgf("[PLAN] %d artifact(s): %d upload(s), %d deployment(s), %d failure(s), %d skipped (draft)", len(items), uploads, deploys, failures, drafts)
 	if failures > 0 {
 		return output.Failed(fmt.Errorf("plan: %d artifact(s) would fail", failures))
 	}
@@ -1128,6 +1381,28 @@ func parseFilter(filterStr string) []string {
 	return result
 }
 
+// artifactSelected applies --artifact-filter to a deploy config entry: an
+// entry matches by its artifactId, its artifactDir (the folder name, as
+// change detection passes it) or the source ID of that folder
+// (Bundle-SymbolicName), so a folder or source ID selects every ID deployed
+// from the folder. A copy's own ID selects only the copy.
+func artifactSelected(a *models.Artifact, packageDir string, filter []string) bool {
+	if len(filter) == 0 || slices.Contains(filter, a.Id) {
+		return true
+	}
+	dir := cmp.Or(a.ArtifactDir, a.Id)
+	if slices.Contains(filter, dir) || slices.Contains(filter, filepath.Base(dir)) {
+		return true
+	}
+	if data, err := os.ReadFile(filepath.Join(packageDir, dir, "META-INF", "MANIFEST.MF")); err == nil {
+		source, _, _ := strings.Cut(manifest.Parse(data)["Bundle-SymbolicName"], ";")
+		if source = strings.TrimSpace(source); source != "" && slices.Contains(filter, source) {
+			return true
+		}
+	}
+	return false
+}
+
 func shouldInclude(id string, filter []string) bool {
 	if len(filter) == 0 {
 		return true
@@ -1153,7 +1428,11 @@ func printSummary(stats *ProcessingStats) {
 	log.Info().Msgf("Artifacts Deployed OK:   %d", stats.ArtifactsDeployedSuccess)
 	log.Info().Msgf("Artifacts Deployed Fail: %d", stats.ArtifactsDeployedFailed)
 	log.Info().Msgf("Artifacts Filtered:      %d", stats.ArtifactsFiltered)
+	if stats.ArtifactsSkippedDraft > 0 {
+		log.Info().Msgf("Skipped (draft):         %d", stats.ArtifactsSkippedDraft)
+	}
 	log.Info().Msg("───────────────────────────────────────────────────────────────────────")
+	logSkippedDrafts(stats)
 
 	if stats.UpdateFailures > 0 {
 		log.Warn().Msgf("⚠ Update Failures: %d", stats.UpdateFailures)
@@ -1171,7 +1450,7 @@ func printSummary(stats *ProcessingStats) {
 		}
 	}
 
-	if stats.UpdateFailures == 0 && stats.DeployFailures == 0 {
+	if stats.UpdateFailures == 0 && stats.DeployFailures == 0 && stats.draftFailed == 0 {
 		log.Info().Msg("✓ All operations completed successfully!")
 	}
 

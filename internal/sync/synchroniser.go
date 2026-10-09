@@ -789,6 +789,23 @@ func orNone(v string) string {
 	return v
 }
 
+// DraftError is returned when the tenant's designtime artifact is in draft:
+// someone is editing it in the Web UI, so it is neither overwritten nor
+// deployed.
+type DraftError struct {
+	ID, Package string
+}
+
+func (e *DraftError) Error() string {
+	return fmt.Sprintf("Artifact %v is in Draft state. Save Version of artifact in Web UI first!", e.ID)
+}
+
+// IsDraft reports whether err says the artifact is in draft on the tenant.
+func IsDraft(err error) bool {
+	var d *DraftError
+	return errors.As(err, &d)
+}
+
 func artifactExists(artifactId string, artifactType string, packageId string, dt cpi.DesigntimeArtifact, ip *cpi.IntegrationPackage) (bool, error) {
 	_, _, exists, err := dt.Get(artifactId, "active")
 	if err != nil {
@@ -807,7 +824,7 @@ func artifactExists(artifactId string, artifactType string, packageId string, dt
 			return false, fmt.Errorf("Artifact %v not found in package %v", artifactId, packageId)
 		}
 		if artifact.IsDraft {
-			return false, fmt.Errorf("Artifact %v is in Draft state. Save Version of artifact in Web UI first!", artifactId)
+			return false, &DraftError{ID: artifactId, Package: packageId}
 		}
 		return true, nil
 	} else {

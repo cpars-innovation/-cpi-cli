@@ -24,6 +24,9 @@ type UploadRequest struct {
 	Versioning versioning.Mode `json:"-"`
 	// DryRun compares and reports what the upload would do without writing.
 	DryRun bool `json:"-"`
+	// SkipDraft returns a result with Skipped "draft" instead of an error
+	// when the tenant's artifact is in draft.
+	SkipDraft bool `json:"-"`
 }
 
 // UploadResult is the outcome of UploadArtifact.
@@ -31,6 +34,10 @@ type UploadResult struct {
 	ID        string `json:"id"`
 	PackageID string `json:"packageId"`
 	sync.UploadOutcome
+	// Skipped is "draft" when the artifact is in draft on the tenant and
+	// was not uploaded (SkipDraft); Reason says why.
+	Skipped string `json:"skipped,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // UploadArtifact creates the designtime artifact or updates it if the local
@@ -64,6 +71,11 @@ func UploadArtifact(exe *httpclnt.HTTPExecuter, req UploadRequest) (*UploadResul
 	syncer.Versioning = req.Versioning
 	syncer.DryRun = req.DryRun
 	outcome, err := syncer.UploadArtifact(req.ID, req.Name, req.Type, req.PackageID, req.Dir, workDir, "", nil)
+	if req.SkipDraft && sync.IsDraft(err) {
+		outcome.Action = "SKIPPED"
+		return &UploadResult{ID: req.ID, PackageID: req.PackageID, UploadOutcome: outcome, Skipped: SkippedDraft,
+			Reason: "draft on the tenant (someone is editing it in the Web UI): save the version first; not uploaded"}, nil
+	}
 	// the outcome (versionRule, version) is returned with the error as well
 	return &UploadResult{ID: req.ID, PackageID: req.PackageID, UploadOutcome: outcome}, err
 }

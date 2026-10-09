@@ -60,6 +60,7 @@ orchestrator:
   parallel: 8                 # uploads at the same time, across packages
   # snapshotState: .cpi/snapshot-state.json   # default: found automatically; off: always download
   verifyDownload: false
+  draftHandling: SKIP         # artifacts in draft on the tenant: SKIP (reported) or ERROR (exit 5)
   parallelDeployments: 5
   deployRetries: 30
   deployDelaySeconds: 10

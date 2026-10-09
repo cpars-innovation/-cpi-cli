@@ -130,12 +130,20 @@ diff. Two snapshots in a row give an empty `git status`; artifacts with local ed
   and the file is deleted when it is empty. `cpictl deploy --pending --plan` shows the list with
   the reasons first.
 - The file records the tenant: it cannot be deployed to another one.
+- Artifacts in draft on the tenant (being edited in the Web UI) are skipped and reported, not
+  overwritten and not deployed; the run does not fail on them, and `deploy --pending` keeps a
+  pending artifact that became a draft in the file for the next run. To make CI strict, set
+  `orchestrator.draftHandling: ERROR` (or `CPICTL_DRAFT_HANDLING=ERROR`, `--fail-on-draft`): a
+  draft then fails the run with exit code 5 ([orchestrator.md](orchestrator.md#drafts)).
 
 ### Job summary
 
 In GitHub Actions `orchestrator`, `configure`, `deploy`, `undeploy` and `snapshot` append a
 markdown summary to `$GITHUB_STEP_SUMMARY` (shown on the run's page): counts, the plan, and one
-row per deployment with status, version, rule and error, failures first. Parameter values are
+row per deployment with status, version, rule and error, failures first. The orchestrator's
+summary has a section **Skipped: in draft on the tenant** listing each artifact left alone because
+someone edits it in the Web UI (ID, package, tenant designtime version, running version,
+repository `Bundle-Version`). Parameter values are
 not shown (only artifact, key and change). `--summary FILE` writes it to a file instead (e.g. for
 Azure Pipelines: `echo "##vso[task.uploadsummary]$PWD/summary.md"`), `--summary off` disables it.
 

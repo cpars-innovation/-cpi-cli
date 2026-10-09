@@ -1368,7 +1368,7 @@ Configuration:
 **Flags:**
 
 ```
-      --artifact-filter string     Comma-separated list of artifacts to include (config: orchestrator.artifactFilter)
+      --artifact-filter string     Comma-separated artifacts to include: artifact IDs, artifact folders or source IDs (a folder or source ID selects every ID deployed from it) (config: orchestrator.artifactFilter)
       --config-pattern string      File pattern for config files in folders (config: orchestrator.configPattern) (default "*.y*ml")
       --defer-deploy               Do not deploy: add the deployments to the pending file for one 'cpictl deploy --pending' at the end
   -c, --deploy-config string       Path to deployment config file/folder/URL (config: orchestrator.deployConfig)
@@ -1376,6 +1376,8 @@ Configuration:
       --deploy-only                Only deploy artifacts, don't update
       --deploy-retries int         Deployment status checks per artifact (config: orchestrator.deployRetries) (default 30)
   -p, --deployment-prefix string   Deployment prefix for package/artifact IDs (config: orchestrator.deploymentPrefix)
+      --draft-handling string      Artifacts in draft on the tenant (someone edits them in the Web UI): SKIP (not uploaded, not deployed, reported) or ERROR (the run fails) (config: orchestrator.draftHandling) (default "SKIP")
+      --fail-on-draft              Same as --draft-handling ERROR
       --keep-temp                  Keep temporary directory after execution (config: orchestrator.keepTemp)
       --merge-configs              Merge multiple configs into single deployment (config: orchestrator.mergeConfigs)
       --package-filter string      Comma-separated list of packages to include (config: orchestrator.packageFilter)

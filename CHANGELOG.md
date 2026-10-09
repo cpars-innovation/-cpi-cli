@@ -5,6 +5,26 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- **Drafts no longer fail the orchestrator.** An artifact in draft on the tenant (someone edits
+  it in the Web UI) is skipped: not uploaded, not deployed, one warning per ID, and the run goes
+  on (exit 0 when drafts are the only problem). See [docs/orchestrator.md](docs/orchestrator.md#drafts).
+  - New status `skipped-draft` in `--output json` (`artifacts[].status`, `counts.skippedDraft`,
+    `stats.skippedDrafts`), in the summary and in the job summary (own section: ID, package,
+    tenant designtime version, running version, repository `Bundle-Version`).
+  - `--plan` predicts it (`upload: skipped-draft  no deploy`) instead of reporting a failure.
+  - Per deployed ID: a draft on a deployment copy or prefix variant skips only that ID.
+  - Artifacts deployed without an upload (`--deploy-only`, `sync: false`) are checked too.
+  - `orchestrator.draftHandling: SKIP|ERROR` (`--draft-handling`, `CPICTL_DRAFT_HANDLING`,
+    `--fail-on-draft`), default `SKIP`; `ERROR` keeps the old behaviour (exit 5).
+  - MCP `upload_artifact` / `upload_artifacts` return `SKIPPED` with `skipped: "draft"` and the
+    reason; `deploy` (and `deploy --pending`) skip drafts with `skipped: "draft"`, and
+    `deploy --pending` keeps them in the pending file for the next run.
+- `orchestrator` result: `artifacts` (status per deployed ID: `created`, `updated`, `unchanged`,
+  `failed`, `skipped-draft`, `not-uploaded`, with the deployment result) and `counts`.
+- `orchestrator --artifact-filter` also takes the artifact folder (`artifactDir`, as change
+  detection passes it) or the folder's source ID: both select every ID deployed from that folder.
+  Before, only `artifactId` matched, so a folder name selected nothing for deployment copies.
+
 - `lint`: checks the flows of a content tree (local files only) with 30 rules in 8 groups and
   reports rule, severity and suggestion. See [docs/lint.md](docs/lint.md).
   - reuse: scripts and mappings in several flows (-> script collection, global or per package),

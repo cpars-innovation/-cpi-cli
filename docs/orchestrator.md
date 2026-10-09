@@ -68,7 +68,8 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--deploy-config`, `-c` | | Config file, folder or public URL |
 | `--update` / `--update-only` / `--deploy-only` | update + deploy | Operation mode |
 | `--deployment-prefix`, `-p` | | Overrides `deploymentPrefix` of the config(s) |
-| `--package-filter`, `--artifact-filter` | | Comma-separated IDs to include (IDs without prefix) |
+| `--package-filter` | | Comma-separated package IDs to include (without prefix) |
+| `--artifact-filter` | | Comma-separated artifacts to include (without prefix): an `artifactId` selects that ID only; an `artifactDir` (folder name, as change detection passes it) or the folder's source ID (`Bundle-SymbolicName`) selects every ID deployed from that folder |
 | `--config-pattern` | `*.y*ml` | File pattern when `--deploy-config` is a folder |
 | `--merge-configs` | `false` | Merge all config files into one run |
 | `--parallel` | `8` | Artifacts uploaded (compared) at the same time, across all packages |
@@ -80,6 +81,7 @@ cpictl orchestrator --packages-dir ./packages --deploy-config ./001-deploy-confi
 | `--defer-deploy` | `false` | Skip phase 2: add the deployments to `.cpi/pending-deploy.json` (`--pending-file`) for one `cpictl deploy --pending`, see [ci.md](ci.md#pipeline-snapshot-update-configure-deploy-once) |
 | `--plan` | `false` | Only report per artifact what would be uploaded and deployed, and why; nothing is written |
 | `--verify-download` | `false` | Download every existing artifact for the comparison anyway |
+| `--draft-handling` | `SKIP` | Artifacts in draft on the tenant: `SKIP` (not uploaded, not deployed, reported) or `ERROR` (the run fails, exit 5); `--fail-on-draft` is the same as `ERROR`, see [drafts](#drafts) |
 
 All of these can be set in the global config file under `orchestrator:` (camelCase keys, e.g.
 `packagesDir`, `deployConfig`, `parallelDeployments`, `mode: update-only`).
@@ -105,8 +107,44 @@ own `configOverrides`; `--plan` lists every ID.
 did not fail) are deployed package by package, up to `--parallel-deployments` at a time. An
 artifact whose runtime version already equals the designtime version is skipped.
 
-With `--output json` the result contains the statistics and one deployment result per
-artifact. Failures give exit code 7 when anything succeeded, otherwise 5.
+With `--output json` the result contains the statistics, `artifacts` (one entry per deployed
+artifact ID), `counts` and one deployment result per artifact. Failures give exit code 7 when
+anything succeeded, otherwise 5.
+
+| `artifacts[].status` | Meaning |
+|----------------------|---------|
+| `created`, `updated` | uploaded in phase 1 |
+| `unchanged` | the tenant had the content already |
+| `failed` | the upload failed (see `reason`), not deployed |
+| `skipped-draft` | in draft on the tenant: not uploaded, not deployed ([drafts](#drafts)) |
+| `not-uploaded` | deployed without an upload (`--deploy-only`, `sync: false`) |
+
+`artifacts[].deploy` is the deployment result (`DEPLOYED`, `SKIPPED`, `FAILED`, `TIMEOUT`),
+empty when not deployed. `counts` has `created`, `updated`, `unchanged`, `failed`,
+`skippedDraft`, `notUploaded`, `deployed` and `deployFailed`.
+
+### Drafts
+
+An artifact in draft on the tenant is being edited in the Web UI. By default
+(`--draft-handling SKIP`, config `orchestrator.draftHandling`, `CPICTL_DRAFT_HANDLING`) the
+orchestrator leaves it alone and goes on with the others:
+
+- it is neither uploaded nor deployed; the log has one warning per ID
+  (`<id> is in draft on the tenant: not uploaded, not deployed`) and the summary lists them;
+- its status is `skipped-draft`, `counts.skippedDraft` and `stats.skippedDrafts` (ID, package,
+  tenant designtime version, running version, repository `Bundle-Version`) list them, and the
+  [job summary](ci.md#job-summary) has a section for them;
+- drafts alone do not fail the run (exit code 0).
+
+The check is per deployed ID: when only a deployment copy (another `artifactId` with the same
+`artifactDir`, or a `deploymentPrefix` variant) is in draft, only that ID is skipped; the source
+is handled on its own. Artifacts deployed without an upload (`--deploy-only`, `sync: false`) are
+checked too (one request per package). `--plan` predicts the skip
+(`upload: skipped-draft  no deploy`).
+
+`--draft-handling ERROR` (or `--fail-on-draft`) keeps the earlier behaviour: a draft is a
+failure and the run ends with exit code 5. Save the version in the Web UI (or discard the draft)
+and run again.
 
 ### Plan
 
@@ -115,7 +153,7 @@ anything (only GET requests). Per artifact:
 
 | Field | Values |
 |-------|--------|
-| `upload` | `create`, `update`, `unchanged`, `fails` (see `error`) |
+| `upload` | `create`, `update`, `unchanged`, `skipped-draft` (in draft on the tenant, not deployed), `fails` (see `error`) |
 | `compared` | `snapshot` or `download` (see below) |
 | `designtime` | the designtime version after the upload (versioning mode applied) |
 | `running`, `runtimeStatus` | what runs now |

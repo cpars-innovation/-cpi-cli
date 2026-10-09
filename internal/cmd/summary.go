@@ -129,9 +129,17 @@ func planTable(items []PlanItem) string {
 func (r orchestratorResult) MarkdownSummary() string {
 	var b strings.Builder
 	if s := r.Stats; s != nil {
-		fmt.Fprintf(&b, "Mode %s: %d artifact(s), %d changed, %d unchanged, %d update failure(s); compared %d with the snapshot, %d downloaded; %d deployed, %d deployment failure(s).\n\n",
-			r.Mode, s.ArtifactsTotal, s.ArtifactsChanged, s.ArtifactsUnchanged, s.UpdateFailures, s.ComparedWithSnapshot, s.DownloadedForComparison,
+		fmt.Fprintf(&b, "Mode %s: %d artifact(s), %d changed, %d unchanged, %d update failure(s), %d skipped (draft); compared %d with the snapshot, %d downloaded; %d deployed, %d deployment failure(s).\n\n",
+			r.Mode, s.ArtifactsTotal, s.ArtifactsChanged, s.ArtifactsUnchanged, s.UpdateFailures, s.ArtifactsSkippedDraft, s.ComparedWithSnapshot, s.DownloadedForComparison,
 			s.ArtifactsDeployedSuccess, s.ArtifactsDeployedFailed)
+	}
+	if s := r.Stats; s != nil && len(s.SkippedDrafts) > 0 {
+		fmt.Fprintf(&b, "**Skipped: in draft on the tenant** (%d, not uploaded, not deployed; save the version in the Web UI, then run again)\n\n", len(s.SkippedDrafts))
+		var rows [][]string
+		for _, d := range s.SkippedDrafts {
+			rows = append(rows, []string{d.ID, d.Package, d.Designtime, d.Running, d.LocalVersion})
+		}
+		b.WriteString(mdTable([]string{"Artifact", "Package", "Tenant designtime", "Running", "Repository Bundle-Version"}, rows))
 	}
 	if len(r.Plan) > 0 {
 		b.WriteString("**Plan** (nothing was changed)\n\n" + planTable(r.Plan))

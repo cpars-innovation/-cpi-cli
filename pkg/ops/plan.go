@@ -49,7 +49,9 @@ type DeployPlan struct {
 	RuntimeStatus string `json:"runtimeStatus,omitempty"`
 	Deploy        bool   `json:"deploy"`
 	Reason        string `json:"reason"`
-	Error         string `json:"error,omitempty"`
+	// Skipped is "draft" for an artifact in draft on the tenant.
+	Skipped string `json:"skipped,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // PlanDeploy predicts Deploy for the artifacts without triggering anything
@@ -68,6 +70,8 @@ func PlanDeploy(exe *httpclnt.HTTPExecuter, artifactType string, ids []string, m
 			p.Error = err.Error()
 		case !exists:
 			p.Error = "designtime artifact does not exist"
+		case IsDraftVersion(version):
+			p.Designtime, p.Skipped, p.Reason = version, SkippedDraft, DraftReason
 		default:
 			p.Designtime = version
 			running, err := rt.GetArtifact(id)

@@ -1007,7 +1007,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		},
 		{
 			Name: "upload_artifact", Title: "Upload artifact from a local directory",
-			Description: "Create or update a designtime artifact from a local directory (action CREATED, UPDATED or UNCHANGED). The package must exist (create_package); the directory needs META-INF/MANIFEST.MF and src/main/resources. Does not deploy: next validate_artifact, then deploy.",
+			Description: "Create or update a designtime artifact from a local directory (action CREATED, UPDATED or UNCHANGED; SKIPPED with skipped \"draft\" when the tenant's artifact is in draft: someone edits it in the Web UI, it is not overwritten). The package must exist (create_package); the directory needs META-INF/MANIFEST.MF and src/main/resources. Does not deploy: next validate_artifact, then deploy.",
 			InputSchema: object(props{
 				"artifact_id": str("Artifact ID (must match Bundle-SymbolicName)"),
 				"name":        str("Display name, defaults to Bundle-Name of the manifest, else artifact_id"),
@@ -1033,7 +1033,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning, DryRun: a.DryRun})
+				return ops.UploadArtifact(cfg.Exe, ops.UploadRequest{ID: a.ArtifactID, Name: a.Name, Type: a.Type, PackageID: a.PackageID, Dir: dir, Versioning: cfg.Versioning, DryRun: a.DryRun, SkipDraft: true})
 			},
 		},
 		{
@@ -1074,7 +1074,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 						return nil, err
 					}
 					reqs[i] = ops.UploadRequest{ID: it.ArtifactID, Name: it.Name, Type: it.Type, PackageID: it.PackageID, Dir: dir,
-						Versioning: cfg.Versioning, DryRun: a.DryRun}
+						Versioning: cfg.Versioning, DryRun: a.DryRun, SkipDraft: true}
 				}
 				type entry struct {
 					*ops.UploadResult
@@ -1095,7 +1095,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 		},
 		{
 			Name: "deploy", Title: "Deploy artifacts",
-			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED, FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless the designtime artifact was changed after the running deployment (rule 'modified after deployment') or allow_downgrade; each result's rule says which rule decided. Next: send_test_message to test the flow.",
+			Description: "Deploy designtime artifacts to runtime and wait for the outcome. One result per artifact: DEPLOYED, SKIPPED (skipped \"draft\": in draft on the tenant, not deployed), FAILED (with the tenant's error message) or TIMEOUT. A redeploy is only DEPLOYED once the runtime shows the new deployment. A designtime version older than the running one is refused (FAILED) unless the designtime artifact was changed after the running deployment (rule 'modified after deployment') or allow_downgrade; each result's rule says which rule decided. Next: send_test_message to test the flow.",
 			InputSchema: object(props{
 				"artifact_ids":          strArray("Artifact IDs"),
 				"artifact_type":         enum(`Artifact type, default "Integration"`, cpi.ArtifactTypes...),

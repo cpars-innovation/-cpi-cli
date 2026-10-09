@@ -159,8 +159,12 @@ func runPendingDeploy(cmd *cobra.Command, exe *httpclnt.HTTPExecuter, serviceDet
 	results := deployTasks(cmd.Context(), exe, tasks, true, maxChecks, delaySeconds, parallel)
 	logResults(results)
 	output.SetResult(cmd.Context(), artifactResults{Results: results})
+	drafts := 0
 	for _, r := range results {
-		if r.Status.Succeeded() {
+		switch {
+		case r.Skipped == ops.SkippedDraft:
+			drafts++ // deployed by a later run, once the version is saved
+		case r.Status.Succeeded():
 			delete(p.Artifacts, r.ID)
 		}
 	}
@@ -168,7 +172,7 @@ func runPendingDeploy(cmd *cobra.Command, exe *httpclnt.HTTPExecuter, serviceDet
 		return err
 	}
 	if len(p.Artifacts) > 0 {
-		log.Warn().Msgf("%d failed deployment(s) stay in %s", len(p.Artifacts), path)
+		log.Warn().Msgf("%d deployment(s) stay in %s (%d failed, %d in draft on the tenant)", len(p.Artifacts), path, len(p.Artifacts)-drafts, drafts)
 	}
 	return ops.Err(results)
 }

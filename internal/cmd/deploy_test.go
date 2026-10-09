@@ -60,7 +60,7 @@ func TestOrchestratorVersioningPerArtifact(t *testing.T) {
 	pkgDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(pkgDir, "B", "META-INF"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "B", "META-INF", "MANIFEST.MF"), []byte("Bundle-SymbolicName: B\nBundle-Version: 1.0.16\n"), 0o644))
-	tasks := collectDeploymentTasks(&cfg.Packages[0], pkgDir, "EDM", "", nil, stats, versioning.TenantBump)
+	tasks := collectDeploymentTasks(&cfg.Packages[0], pkgDir, "EDM", "", nil, stats, versioning.TenantBump, uploadOptions{})
 	require.Len(t, tasks, 2)
 	assert.Equal(t, versioning.Keep, tasks[0].Versioning, "package wins over the flag")
 	assert.Equal(t, versioning.Manifest, tasks[1].Versioning, "artifact wins over the package")
