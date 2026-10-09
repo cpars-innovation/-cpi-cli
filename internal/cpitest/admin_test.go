@@ -87,3 +87,21 @@ func TestAdminStateExportImport(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, pkgs, 3)
 }
+
+// runOnce runs a flow through the admin API and returns the new logs of that flow.
+func runOnce(t *testing.T, m *cpitest.Tenant, artifact string) []cpitest.MessageLog {
+	t.Helper()
+	var out struct {
+		Runs []map[string]string `json:"runs"`
+	}
+	require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/run", map[string]any{"artifact": artifact}, &out))
+	var logs []cpitest.MessageLog
+	for _, l := range m.MessageLogs() {
+		for _, r := range out.Runs {
+			if l.Guid == r["messageGuid"] {
+				logs = append(logs, l)
+			}
+		}
+	}
+	return logs
+}

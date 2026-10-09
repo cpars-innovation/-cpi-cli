@@ -109,3 +109,14 @@ func TestLiveTraffic(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 	cancel()
 }
+
+// A receiver whose credential is missing on the tenant fails.
+func TestExecutionMissingCredential(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	require.NoError(t, cpitest.SeedDemo(m, "dev", time.Now()))
+	delete(m.Credentials["UserCredentials"], "Partner_SFTP")
+	logs := runOnce(t, m, "Partner_Notify")
+	require.Len(t, logs, 1)
+	assert.Equal(t, "FAILED", logs[0].Status)
+	assert.Contains(t, logs[0].ErrorText, "credential Partner_SFTP not found")
+}

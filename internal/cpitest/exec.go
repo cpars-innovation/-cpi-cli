@@ -254,6 +254,9 @@ func (x *executor) call(ch channel, a *Artifact, msg message, t time.Time, guid 
 		}
 		return t.Add(15 * time.Millisecond), ""
 	}
+	if name := ch.Props["credentialName"]; name != "" && x.m.Credentials != nil && !x.m.hasCredential(name) {
+		return t.Add(20 * time.Millisecond), fmt.Sprintf("com.sap.it.nm.security.SecurityException: credential %s not found on this tenant", name)
+	}
 	host := receiverHost(ch, address)
 	sys, ok := x.system(host)
 	latency := 100 * time.Millisecond
@@ -297,4 +300,14 @@ func (x *executor) system(host string) (SystemSpec, bool) {
 		}
 	}
 	return SystemSpec{}, false
+}
+
+// hasCredential reports whether a security material entry of that name exists.
+func (m *Tenant) hasCredential(name string) bool {
+	for _, coll := range m.Credentials {
+		if _, ok := coll[name]; ok {
+			return true
+		}
+	}
+	return false
 }

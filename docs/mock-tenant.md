@@ -172,6 +172,9 @@ executed: the payload passes through unchanged.
   each system's `match` pattern. The system's `latencyMs` adds to the run; with `failRate` the call
   fails with `error` (`{host}`, `{key}`, `{status}` replaced). A host no system matches answers in
   100 ms without failing.
+- A receiver whose  does not exist on the tenant fails with
+   (so a missing credential shows in the logs, not only
+  in ).
 - A failed step has the error and one **trace** (payload, headers, `CamelExceptionCaught`), so
   `logs steps` and `logs trace` show something.
 - **Business key**: a run gets the landscape's key headers as custom header properties when the
