@@ -12,6 +12,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
   `enable_toolset`; the agent enables the toolsets it needs and the server sends
   `notifications/tools/list_changed`. Off by default, for clients without list-changed support.
   See [docs/mcp.md](docs/mcp.md#dynamic-toolsets).
+- MCP `help` lists the toolsets (`help {"topic": "toolsets"}`) with the tools the server offers,
+  for clients that select tools per step themselves.
 
 ## 0.6.0
 

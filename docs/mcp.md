@@ -168,6 +168,10 @@ toolsets enabled at the start. Toolsets are not disabled again during a session.
 - The server instructions name the toolsets and what they are for, so the agent can enable one
   without calling `list_toolsets` first.
 
+A client with its own agent loop can also select tools itself: start the server normally (all
+tools listed with their schemas), read the toolsets from `help {"topic": "toolsets"}` (only the
+tools the server offers) and pass the model only the tools of the enabled toolsets per step.
+
 Use it with clients that handle `tools/list_changed` (Claude Code does). For clients that do not,
 start the server without it: all tools, or a fixed `--toolset`. Clients that load tool schemas on
 demand (Claude Code does this when there are many MCP tools) gain little from it; it helps most with

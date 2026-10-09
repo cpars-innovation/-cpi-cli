@@ -68,6 +68,25 @@ var workflows = []Workflow{
 
 // HelpTool describes what this server, the skills and the CLI offer. It is
 // added after filtering, so it reports the tools that are really available.
+// toolsetsFor returns the toolsets with the tools of each that are
+// available (toolsets without any are left out), so that a client can
+// select tools by task itself.
+func toolsetsFor(available map[string]Tool) []map[string]any {
+	out := []map[string]any{}
+	for _, n := range ToolsetNames() {
+		tools := []string{}
+		for _, t := range Toolsets[n] {
+			if _, ok := available[t]; ok {
+				tools = append(tools, t)
+			}
+		}
+		if len(tools) > 0 {
+			out = append(out, map[string]any{"name": n, "description": ToolsetDescriptions[n], "tools": tools})
+		}
+	}
+	return out
+}
+
 func HelpTool(info HelpInfo) Tool {
 	available := map[string]Tool{}
 	for _, t := range info.Tools {
@@ -87,12 +106,13 @@ func HelpTool(info HelpInfo) Tool {
 			"server":    map[string]any{"mode": mode, "readOnly": info.ReadOnly, "tools": len(info.Tools), "disabledTools": nonNil(info.Removed)},
 			"workflows": workflowsFor(available),
 			"tools":     tools,
+			"toolsets":  toolsetsFor(available),
 			"skills":    skills.List(),
 			"agents":    skills.Agents(),
 			"cli":       commandSummaries(info.Commands),
 			"topics": `help {"topic": X}: X is a tool name (description and input schema), a skill name (its SKILL.md), ` +
 				`"<skill>/<file>" (a reference file of a skill), a CLI command such as "iflow copy" (usage and flags), ` +
-				`or "tools", "skills", "cli", "workflows"`,
+				`or "tools", "toolsets", "skills", "cli", "workflows"`,
 			"docs": docsURL,
 		}
 	}
@@ -102,7 +122,7 @@ func HelpTool(info HelpInfo) Tool {
 			"with their instructions, the cpictl CLI commands, and which tools and skill to use for common tasks. With topic: details of one tool, " +
 			"skill, skill file or CLI command. Use it when unsure which tool or skill fits, or to read a skill in a client that does not load skills. Reads nothing remote.",
 		InputSchema: object(props{
-			"topic": str(`Optional: a tool name, a skill name, "<skill>/<file>", a CLI command ("iflow copy"), or "tools", "skills", "cli", "workflows"`),
+			"topic": str(`Optional: a tool name, a skill name, "<skill>/<file>", a CLI command ("iflow copy"), or "tools", "toolsets", "skills", "cli", "workflows"`),
 		}),
 		Annotations: map[string]any{"readOnlyHint": true, "openWorldHint": false},
 		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -117,7 +137,7 @@ func HelpTool(info HelpInfo) Tool {
 			switch topic {
 			case "":
 				return ov, nil
-			case "tools", "skills", "workflows", "server":
+			case "tools", "toolsets", "skills", "workflows", "server":
 				return map[string]any{topic: ov[topic]}, nil
 			case "cli":
 				return map[string]any{"cli": commandSummaries(info.Commands), "reference": docsURL + "commands.md"}, nil

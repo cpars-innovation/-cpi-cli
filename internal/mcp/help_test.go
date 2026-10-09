@@ -50,6 +50,17 @@ func TestHelpTool(t *testing.T) {
 	assert.Contains(t, newFlow["unavailable"], "deploy")
 	assert.Equal(t, []any{map[string]any{"command": "iflow copy", "short": "Copy"}}, ov["cli"], "the overview has no long texts")
 
+	sets, err := callHelp(t, help, "toolsets")
+	require.NoError(t, err)
+	for _, set := range sets["toolsets"].([]any) {
+		s := set.(map[string]any)
+		assert.NotEmpty(t, s["description"])
+		if s["name"] == "build" {
+			assert.Contains(t, s["tools"], "lint")
+			assert.NotContains(t, s["tools"], "deploy", "only tools the server offers")
+		}
+	}
+
 	tool, err := callHelp(t, help, "graph_neighbors")
 	require.NoError(t, err)
 	assert.Equal(t, true, tool["available"])
