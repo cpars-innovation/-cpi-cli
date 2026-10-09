@@ -153,6 +153,10 @@ The built-in demo is a landscape of this format (`internal/cpitest/landscapes/de
   [Execution](#execution)) and is answered with the payload (or the seed's fixed answer), or with
   HTTP 500 and the error when the run failed.
 - Message log queries honour the status, time and equality filters, newest first.
+- Message logs added while the mock runs (messages, `--live-traffic`, `/_mock/run`, `/_mock/messagelogs`) are
+  kept newest first and bounded: logs older than `--log-retention` (default `168h`; `0` = no age
+  limit) and everything beyond the newest 100 000 are dropped, so a mock left running does not grow
+  without limit. In Go tests: `Tenant.LogRetention` and `Tenant.MaxLogs`.
 - Data stores and log files answer with empty lists; APIs the mock does not know answer 404.
 
 ## Execution

@@ -1,6 +1,7 @@
 package cpitest
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	mrand "math/rand/v2"
@@ -106,14 +107,49 @@ func (m *Tenant) history(now time.Time) []MessageLog {
 	return logs
 }
 
-// addLogs adds message logs to the live log list (newest first).
+const (
+	defaultLogRetention = 168 * time.Hour
+	defaultMaxLogs      = 100_000
+)
+
+// addLogs adds message logs to the live log list, which stays newest first.
+// The batch (small, from one run) is sorted and merged into the front part
+// of the list it overlaps with: new logs are usually the newest, so the
+// full list is never re-sorted. Logs older than the retention or beyond the
+// cap are dropped.
 func (m *Tenant) addLogs(logs []MessageLog) {
 	if len(m.MessageLogSteps) == 0 {
 		m.MessageLogSteps = [][]MessageLog{nil}
 	}
 	last := len(m.MessageLogSteps) - 1
-	all := append(m.MessageLogSteps[last], logs...)
-	sort.SliceStable(all, func(i, j int) bool { return all[i].Start.After(all[j].Start) })
+	all := m.MessageLogSteps[last]
+	if len(logs) > 0 {
+		batch := slices.Clone(logs)
+		sort.SliceStable(batch, func(i, j int) bool { return batch[i].Start.After(batch[j].Start) })
+		// all[:p] are not older than the oldest new log: merge those.
+		oldest := batch[len(batch)-1].Start
+		p := sort.Search(len(all), func(i int) bool { return all[i].Start.Before(oldest) })
+		merged := make([]MessageLog, 0, p+len(batch))
+		i, j := 0, 0
+		for i < p || j < len(batch) {
+			if j == len(batch) || (i < p && !batch[j].Start.After(all[i].Start)) {
+				merged = append(merged, all[i])
+				i++
+			} else {
+				merged = append(merged, batch[j])
+				j++
+			}
+		}
+		all = slices.Insert(all[p:], 0, merged...)
+	}
+	if retention := cmp.Or(m.LogRetention, defaultLogRetention); retention > 0 {
+		cutoff := time.Now().Add(-retention)
+		all = all[:sort.Search(len(all), func(i int) bool { return all[i].Start.Before(cutoff) })]
+	}
+	if limit := cmp.Or(m.MaxLogs, defaultMaxLogs); len(all) > limit {
+		clear(all[limit:])
+		all = all[:limit]
+	}
 	m.MessageLogSteps[last] = all
 }
 

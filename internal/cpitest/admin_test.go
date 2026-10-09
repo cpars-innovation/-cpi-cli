@@ -115,3 +115,44 @@ func TestAdminRunCountIsBounded(t *testing.T) {
 	assert.Len(t, m.MessageLogs(), before, "nothing ran")
 	assert.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/run", map[string]any{"artifact": "Billing_Post", "count": 1000}, nil))
 }
+
+func mkLog(guid string, start time.Time) cpitest.MessageLog {
+	return cpitest.MessageLog{Guid: guid, Artifact: "Orders_In", Status: "COMPLETED", Start: start, End: start.Add(time.Second)}
+}
+
+func guids(m *cpitest.Tenant) []string {
+	var out []string
+	for _, l := range m.MessageLogs() {
+		out = append(out, l.Guid)
+	}
+	return out
+}
+
+func TestLogsStayNewestFirst(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	now := time.Now()
+	add := func(logs ...cpitest.MessageLog) {
+		require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/messagelogs", logs, nil))
+	}
+	add(mkLog("B", now.Add(-2*time.Hour)), mkLog("D", now.Add(-4*time.Hour)))
+	add(mkLog("A", now.Add(-time.Hour)))                                          // newest: in front
+	add(mkLog("E", now.Add(-5*time.Hour)))                                        // oldest: at the end
+	add(mkLog("C2", now.Add(-3*time.Hour)), mkLog("C1", now.Add(-3*time.Hour/2))) // a batch in between, unordered
+	add(mkLog("A0", now), mkLog("B2", now.Add(-2*time.Hour)))                     // a tie keeps the earlier log first
+	assert.Equal(t, []string{"A0", "A", "C1", "B", "B2", "C2", "D", "E"}, guids(m))
+}
+
+func TestLogRetentionAndCap(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	now := time.Now()
+	m.LogRetention = 2 * time.Hour
+	require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/messagelogs",
+		[]cpitest.MessageLog{mkLog("new", now), mkLog("old", now.Add(-3*time.Hour)), mkLog("mid", now.Add(-time.Hour))}, nil))
+	assert.Equal(t, []string{"new", "mid"}, guids(m), "older than the retention: dropped")
+
+	m.LogRetention = -1 // no age limit
+	m.MaxLogs = 3
+	require.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/messagelogs",
+		[]cpitest.MessageLog{mkLog("x1", now.Add(-5*time.Hour)), mkLog("x2", now.Add(-10*time.Hour)), mkLog("x3", now.Add(-time.Minute))}, nil))
+	assert.Equal(t, []string{"new", "x3", "mid"}, guids(m), "beyond the cap the oldest are dropped")
+}

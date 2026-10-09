@@ -1553,16 +1553,17 @@ SSL_CERT_FILE.
 **Flags:**
 
 ```
-      --addr string          Listen address (default "127.0.0.1:8081")
-      --admin-token string   Bearer token for the /_mock admin API (default: a random token, printed at start)
-      --ca-out string        With --tls: file the generated CA certificate is written to (PEM)
-      --live-traffic float   Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)
-      --public-url string    Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
-      --seed string          Content: demo or empty (default "demo")
-      --seed-dir string      Landscape directory to load instead of --seed (landscape.yaml + packages/)
-      --tier string          Tier of the landscape (demo: dev, test, prod) (default "dev")
-      --tls                  Serve HTTPS with a generated certificate (for access from other containers)
-      --tls-hosts strings    Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
+      --addr string              Listen address (default "127.0.0.1:8081")
+      --admin-token string       Bearer token for the /_mock admin API (default: a random token, printed at start)
+      --ca-out string            With --tls: file the generated CA certificate is written to (PEM)
+      --live-traffic float       Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)
+      --log-retention duration   How long message logs are kept (older ones are dropped; at most 100000 are kept; 0: no age limit) (default 168h0m0s)
+      --public-url string        Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
+      --seed string              Content: demo or empty (default "demo")
+      --seed-dir string          Landscape directory to load instead of --seed (landscape.yaml + packages/)
+      --tier string              Tier of the landscape (demo: dev, test, prod) (default "dev")
+      --tls                      Serve HTTPS with a generated certificate (for access from other containers)
+      --tls-hosts strings        Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
 ```
 
 **Examples:**

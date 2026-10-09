@@ -259,6 +259,11 @@ type Tenant struct {
 	// Inbound endpoint are logged, and message log queries honour the status
 	// and time filters (newest first).
 	Live bool
+	// LogRetention is how long live message logs are kept (0: 168h, negative:
+	// forever) and MaxLogs how many (0: 100000); the oldest are dropped when
+	// logs are added.
+	LogRetention time.Duration
+	MaxLogs      int
 	// AdminToken protects the admin API (/_mock/...): requests need
 	// "Authorization: Bearer <token>". Empty: only loopback clients are allowed.
 	AdminToken string
@@ -625,11 +630,7 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 		if a := m.Artifacts[in.Artifact]; a != nil {
 			l.Package = a.Package
 		}
-		if len(m.MessageLogSteps) == 0 {
-			m.MessageLogSteps = [][]MessageLog{nil}
-		}
-		last := len(m.MessageLogSteps) - 1
-		m.MessageLogSteps[last] = append([]MessageLog{l}, m.MessageLogSteps[last]...)
+		m.addLogs([]MessageLog{l})
 		w.Header().Set("SAP_MessageProcessingLogID", l.Guid)
 		w.Header().Set("SAP_MplCorrelationId", l.CorrelationID)
 	} else if in.MessageGuid != "" {

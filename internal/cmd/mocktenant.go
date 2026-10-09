@@ -105,6 +105,13 @@ SSL_CERT_FILE.`,
 			defer m.Close()
 			m.Live, m.OAuth, m.FilterMessageLogs = true, true, true
 			m.AdminToken, _ = cmd.Flags().GetString("admin-token")
+			m.LogRetention, _ = cmd.Flags().GetDuration("log-retention")
+			if m.LogRetention < 0 {
+				return output.Usagef("--log-retention must not be negative")
+			}
+			if m.LogRetention == 0 {
+				m.LogRetention = -1 // 0 keeps logs forever (up to the cap)
+			}
 			generatedToken := m.AdminToken == ""
 			if generatedToken {
 				b := make([]byte, 24)
@@ -156,6 +163,7 @@ SSL_CERT_FILE.`,
 	c.Flags().String("tier", "dev", "Tier of the landscape (demo: "+strings.Join(cpitest.DemoTiers, ", ")+")")
 	c.Flags().Float64("live-traffic", 0, "Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)")
 	c.Flags().String("public-url", "", "Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)")
+	c.Flags().Duration("log-retention", 168*time.Hour, "How long message logs are kept (older ones are dropped; at most 100000 are kept; 0: no age limit)")
 	c.Flags().String("admin-token", "", "Bearer token for the /_mock admin API (default: a random token, printed at start)")
 	c.Flags().Bool("tls", false, "Serve HTTPS with a generated certificate (for access from other containers)")
 	c.Flags().StringSlice("tls-hosts", []string{"localhost", "127.0.0.1"}, "Host names and IPs of the generated certificate")
