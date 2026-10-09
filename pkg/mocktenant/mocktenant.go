@@ -3,6 +3,17 @@
 // mock-tenant`, with the demo landscape, your own landscapes (directory with
 // landscape.yaml and content), flow execution and the /_mock admin API.
 // It never talks to a real tenant. See docs/mock-tenant.md.
+//
+// Experimental: the API may change in minor versions until cpicli 1.0.
+//
+// The supported entry points are Serve and Start (start a live mock), SeedDemo,
+// SeedDir and SeedLandscape (load content; LoadLandscapeDir reads a
+// landscape), Tenant.MessageLogs (what the mock logged) and the admin API
+// under /_mock (set Tenant.AdminToken to require a bearer token from every
+// client). Tenant, Landscape and the other types are aliases of internal
+// types: use the documented entry points and fields such as Artifacts, URL
+// and Executer, and expect everything else, in particular the test-scripting
+// fields, to change.
 package mocktenant
 
 import (

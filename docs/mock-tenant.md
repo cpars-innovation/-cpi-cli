@@ -256,7 +256,17 @@ volumes:
 ## In Go tests
 
 `github.com/cpars-innovation/cpicli/pkg/mocktenant` is the same mock as a library, for tests of
-tools built on cpicli:
+tools built on cpicli.
+
+> **Experimental:** the API may change in minor versions until cpicli 1.0.
+
+Supported entry points: `Serve` and `Start` (a live mock on your listener or on a free loopback
+port), `SeedDemo`, `SeedDir` and `SeedLandscape` (content; `LoadLandscapeDir` reads a landscape),
+`Tenant.MessageLogs` (what the mock logged), and the [admin API](#admin-api-_mock) (set
+`Tenant.AdminToken` to require a bearer token from every client, otherwise only loopback clients
+are allowed). `Tenant` and the other types are aliases of internal types: besides the entry points,
+rely only on fields such as `Artifacts`, `URL()` and `Executer()`; the test-scripting fields
+(`AfterDeploy`, `StatusOverride`, ...) may change.
 
 ```go
 m := mocktenant.Start() // live, Basic Auth with CSRF and OAuth, on a free loopback port
