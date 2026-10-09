@@ -149,6 +149,10 @@ The built-in demo is a landscape of this format (`internal/cpitest/landscapes/de
 - A deploy registers the flow's HTTPS (`/http/<urlPath>`) and SOAP (`/cxf/<address>`) senders as
   runtime endpoints, listed in `ServiceEndpoints`; an undeploy removes them. So flows uploaded
   into `--seed empty` can receive messages.
+  Like on a real tenant, a flow whose address is already used by another deployed flow does not
+  start: its deployment ends in `ERROR` with the runtime error information `the address /orders/in
+  is already used by Orders_In` (the usual mistake after copying a flow). Undeploying the first
+  flow frees the address.
 - A message sent to a flow's endpoint (`cpictl send --artifact-id Orders_In`) runs the flow (see
   [Execution](#execution)) and is answered with the payload (or the seed's fixed answer), or with
   HTTP 500 and the error when the run failed.

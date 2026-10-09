@@ -153,7 +153,7 @@ func (m *Tenant) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a := m.Artifacts[req.Artifact]
-		if a == nil || a.Runtime == nil || a.info() == nil {
+		if a == nil || !a.running() || a.info() == nil {
 			bad(fmt.Errorf("artifact %q is not a deployed integration flow", req.Artifact))
 			return
 		}

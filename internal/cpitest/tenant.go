@@ -617,7 +617,7 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(r.Body)
 	m.Received = append(m.Received, ReceivedMessage{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: string(body)})
-	if a := m.Artifacts[in.Artifact]; m.Live && a != nil && a.Runtime != nil && a.info() != nil {
+	if a := m.Artifacts[in.Artifact]; m.Live && a != nil && a.running() && a.info() != nil {
 		m.liveSend(w, r, in, string(body))
 		return
 	}
@@ -1395,7 +1395,10 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 				version = a.Runtime.Version
 			}
 			a.Runtime, a.undeployed = &Runtime{Version: version, Status: "STARTED", DeployedOn: time.Now()}, false
-			m.registerEndpoints(id, a)
+			a.ErrorInfo = ""
+			if conflict := m.registerEndpoints(id, a); conflict != "" {
+				a.Runtime.Status, a.ErrorInfo = "ERROR", conflict
+			}
 			if len(a.TaskStatuses) == 0 {
 				a.TaskStatuses = []string{"SUCCESS"}
 			}

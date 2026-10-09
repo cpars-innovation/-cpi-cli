@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"cmp"
+	"fmt"
 	"io"
 	"path"
 	"regexp"
@@ -268,14 +269,25 @@ func (a *Artifact) flow() *flowModel {
 
 // registerEndpoints makes the HTTPS and SOAP senders of a deployed flow
 // reachable (Inbound) and listed in ServiceEndpoints. Endpoints configured
-// before (for example by a seed) keep their behaviour.
-func (m *Tenant) registerEndpoints(id string, a *Artifact) {
+// before (for example by a seed) keep their behaviour. Like a real tenant it
+// registers nothing and returns an error message when an address is already
+// used by another deployed flow.
+func (m *Tenant) registerEndpoints(id string, a *Artifact) (conflict string) {
 	fm := a.flow()
 	if fm == nil {
-		return
+		return ""
 	}
 	if m.Inbound == nil {
 		m.Inbound = map[string]*Inbound{}
+	}
+	for _, s := range fm.Senders {
+		p := s.endpointPath(a.Parameters)
+		if in := m.Inbound[p]; p != "" && in != nil && in.Artifact != id && in.Artifact != "" {
+			if other := m.Artifacts[in.Artifact]; other != nil && other.running() {
+				addr := strings.TrimPrefix(strings.TrimPrefix(p, "/http"), "/cxf")
+				return fmt.Sprintf("the address %s is already used by %s", addr, in.Artifact)
+			}
+		}
 	}
 	for _, s := range fm.Senders {
 		p := s.endpointPath(a.Parameters)
@@ -289,7 +301,11 @@ func (m *Tenant) registerEndpoints(id string, a *Artifact) {
 			a.EndpointURL = strings.TrimSuffix(cmp.Or(m.EndpointBase, m.URL()), "/") + p
 		}
 	}
+	return ""
 }
+
+// running reports whether the artifact is deployed and not in error.
+func (a *Artifact) running() bool { return a.Runtime != nil && a.Runtime.Status != "ERROR" }
 
 // unregisterEndpoints removes the runtime endpoints of an undeployed flow.
 func (m *Tenant) unregisterEndpoints(id string, a *Artifact) {
@@ -298,5 +314,5 @@ func (m *Tenant) unregisterEndpoints(id string, a *Artifact) {
 			delete(m.Inbound, p)
 		}
 	}
-	a.EndpointURL = ""
+	a.EndpointURL, a.ErrorInfo = "", ""
 }

@@ -77,7 +77,7 @@ func (m *Tenant) history(now time.Time) []MessageLog {
 	x := m.newExecutor(strings.ToUpper(t.Name[:1]))
 	for ri, r := range l.Traffic {
 		a := m.Artifacts[r.Start]
-		if !r.onTier(t.Name) || a == nil || a.Runtime == nil || a.info() == nil {
+		if !r.onTier(t.Name) || a == nil || !a.running() || a.info() == nil {
 			continue
 		}
 		n := int(window.Hours() * r.PerHour * scale)
@@ -94,7 +94,7 @@ func (m *Tenant) history(now time.Time) []MessageLog {
 			x.run(r.Start, message{correlation: corr, key: key, payload: m.payload(key), keyHeaders: l.KeyHeaders}, at, "", 0)
 			for fi, f := range r.FollowUps {
 				every := max(f.Every, 1)
-				if !f.onTier(t.Name) || (i+1)%every != 0 || m.Artifacts[f.Start] == nil || m.Artifacts[f.Start].Runtime == nil {
+				if !f.onTier(t.Name) || (i+1)%every != 0 || m.Artifacts[f.Start] == nil || !m.Artifacts[f.Start].running() {
 					continue
 				}
 				x.run(f.Start, message{correlation: fmt.Sprintf("%s-F%d", corr, fi+1), key: key, payload: m.payload(key), keyHeaders: l.KeyHeaders},
@@ -201,7 +201,7 @@ func (m *Tenant) StartTraffic(ctx context.Context, speed float64) {
 					return
 				case now := <-ticker.C:
 					m.mu.Lock()
-					if a := m.Artifacts[r.Start]; a != nil && a.Runtime != nil && a.info() != nil {
+					if a := m.Artifacts[r.Start]; a != nil && a.running() && a.info() != nil {
 						x := m.newExecutor("LIVE")
 						key := r.key(counter)
 						corr := fmt.Sprintf("C-%s-live-%d-%d", t.Name, ri, i)

@@ -111,3 +111,41 @@ func TestUploadFidelity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, endpoints, "undeploy removes the endpoint")
 }
+
+// Two flows listening on the same address: like a real tenant, the second
+// deployment ends in ERROR (the usual mistake after copying a flow) and the
+// runtime error information says which flow owns the address. Undeploying the
+// first flow frees it.
+func TestDeploySameAddressTwice(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	m.Live, m.FilterMessageLogs = true, true
+	m.Packages = []cpitest.Package{{ID: "CustomerB", Name: "Customer B", Version: "1.0.0"}}
+	exe := m.Executer()
+	for _, id := range []string{"Orders_In", "Orders_Copy"} {
+		_, err := ops.UploadArtifact(exe, ops.UploadRequest{ID: id, Type: "Integration", PackageID: "CustomerB", Dir: exportDemo(t, "Orders_In")})
+		require.NoError(t, err, id)
+	}
+	opts := ops.Options{Interval: time.Millisecond, MaxChecks: 5}
+	deploy := func(id string) ops.Result {
+		return ops.Deploy(context.Background(), ops.NewTenant(exe), []ops.Artifact{{ID: id, Type: "Integration"}}, opts)[0]
+	}
+	undeploy := func(id string) ops.Result {
+		return ops.Undeploy(context.Background(), ops.NewTenant(exe), []ops.Artifact{{ID: id, Type: "Integration"}}, opts)[0]
+	}
+
+	require.Equal(t, ops.StatusDeployed, deploy("Orders_In").Status)
+	res := deploy("Orders_Copy")
+	assert.Equal(t, ops.StatusFailed, res.Status)
+	assert.Contains(t, res.Error, "ended with status ERROR")
+	assert.Contains(t, res.Error, "the address /orders/in is already used by Orders_In")
+	info, err := cpi.NewRuntime(exe).GetErrorInfo("Orders_Copy")
+	require.NoError(t, err)
+	assert.Equal(t, "the address /orders/in is already used by Orders_In", info)
+	assert.Equal(t, "Orders_In", m.Inbound["/http/orders/in"].Artifact, "the first flow keeps the address")
+
+	require.Equal(t, ops.StatusUndeployed, undeploy("Orders_In").Status)
+	assert.Equal(t, ops.StatusDeployed, deploy("Orders_Copy").Status, "the address is free again")
+	assert.Equal(t, "Orders_Copy", m.Inbound["/http/orders/in"].Artifact)
+	_, err = cpi.NewRuntime(exe).GetErrorInfo("Orders_Copy")
+	assert.Error(t, err, "no error information any more (204)")
+}

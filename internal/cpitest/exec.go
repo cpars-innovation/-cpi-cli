@@ -124,7 +124,7 @@ func inEventSubprocess(m *iflow.Model, el *iflow.Element) bool {
 func (x *executor) flowBySender(adapter, address string) (string, *Artifact) {
 	for _, id := range sortedKeys(x.m.Artifacts) {
 		a := x.m.Artifacts[id]
-		if a.Runtime == nil {
+		if !a.running() {
 			continue
 		}
 		fi := a.info()
