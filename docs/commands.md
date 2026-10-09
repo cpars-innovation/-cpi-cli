@@ -1529,6 +1529,9 @@ credentials, keystore and Partner Directory. Any credentials are accepted
   draft), prod has a parameter changed on the tenant, a certificate expiring in
   20 days and no Returns_API credential.
 --seed empty starts without content.
+--seed-dir loads a landscape directory instead (landscape.yaml and content in
+the layout cpictl snapshot writes, see docs/mock-tenant.md): its tiers, systems
+and traffic; --tier names one of its tiers.
 
 The tenant behaves live: a deploy starts the designtime version, uploads are
 recorded, a message sent to a flow's endpoint (POST /http/orders/in) creates
@@ -1549,7 +1552,8 @@ SSL_CERT_FILE.
       --ca-out string       With --tls: file the generated CA certificate is written to (PEM)
       --public-url string   Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
       --seed string         Content: demo or empty (default "demo")
-      --tier string         Demo variant: dev, test, prod (default "dev")
+      --seed-dir string     Landscape directory to load instead of --seed (landscape.yaml + packages/)
+      --tier string         Tier of the landscape (demo: dev, test, prod) (default "dev")
       --tls                 Serve HTTPS with a generated certificate (for access from other containers)
       --tls-hosts strings   Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
 ```
@@ -1558,6 +1562,7 @@ SSL_CERT_FILE.
 
 ```
   cpictl mock-tenant --tier dev --addr 127.0.0.1:8081
+  cpictl mock-tenant --seed-dir ./landscapes/retail-b --tier prod-eu --addr 127.0.0.1:8084
   cpictl mock-tenant --tier prod --addr 0.0.0.0:8443 --tls --tls-hosts mock-prod,localhost --ca-out /certs/mock-ca.pem
 ```
 

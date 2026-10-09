@@ -65,6 +65,73 @@ cpictl transport check Returns_In Orders_Route --dir packages --source tenant:de
 cpictl --profile dev logs summary --since 24h
 ```
 
+## Landscapes (`--seed-dir`)
+
+`--seed-dir <dir>` loads your own landscape instead of the demo, one tier per mock:
+
+```bash
+cpictl mock-tenant --seed-dir ./landscapes/retail-b --tier prod-eu --addr 127.0.0.1:8084
+```
+
+A landscape directory holds the content in the layout `cpictl snapshot` writes, plus
+`landscape.yaml` with everything that differs per tier and what the content does not contain:
+
+```
+retail-b/
+  landscape.yaml
+  packages/<Package>/<Package>.json          # optional: {"d": {"Id", "Name", "Version"}}
+  packages/<Package>/<Artifact>/META-INF/MANIFEST.MF
+  packages/<Package>/<Artifact>/src/main/resources/...
+```
+
+So a snapshot of a real tenant (or `cpictl iflow copy` / templates) is a valid starting point.
+The artifact ID comes from `Bundle-SymbolicName`, the name from `Bundle-Name`, the version from
+`Bundle-Version`, the type from `SAP-BundleType`.
+
+```yaml
+name: retail-b                      # required
+description: S/4 orders to Salesforce, invoices to SFTP
+keyHeaders: [SalesOrder]            # custom header properties written by the flows' scripts
+history: 24h                        # message history generated at start (default 24h)
+seed: 7                             # optional: change the generated traffic and failures
+
+tiers:                              # required, in pipeline order; --tier picks one
+  - name: dev
+    drafts: [SF_Order_Upsert]       # being edited in the Web UI: designtime "Active"
+  - name: prod-eu
+    versions: { S4_Orders_Out: 1.0.2 }                 # designtime and running version
+    parameters: { S4_Orders_Out: { Host: s4-prd.example.com } }   # configured on this tenant
+    modifiedBy: { Order_Route: m.okafor@customer.example }       # changed on the tenant (drift)
+    exclude: [Returns_In]           # does not exist on this tier
+    notDeployed: [SF_Account_Sync]  # exists, not running
+    missingCredentials: [SF_OAuth]
+    keystore: [{ alias: sf_client, expiresInDays: 12 }]
+    partnerDirectory: { Shop_DE/endpoint: "https://shop-de.example.com" }
+    systems: { s4: { failRate: 0.1 } }                  # overrides per tier
+    trafficScale: 2                 # more messages on this tier
+
+systems:                            # receivers the flows call, matched by host
+  s4: { match: "s4-*.example.com", latencyMs: 180, failRate: 0.02, status: 500,
+        error: "SO {key}: plant 1010 locked ({host})" }
+
+credentials:                        # names only; secrets are never real
+  - { name: S4_User, kind: basic, user: RFC_SO }       # kind: basic | oauth2 | secure
+  - { name: SF_OAuth, kind: oauth2, tokenUrl: "https://login.salesforce.com/oauth2/token" }
+keystore: [{ alias: sf_client, expiresInDays: 300 }]
+partnerDirectory: { Shop_DE/format: JSON }
+
+traffic:                            # messages that start at a flow
+  - start: S4_Orders_Out            # HTTPS sender or timer flow
+    perHour: 40
+    key: "SO{n}"                    # business key; {n} counts up from keyStart
+    keyStart: 1000
+    followUps:                      # the transaction comes back later with a new correlation ID
+      - { start: Returns_In, every: 4, after: 20m, tiers: [dev] }
+```
+
+Unknown fields, unknown artifacts, credentials, systems or tiers are refused at start (exit 2).
+The built-in demo is a landscape of this format (`internal/cpitest/landscapes/demo`).
+
 ## Live behaviour
 
 - A deploy starts the designtime version (a draft deploys as the version running before); the

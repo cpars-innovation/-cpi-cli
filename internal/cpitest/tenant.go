@@ -263,8 +263,11 @@ type Tenant struct {
 	csrfToken  string
 	csrfSerial int
 	liveSerial int
-	requests   []string
-	server     *httptest.Server
+	// landscape and tierSpec are set by SeedLandscape.
+	landscape *Landscape
+	tierSpec  *TierSpec
+	requests  []string
+	server    *httptest.Server
 }
 
 // NewTenant starts a mock tenant; it is closed when the test ends.
