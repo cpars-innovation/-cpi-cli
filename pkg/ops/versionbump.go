@@ -77,7 +77,7 @@ func BumpVersions(ctx context.Context, o BumpOptions) (*BumpResult, error) {
 	}
 	root := ""
 	if o.Changed {
-		top, err := git(ctx, o.Dir, "rev-parse", "--show-toplevel")
+		top, err := Git(ctx, o.Dir, "rev-parse", "--show-toplevel")
 		if err != nil {
 			return nil, output.Usagef("--changed needs a Git repository: %v", err)
 		}
@@ -89,8 +89,8 @@ func BumpVersions(ctx context.Context, o BumpOptions) (*BumpResult, error) {
 
 	res := &BumpResult{Items: []BumpItem{}, Counts: map[string]int{}, DryRun: o.DryRun}
 	var walkErr error
-	err := walkLocalArtifacts(ctx, o.Dir, func(a LocalArtifact) {
-		if !matchAny(o.Packages, a.PackageID) || !matchAny(o.Artifacts, a.ID) {
+	err := WalkLocalArtifacts(ctx, o.Dir, func(a LocalArtifact) {
+		if !MatchAny(o.Packages, a.PackageID) || !MatchAny(o.Artifacts, a.ID) {
 			return
 		}
 		it := BumpItem{Artifact: a.ID, Package: a.PackageID, Path: a.Rel}
@@ -133,7 +133,7 @@ func bumpOne(ctx context.Context, root string, a LocalArtifact, o BumpOptions, i
 		}
 		rel = filepath.ToSlash(rel)
 		mf := rel + "/META-INF/MANIFEST.MF"
-		since, err := git(ctx, root, "log", "-1", "--format=%H", "-G", "^Bundle-Version:", "--", mf)
+		since, err := Git(ctx, root, "log", "-1", "--format=%H", "-G", "^Bundle-Version:", "--", mf)
 		if err != nil {
 			return BumpFailed, err.Error()
 		}
@@ -142,7 +142,7 @@ func bumpOne(ctx context.Context, root string, a LocalArtifact, o BumpOptions, i
 			return BumpNew, ""
 		}
 		it.Since = since
-		committed, err := git(ctx, root, "show", since+":"+mf)
+		committed, err := Git(ctx, root, "show", since+":"+mf)
 		if err != nil {
 			return BumpFailed, err.Error()
 		}
@@ -181,14 +181,14 @@ func gitChanged(ctx context.Context, root, commit, dir string) (bool, error) {
 		}
 		return false, fmt.Errorf("git diff %s -- %s: %w", commit, dir, err)
 	}
-	untracked, err := git(ctx, root, "ls-files", "--others", "--exclude-standard", "--", dir)
+	untracked, err := Git(ctx, root, "ls-files", "--others", "--exclude-standard", "--", dir)
 	if err != nil {
 		return false, err
 	}
 	return strings.TrimSpace(untracked) != "", nil
 }
 
-func git(ctx context.Context, dir string, args ...string) (string, error) {
+func Git(ctx context.Context, dir string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -202,7 +202,7 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
-func matchAny(patterns []string, name string) bool {
+func MatchAny(patterns []string, name string) bool {
 	if len(patterns) == 0 {
 		return true
 	}

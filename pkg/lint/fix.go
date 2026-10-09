@@ -1,4 +1,4 @@
-package ops
+package lint
 
 import (
 	"context"
@@ -35,25 +35,25 @@ type lintFix struct {
 	reconnect      bool
 }
 
-// LintFixOptions select the fixes.
-type LintFixOptions struct {
+// FixOptions select the fixes.
+type FixOptions struct {
 	// Rules to fix (empty: the safe defaults; "all": every fixable rule).
 	Rules  []string
 	DryRun bool
 }
 
-// LintFixChange is one applied (or, in a dry run, planned) change.
-type LintFixChange struct {
+// FixChange is one applied (or, in a dry run, planned) change.
+type FixChange struct {
 	Rule     string `json:"rule"`
 	Artifact string `json:"artifact"`
 	Path     string `json:"path"`
 	Action   string `json:"action"`
 }
 
-// LintFixResult lists the changes.
-type LintFixResult struct {
-	DryRun  bool            `json:"dryRun,omitempty"`
-	Changes []LintFixChange `json:"changes"`
+// FixResult lists the changes.
+type FixResult struct {
+	DryRun  bool        `json:"dryRun,omitempty"`
+	Changes []FixChange `json:"changes"`
 	// Collections created or extended (package/ID) and artifacts changed
 	// (paths): they need a version bump, an upload and a deployment, the
 	// collections first.
@@ -62,15 +62,15 @@ type LintFixResult struct {
 	NextSteps   []string `json:"nextSteps"`
 }
 
-// Lint checks the artifacts of a content tree (see runLint).
-func Lint(ctx context.Context, o LintOptions) (*LintResult, error) {
+// Run checks the artifacts of a content tree (see runLint).
+func Run(ctx context.Context, o Options) (*Result, error) {
 	res, _, err := runLint(ctx, o)
 	return res, err
 }
 
-// LintFix applies the fixable findings of the selected rules to the local
+// Fix applies the fixable findings of the selected rules to the local
 // files. Nothing is sent to a tenant.
-func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixResult, error) {
+func Fix(ctx context.Context, o Options, fo FixOptions) (*FixResult, error) {
 	rules := map[string]bool{}
 	switch {
 	case len(fo.Rules) == 0:
@@ -90,16 +90,16 @@ func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixRes
 	if err != nil {
 		return nil, err
 	}
-	out := &LintFixResult{DryRun: fo.DryRun, Changes: []LintFixChange{}, Collections: []string{}, Changed: []string{}, NextSteps: []string{}}
+	out := &FixResult{DryRun: fo.DryRun, Changes: []FixChange{}, Collections: []string{}, Changed: []string{}, NextSteps: []string{}}
 	changed := map[string]bool{}
 	collections := map[string]bool{}
 
 	// per artifact, the edits of its models
 	type artifactEdits struct {
 		a       *lintArtifact
-		scripts []LintFinding // to collection
-		removes []LintFinding
-		deletes []LintFinding
+		scripts []Finding // to collection
+		removes []Finding
+		deletes []Finding
 	}
 	edits := map[string]*artifactEdits{}
 	var order []string
@@ -149,7 +149,7 @@ func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixRes
 				collections[key] = true
 				out.Collections = append(out.Collections, key)
 			}
-			out.Changes = append(out.Changes, LintFixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel,
+			out.Changes = append(out.Changes, FixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel,
 				Action: fmt.Sprintf("%s -> script collection %s (%s); the local copy is deleted", path.Base(fx.script), key, name)})
 		}
 	}
@@ -163,7 +163,7 @@ func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixRes
 			if f.fix.reconnect {
 				action += ", its neighbours connected"
 			}
-			out.Changes = append(out.Changes, LintFixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel, Action: action})
+			out.Changes = append(out.Changes, FixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel, Action: action})
 		}
 		deleted := map[string]bool{}
 		for _, f := range append(slicesClone(e.scripts), e.deletes...) {
@@ -181,7 +181,7 @@ func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixRes
 				}
 			}
 			if f.fix.kind == fixDeleteFile {
-				out.Changes = append(out.Changes, LintFixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel, Action: "deleted " + file})
+				out.Changes = append(out.Changes, FixChange{Rule: f.Rule, Artifact: e.a.ID, Path: e.a.Rel, Action: "deleted " + file})
 			}
 		}
 		if len(e.scripts)+len(e.removes)+len(e.deletes) > 0 && !changed[rel] {
@@ -201,7 +201,7 @@ func LintFix(ctx context.Context, o LintOptions, fo LintFixOptions) (*LintFixRes
 	return out, nil
 }
 
-func slicesClone(s []LintFinding) []LintFinding { return append([]LintFinding(nil), s...) }
+func slicesClone(s []Finding) []Finding { return append([]Finding(nil), s...) }
 
 const scriptCollectionManifest = `Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
@@ -268,8 +268,8 @@ func placeInCollection(collDir string, fx *lintFix, a *lintArtifact, written map
 
 // applyModelEdits rewrites script references to collections and removes
 // elements in the models of an artifact.
-func applyModelEdits(a *lintArtifact, scripts, removes []LintFinding, dryRun bool) error {
-	byModel := map[string][]LintFinding{}
+func applyModelEdits(a *lintArtifact, scripts, removes []Finding, dryRun bool) error {
+	byModel := map[string][]Finding{}
 	for _, f := range removes {
 		byModel[f.fix.model] = append(byModel[f.fix.model], f)
 	}

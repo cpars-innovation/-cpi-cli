@@ -150,7 +150,7 @@ func renameIFlow(o IFlowCopyOptions, res *IFlowCopyResult) error {
 	}
 
 	// sender addresses first: they can refuse the copy
-	models, _ := filepath.Glob(filepath.Join(dir, filepath.FromSlash(resourcesDir), "scenarioflows", "integrationflow", "*.iflw"))
+	models, _ := filepath.Glob(filepath.Join(dir, filepath.FromSlash(ResourcesDir), "scenarioflows", "integrationflow", "*.iflw"))
 	if len(models) == 0 {
 		return output.Usagef("%s has no .iflw model", res.From)
 	}
@@ -234,7 +234,7 @@ func renameIFlow(o IFlowCopyOptions, res *IFlowCopyResult) error {
 
 	// parameters.prop
 	if len(params) > 0 {
-		p := filepath.Join(dir, filepath.FromSlash(resourcesDir), "parameters.prop")
+		p := filepath.Join(dir, filepath.FromSlash(ResourcesDir), "parameters.prop")
 		data, _ := os.ReadFile(p)
 		if err := os.WriteFile(p, setProperties(data, params, true), 0o644); err != nil {
 			return err
@@ -419,7 +419,7 @@ func setProperties(data []byte, values map[string]string, cpiEscapes bool) []byt
 		if trimmed == "" || trimmed[0] == '#' || trimmed[0] == '!' {
 			continue
 		}
-		for k := range propertyValues([]byte(line)) {
+		for k := range PropertyValues([]byte(line)) {
 			if v, ok := values[k]; ok {
 				lines[i] = escapePropertyKey(k) + "=" + escapePropertyValue(v, cpiEscapes)
 				done[k] = true

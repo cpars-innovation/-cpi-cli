@@ -3,6 +3,7 @@ package cmd
 import (
 	"cmp"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/lint"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"github.com/cpars-innovation/cpicli/internal/deploy"
 	"github.com/cpars-innovation/cpicli/internal/output"
 	"github.com/cpars-innovation/cpicli/internal/str"
-	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,10 +19,10 @@ import (
 
 // lintResult is the JSON result of lint.
 type lintResult struct {
-	*ops.LintResult
-	Fix      *ops.LintFixResult `json:"fix,omitempty"`
-	Baseline string             `json:"baseline,omitempty"`
-	FailOn   string             `json:"failOn,omitempty"`
+	*lint.Result
+	Fix      *lint.FixResult `json:"fix,omitempty"`
+	Baseline string          `json:"baseline,omitempty"`
+	FailOn   string          `json:"failOn,omitempty"`
 }
 
 func NewLintCommand() *cobra.Command {
@@ -66,7 +66,7 @@ removes content modifiers that do nothing). Review the diff, raise the versions
 		Annotations:  map[string]string{annotationOffline: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if list, _ := cmd.Flags().GetBool("list-rules"); list {
-				rules := ops.LintRules()
+				rules := lint.Rules()
 				output.SetResult(cmd.Context(), map[string]any{"rules": rules})
 				for _, r := range rules {
 					fix := ""
@@ -98,7 +98,7 @@ removes content modifiers that do nothing). Review the diff, raise the versions
 	return c
 }
 
-func lintOptions(cmd *cobra.Command) (ops.LintOptions, error) {
+func lintOptions(cmd *cobra.Command) (lint.Options, error) {
 	dir := config.GetStringWithFallback(cmd, "dir", "lint.dir")
 	if dir == "" {
 		dir = "."
@@ -106,11 +106,11 @@ func lintOptions(cmd *cobra.Command) (ops.LintOptions, error) {
 			dir = "packages"
 		}
 	}
-	cfg, err := ops.LoadLintConfig(config.GetStringWithFallback(cmd, "rules", "lint.rules"))
+	cfg, err := lint.LoadConfig(config.GetStringWithFallback(cmd, "rules", "lint.rules"))
 	if err != nil {
-		return ops.LintOptions{}, err
+		return lint.Options{}, err
 	}
-	o := ops.LintOptions{
+	o := lint.Options{
 		Dir:         dir,
 		Packages:    str.TrimSlice(config.GetStringSlice(cmd, "package")),
 		Artifacts:   str.TrimSlice(config.GetStringSlice(cmd, "artifact")),
@@ -128,7 +128,7 @@ func lintOptions(cmd *cobra.Command) (ops.LintOptions, error) {
 
 // deploymentCopies reads the deploy config: artifact folders deployed under
 // several IDs (without a prefix).
-func deploymentCopies(cmd *cobra.Command, base string) (map[string][]ops.DeploymentCopy, error) {
+func deploymentCopies(cmd *cobra.Command, base string) (map[string][]lint.DeploymentCopy, error) {
 	path := config.GetString(cmd, "deploy-config")
 	if path == "" {
 		path = viper.GetString("orchestrator.deployConfig")
@@ -144,7 +144,7 @@ func deploymentCopies(cmd *cobra.Command, base string) (map[string][]ops.Deploym
 	if err != nil {
 		return nil, output.Usagef("deploy config %s: %v", path, err)
 	}
-	out := map[string][]ops.DeploymentCopy{}
+	out := map[string][]lint.DeploymentCopy{}
 	for _, f := range files {
 		if f.Config.DeploymentPrefix != "" {
 			continue // environment copies, not partner copies
@@ -152,7 +152,7 @@ func deploymentCopies(cmd *cobra.Command, base string) (map[string][]ops.Deploym
 		for _, pkg := range f.Config.Packages {
 			for _, a := range pkg.Artifacts {
 				key := filepath.ToSlash(filepath.Join(cmp.Or(pkg.PackageDir, pkg.ID), cmp.Or(a.ArtifactDir, a.Id)))
-				c := ops.DeploymentCopy{ID: a.Id}
+				c := lint.DeploymentCopy{ID: a.Id}
 				for k := range a.ConfigOverrides {
 					c.Overrides = append(c.Overrides, k)
 				}
@@ -169,23 +169,23 @@ func runLint(cmd *cobra.Command) error {
 		return err
 	}
 	failOn := config.GetStringWithFallback(cmd, "fail-on", "lint.failOn")
-	if failOn != "" && failOn != ops.SevInfo && failOn != ops.SevWarning && failOn != ops.SevError {
+	if failOn != "" && failOn != lint.SevInfo && failOn != lint.SevWarning && failOn != lint.SevError {
 		return output.Usagef("--fail-on %q: info, warning or error", failOn)
 	}
 	res := lintResult{Baseline: o.Baseline, FailOn: failOn}
 	if fix, _ := cmd.Flags().GetBool("fix"); fix {
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		rules := str.TrimSlice(config.GetStringSlice(cmd, "fix-rules"))
-		if res.Fix, err = ops.LintFix(cmd.Context(), o, ops.LintFixOptions{Rules: rules, DryRun: dryRun}); err != nil {
+		if res.Fix, err = lint.Fix(cmd.Context(), o, lint.FixOptions{Rules: rules, DryRun: dryRun}); err != nil {
 			return err
 		}
 		logFix(res.Fix)
 	}
-	if res.LintResult, err = ops.Lint(cmd.Context(), o); err != nil {
+	if res.Result, err = lint.Run(cmd.Context(), o); err != nil {
 		return err
 	}
 	if update, _ := cmd.Flags().GetBool("update-baseline"); update {
-		if err := ops.WriteLintBaseline(o.Baseline, res.Findings); err != nil {
+		if err := lint.WriteBaseline(o.Baseline, res.Findings); err != nil {
 			return err
 		}
 		log.Info().Msgf("Baseline %s: %d known finding(s)", o.Baseline, len(res.Findings))
@@ -195,11 +195,11 @@ func runLint(cmd *cobra.Command) error {
 		}
 	}
 	output.SetResult(cmd.Context(), res)
-	logLint(res.LintResult)
+	logLint(res.Result)
 	if failOn != "" {
 		n := 0
 		for sev, c := range res.New {
-			if ops.AtLeast(sev, failOn) {
+			if lint.AtLeast(sev, failOn) {
 				n += c
 			}
 		}
@@ -210,7 +210,7 @@ func runLint(cmd *cobra.Command) error {
 	return nil
 }
 
-func logFix(fix *ops.LintFixResult) {
+func logFix(fix *lint.FixResult) {
 	prefix := ""
 	if fix.DryRun {
 		prefix = "[DRY RUN] "
@@ -224,7 +224,7 @@ func logFix(fix *ops.LintFixResult) {
 	}
 }
 
-func logLint(res *ops.LintResult) {
+func logLint(res *lint.Result) {
 	current := ""
 	for _, f := range res.Findings {
 		if f.Path != current {
@@ -233,9 +233,9 @@ func logLint(res *ops.LintResult) {
 		}
 		ev := log.Info()
 		switch f.Severity {
-		case ops.SevError:
+		case lint.SevError:
 			ev = log.Error()
-		case ops.SevWarning:
+		case lint.SevWarning:
 			ev = log.Warn()
 		}
 		known := ""
@@ -249,6 +249,6 @@ func logLint(res *ops.LintResult) {
 		ev.Str("rule", f.Rule).Str("severity", f.Severity).Msgf("  %-7s %-28s %s%s%s -> %s", f.Severity, f.Rule, f.Message, known, fix, f.Suggestion)
 	}
 	log.Info().Msgf("%d artifact(s), %d checked: %d error(s), %d warning(s), %d info; new: %d error(s), %d warning(s), %d info",
-		res.Artifacts, res.Checked, res.Counts[ops.SevError], res.Counts[ops.SevWarning], res.Counts[ops.SevInfo],
-		res.New[ops.SevError], res.New[ops.SevWarning], res.New[ops.SevInfo])
+		res.Artifacts, res.Checked, res.Counts[lint.SevError], res.Counts[lint.SevWarning], res.Counts[lint.SevInfo],
+		res.New[lint.SevError], res.New[lint.SevWarning], res.New[lint.SevInfo])
 }

@@ -1,9 +1,11 @@
-package ops
+package lint
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
 	"path"
 	"regexp"
 	"sort"
@@ -26,12 +28,12 @@ const (
 // lintRule is one check: per artifact or across all artifacts.
 type lintRule struct {
 	id, group, severity, title string
-	artifact                   func(*lintContext, *lintArtifact) []LintFinding
-	cross                      func(*lintContext) []LintFinding
+	artifact                   func(*lintContext, *lintArtifact) []Finding
+	cross                      func(*lintContext) []Finding
 }
 
-// LintRuleInfo describes a rule (lint --list-rules).
-type LintRuleInfo struct {
+// RuleInfo describes a rule (lint --list-rules).
+type RuleInfo struct {
 	ID       string `json:"id"`
 	Group    string `json:"group"`
 	Severity string `json:"severity"`
@@ -94,11 +96,11 @@ var lintRuleByID = func() map[string]lintRule {
 	return m
 }()
 
-// LintRules lists the rules.
-func LintRules() []LintRuleInfo {
-	out := make([]LintRuleInfo, 0, len(lintRules))
+// Rules lists the rules.
+func Rules() []RuleInfo {
+	out := make([]RuleInfo, 0, len(lintRules))
 	for _, r := range lintRules {
-		out = append(out, LintRuleInfo{ID: r.id, Group: r.group, Severity: r.severity, Title: r.title, Fixable: fixableRules[r.id]})
+		out = append(out, RuleInfo{ID: r.id, Group: r.group, Severity: r.severity, Title: r.title, Fixable: fixableRules[r.id]})
 	}
 	return out
 }
@@ -108,7 +110,7 @@ func LintRules() []LintRuleInfo {
 // scriptStep is a script step of a model.
 type scriptStep struct {
 	file string // model file
-	el   *FlowElement
+	el   *iflow.Element
 	// script is the file name; bundle the script collection (empty: local).
 	script, bundle string
 }
@@ -137,7 +139,7 @@ func sortedModelFiles(a *lintArtifact) []string {
 }
 
 // eachElement calls fn for the elements of every model in document order.
-func eachElement(a *lintArtifact, fn func(file string, m *FlowModel, el *FlowElement)) {
+func eachElement(a *lintArtifact, fn func(file string, m *iflow.Model, el *iflow.Element)) {
 	for _, file := range sortedModelFiles(a) {
 		m := a.Models[file]
 		for _, id := range m.Order {
@@ -272,9 +274,9 @@ func packageCollectionID(cfg ScriptCollectionConfig, pkg string) string {
 	return strings.ReplaceAll(cfg.PackageCollection, "{package}", pkg)
 }
 
-func ruleDuplicateScripts(lc *lintContext) []LintFinding {
+func ruleDuplicateScripts(lc *lintContext) []Finding {
 	inCollection := collectionScripts(lc)
-	var out []LintFinding
+	var out []Finding
 	for k, uses := range localScriptGroups(lc, func(d []byte) string { return hashOf(normalizeScript(d)) }) {
 		flows := map[string]bool{}
 		for _, u := range uses {
@@ -317,9 +319,9 @@ func slicesWithout(ids []string, id string) []string {
 	return out
 }
 
-func ruleUseCollection(lc *lintContext) []LintFinding {
+func ruleUseCollection(lc *lintContext) []Finding {
 	inCollection := collectionScripts(lc)
-	var out []LintFinding
+	var out []Finding
 	for k, uses := range localScriptGroups(lc, func(d []byte) string { return hashOf(normalizeScript(d)) }) {
 		colls := inCollection[k]
 		if len(colls) == 0 {
@@ -353,8 +355,8 @@ func ruleUseCollection(lc *lintContext) []LintFinding {
 	return out
 }
 
-func ruleSimilarScripts(lc *lintContext) []LintFinding {
-	var out []LintFinding
+func ruleSimilarScripts(lc *lintContext) []Finding {
+	var out []Finding
 	for _, uses := range localScriptGroups(lc, func(d []byte) string { return hashOf(structuralScript(d)) }) {
 		exact := map[string]bool{}
 		flows := map[string]bool{}
@@ -384,7 +386,7 @@ func ruleSimilarScripts(lc *lintContext) []LintFinding {
 
 var mappingExt = map[string]bool{".mmap": true, ".xsl": true, ".xslt": true}
 
-func ruleDuplicateMappings(lc *lintContext) []LintFinding {
+func ruleDuplicateMappings(lc *lintContext) []Finding {
 	type use struct {
 		a    *lintArtifact
 		file string
@@ -406,7 +408,7 @@ func ruleDuplicateMappings(lc *lintContext) []LintFinding {
 			groups[k] = append(groups[k], use{a, f})
 		}
 	}
-	var out []LintFinding
+	var out []Finding
 	for _, uses := range groups {
 		flows := map[string]bool{}
 		for _, u := range uses {
@@ -436,8 +438,8 @@ func ruleDuplicateMappings(lc *lintContext) []LintFinding {
 	return out
 }
 
-func ruleMissingCollection(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleMissingCollection(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	seen := map[string]bool{}
 	for _, s := range scriptSteps(a) {
 		if s.bundle == "" || seen[s.bundle] {
@@ -458,9 +460,9 @@ func ruleMissingCollection(lc *lintContext, a *lintArtifact) []LintFinding {
 
 var reLiteralCondition = regexp.MustCompile(`\$\{(header|property)\.([\w.\-]+)\}\s*(?:=|==|in)\s*'([^']*)'`)
 
-func ruleRouterLiterals(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+func ruleRouterLiterals(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		if el.Tag != "exclusiveGateway" {
 			return
 		}
@@ -497,8 +499,8 @@ func ruleRouterLiterals(lc *lintContext, a *lintArtifact) []LintFinding {
 var reMapEntry = regexp.MustCompile(`["']([^"'\n]{1,80})["']\s*:\s*["']([^"'\n]*)["']`)
 var reCaseLiteral = regexp.MustCompile(`case\s+["']([^"'\n]+)["']\s*:`)
 
-func ruleLookupTables(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleLookupTables(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		if scriptLanguage(file) == "" {
 			continue
@@ -520,8 +522,8 @@ func ruleLookupTables(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleDeploymentCopies(lc *lintContext) []LintFinding {
-	var out []LintFinding
+func ruleDeploymentCopies(lc *lintContext) []Finding {
+	var out []Finding
 	keys := make([]string, 0, len(lc.opts.DeploymentCopies))
 	for k := range lc.opts.DeploymentCopies {
 		keys = append(keys, k)
@@ -569,8 +571,8 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // --- dead weight -------------------------------------------------------------
 
-func ruleUnconnected(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleUnconnected(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedModelFiles(a) {
 		for _, el := range a.Models[file].Unreachable() {
 			f := a.finding("unconnected-step", file, el.ID, el.Name, el.ID,
@@ -583,14 +585,14 @@ func ruleUnconnected(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleUnusedScripts(lc *lintContext, a *lintArtifact) []LintFinding {
+func ruleUnusedScripts(lc *lintContext, a *lintArtifact) []Finding {
 	used := map[string]bool{}
 	for _, s := range scriptSteps(a) {
 		if s.bundle == "" {
 			used[s.script] = true
 		}
 	}
-	var out []LintFinding
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		name := path.Base(file)
 		if used[name] || scriptLanguage(file) == "" {
@@ -615,14 +617,14 @@ func ruleUnusedScripts(lc *lintContext, a *lintArtifact) []LintFinding {
 
 var resourceKinds = map[string]bool{".mmap": true, ".xsl": true, ".xslt": true, ".xsd": true, ".wsdl": true, ".edmx": true, ".json": true, ".opmap": true}
 
-func ruleUnusedResources(lc *lintContext, a *lintArtifact) []LintFinding {
+func ruleUnusedResources(lc *lintContext, a *lintArtifact) []Finding {
 	var others strings.Builder
 	others.WriteString(a.ModelText)
 	for _, d := range a.Scripts {
 		others.Write(d)
 	}
 	text := others.String()
-	var out []LintFinding
+	var out []Finding
 	for _, file := range a.Files {
 		ext := strings.ToLower(path.Ext(file))
 		if !resourceKinds[ext] || strings.Contains(file, "/scenarioflows/") {
@@ -652,7 +654,7 @@ func ruleUnusedResources(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleUnusedParameters(lc *lintContext, a *lintArtifact) []LintFinding {
+func ruleUnusedParameters(lc *lintContext, a *lintArtifact) []Finding {
 	if len(a.Params) == 0 {
 		return nil
 	}
@@ -667,18 +669,18 @@ func ruleUnusedParameters(lc *lintContext, a *lintArtifact) []LintFinding {
 		}
 	}
 	all := text.String()
-	var out []LintFinding
+	var out []Finding
 	for _, key := range sortedKeys(a.Params) {
 		if strings.Contains(all, "{{"+key+"}}") {
 			continue
 		}
-		out = append(out, a.finding("unused-parameter", resourcesDir+"/parameters.prop", "", "", key,
+		out = append(out, a.finding("unused-parameter", ops.ResourcesDir+"/parameters.prop", "", "", key,
 			"the parameter "+key+" is not used", "remove it from parameters.prop and parameters.propdef (and from configure files)"))
 	}
 	return out
 }
 
-func isContentModifier(el *FlowElement) bool {
+func isContentModifier(el *iflow.Element) bool {
 	return el.Kind() == "Enricher" || el.Props["activityType"] == "Enricher"
 }
 
@@ -686,9 +688,9 @@ func emptyTable(v string) bool {
 	return strings.TrimSpace(v) == "" || !strings.Contains(v, "<row")
 }
 
-func ruleNoopModifier(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+func ruleNoopModifier(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		if !isContentModifier(el) || !emptyTable(el.Props["headerTable"]) || !emptyTable(el.Props["propertyTable"]) || strings.TrimSpace(el.Props["wrapContent"]) != "" {
 			return
 		}
@@ -702,19 +704,19 @@ func ruleNoopModifier(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func rulePropertyNeverRead(lc *lintContext, a *lintArtifact) []LintFinding {
+func rulePropertyNeverRead(lc *lintContext, a *lintArtifact) []Finding {
 	var scripts strings.Builder
 	for _, d := range a.Scripts {
 		scripts.Write(d)
 	}
 	text := a.ModelText + scripts.String()
-	var out []LintFinding
+	var out []Finding
 	seen := map[string]bool{}
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		if !isContentModifier(el) {
 			return
 		}
-		for _, name := range tableNames(el.Props["propertyTable"]) {
+		for _, name := range ops.TableNames(el.Props["propertyTable"]) {
 			if seen[name] {
 				continue
 			}
@@ -732,9 +734,9 @@ func rulePropertyNeverRead(lc *lintContext, a *lintArtifact) []LintFinding {
 
 // --- simplify ----------------------------------------------------------------
 
-func ruleConsecutiveModifiers(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+func ruleConsecutiveModifiers(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		if !isContentModifier(el) {
 			return
 		}
@@ -749,9 +751,9 @@ func ruleConsecutiveModifiers(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleConverterRoundtrip(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+func ruleConverterRoundtrip(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		k := el.Kind()
 		if k != "XmlToJsonConverter" && k != "JsonToXmlConverter" {
 			return
@@ -772,8 +774,8 @@ func ruleConverterRoundtrip(lc *lintContext, a *lintArtifact) []LintFinding {
 var reSetterLine = regexp.MustCompile(`^\s*(message\.)?set(Header|Property)\s*\(\s*["'][^"']*["']\s*,\s*["'][^"']*["']\s*\)\s*;?\s*$`)
 var reBoilerplate = regexp.MustCompile(`^\s*(import\s|def\s+Message\s+processData|Message\s+processData|return\s+message|[{}]\s*$|$)`)
 
-func ruleTrivialScripts(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleTrivialScripts(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		if scriptLanguage(file) != "groovy" {
 			continue
@@ -798,8 +800,8 @@ func ruleTrivialScripts(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleLargeScripts(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleLargeScripts(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		if scriptLanguage(file) == "" {
 			continue
@@ -816,8 +818,8 @@ func ruleLargeScripts(lc *lintContext, a *lintArtifact) []LintFinding {
 
 // --- robustness --------------------------------------------------------------
 
-func ruleNoExceptionSubprocess(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleNoExceptionSubprocess(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedModelFiles(a) {
 		m := a.Models[file]
 		for _, id := range m.Order {
@@ -844,8 +846,8 @@ func ruleNoExceptionSubprocess(lc *lintContext, a *lintArtifact) []LintFinding {
 
 var reEmptyCatch = regexp.MustCompile(`catch\s*\([^)]*\)\s*\{\s*(//[^\n]*\s*)*\}`)
 
-func ruleSwallowedExceptions(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleSwallowedExceptions(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		data := a.Scripts[file]
 		for _, loc := range reEmptyCatch.FindAllIndex(data, -1) {
@@ -865,8 +867,8 @@ var rePayloadAttachment = regexp.MustCompile(`addAttachmentAs(String|Binary)\s*\
 var reLoop = regexp.MustCompile(`\.(each|eachWithIndex|collect|forEach)\s*\{|\bfor\s*\(|\bwhile\s*\(`)
 var rePrintln = regexp.MustCompile(`\b(println|System\.out\.print)`)
 
-func scriptFindings(a *lintArtifact, rule string, re *regexp.Regexp, msg, suggestion string) []LintFinding {
-	var out []LintFinding
+func scriptFindings(a *lintArtifact, rule string, re *regexp.Regexp, msg, suggestion string) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		if scriptLanguage(file) == "" {
 			continue
@@ -882,18 +884,18 @@ func scriptFindings(a *lintArtifact, rule string, re *regexp.Regexp, msg, sugges
 	return out
 }
 
-func ruleBodyAsString(lc *lintContext, a *lintArtifact) []LintFinding {
+func ruleBodyAsString(lc *lintContext, a *lintArtifact) []Finding {
 	return scriptFindings(a, "body-as-string", reBodyAsString, "reads the whole body into memory as a string",
 		"for large payloads read it as a stream (getBody(java.io.Reader)) or use standard steps")
 }
 
-func rulePayloadAttachment(lc *lintContext, a *lintArtifact) []LintFinding {
+func rulePayloadAttachment(lc *lintContext, a *lintArtifact) []Finding {
 	return scriptFindings(a, "payload-attachment", rePayloadAttachment, "writes the payload into the message processing log",
 		"log payloads only on errors or behind a switch (externalised parameter or log level); they hold business data and slow the tenant")
 }
 
-func ruleLoggingInLoop(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleLoggingInLoop(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		data := string(a.Scripts[file])
 		for _, loc := range reLoop.FindAllStringIndex(data, -1) {
@@ -926,7 +928,7 @@ func ruleLoggingInLoop(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func rulePrintln(lc *lintContext, a *lintArtifact) []LintFinding {
+func rulePrintln(lc *lintContext, a *lintArtifact) []Finding {
 	return scriptFindings(a, "println", rePrintln, "prints to standard output, which nobody reads on the tenant",
 		"remove it, or use the message processing log")
 }
@@ -936,8 +938,8 @@ func rulePrintln(lc *lintContext, a *lintArtifact) []LintFinding {
 var networkAdapters = map[string]bool{"HTTP": true, "HTTPS": true, "SOAP": true, "OData": true, "ODataV4": true, "IDOC": true, "IDoc": true,
 	"SFTP": true, "FTP": true, "Mail": true, "AS2": true, "REST": true, "SuccessFactors": true, "Ariba": true, "AMQP": true, "Kafka": true, "RFC": true}
 
-func ruleHardcodedEndpoints(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleHardcodedEndpoints(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedModelFiles(a) {
 		for _, ad := range a.Models[file].Adapters {
 			if ad.Props["direction"] != "Receiver" {
@@ -970,8 +972,8 @@ func ruleHardcodedEndpoints(lc *lintContext, a *lintArtifact) []LintFinding {
 var reURL = regexp.MustCompile(`["']https?://[^"'\s]+["']`)
 var reNamespaceURL = regexp.MustCompile(`(?i)(xmlns|namespace|w3\.org|xml\.org|schemas\.|sap\.com/xi|purl\.org|json-schema)`)
 
-func ruleURLsInScripts(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleURLsInScripts(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		if scriptLanguage(file) == "" {
 			continue
@@ -993,8 +995,8 @@ func ruleURLsInScripts(lc *lintContext, a *lintArtifact) []LintFinding {
 
 var reSecret = regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|apikey|api_key|client_secret|token)\b\s*[=:]\s*["']([^"'\s]{4,})["']`)
 
-func ruleSecrets(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
+func ruleSecrets(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
 	for _, file := range sortedKeys(a.Scripts) {
 		data := a.Scripts[file]
 		for _, loc := range reSecret.FindAllSubmatchIndex(data, -1) {
@@ -1012,7 +1014,7 @@ func ruleSecrets(lc *lintContext, a *lintArtifact) []LintFinding {
 		}
 		for _, s := range []string{"password", "secret", "apikey", "api_key", "token"} {
 			if strings.Contains(lk, s) {
-				out = append(out, a.finding("hardcoded-secret", resourcesDir+"/parameters.prop", "", "", key,
+				out = append(out, a.finding("hardcoded-secret", ops.ResourcesDir+"/parameters.prop", "", "", key,
 					"the parameter "+key+" holds a value that looks like a secret", "use a credential name instead of the value"))
 				break
 			}
@@ -1043,15 +1045,15 @@ func compareVersionStrings(a, b string) int {
 	return 0
 }
 
-func ruleOutdatedComponents(lc *lintContext) []LintFinding {
+func ruleOutdatedComponents(lc *lintContext) []Finding {
 	latest := map[string]string{}
-	kindOf := func(el *FlowElement) string {
+	kindOf := func(el *iflow.Element) string {
 		if el.Tag == "messageFlow" {
 			return "adapter " + el.Props["ComponentType"] + " " + el.Props["direction"]
 		}
 		return el.Kind()
 	}
-	visit := func(fn func(a *lintArtifact, file string, el *FlowElement)) {
+	visit := func(fn func(a *lintArtifact, file string, el *iflow.Element)) {
 		for _, a := range lc.artifacts {
 			if a.Type != "Integration" {
 				continue
@@ -1067,7 +1069,7 @@ func ruleOutdatedComponents(lc *lintContext) []LintFinding {
 			}
 		}
 	}
-	visit(func(a *lintArtifact, file string, el *FlowElement) {
+	visit(func(a *lintArtifact, file string, el *iflow.Element) {
 		v := el.Version()
 		if v == "" {
 			return
@@ -1077,8 +1079,8 @@ func ruleOutdatedComponents(lc *lintContext) []LintFinding {
 			latest[k] = v
 		}
 	})
-	var out []LintFinding
-	visit(func(a *lintArtifact, file string, el *FlowElement) {
+	var out []Finding
+	visit(func(a *lintArtifact, file string, el *iflow.Element) {
 		v := el.Version()
 		k := kindOf(el)
 		if v == "" || compareVersionStrings(v, latest[k]) >= 0 {
@@ -1093,9 +1095,9 @@ func ruleOutdatedComponents(lc *lintContext) []LintFinding {
 
 var reDefaultName = regexp.MustCompile(`^(Groovy Script|JavaScript|Script|Content Modifier|Router|Message Mapping|XSLT Mapping|Mapping|Filter|Splitter|General Splitter|Iterating Splitter|Gather|Aggregator|Request Reply|Send|Converter|XML to JSON Converter|JSON to XML Converter|Encoder|Decoder|Write|Select|Process Call|Looping Process Call|Local Integration Process|Exception Subprocess|Write Variables|Persist|Data Store Operations|Multicast|Join)\s*\d+$`)
 
-func ruleDefaultNames(lc *lintContext, a *lintArtifact) []LintFinding {
-	var out []LintFinding
-	eachElement(a, func(file string, m *FlowModel, el *FlowElement) {
+func ruleDefaultNames(lc *lintContext, a *lintArtifact) []Finding {
+	var out []Finding
+	eachElement(a, func(file string, m *iflow.Model, el *iflow.Element) {
 		if el.Name != "" && reDefaultName.MatchString(strings.TrimSpace(el.Name)) {
 			out = append(out, a.finding("default-step-name", file, el.ID, el.Name, el.ID,
 				fmt.Sprintf("the step %q has its default name", el.Name), "name it after what it does"))
@@ -1104,7 +1106,7 @@ func ruleDefaultNames(lc *lintContext, a *lintArtifact) []LintFinding {
 	return out
 }
 
-func ruleNaming(lc *lintContext, a *lintArtifact) []LintFinding {
+func ruleNaming(lc *lintContext, a *lintArtifact) []Finding {
 	pattern := lc.cfg.Naming.IFlowID
 	if pattern == "" {
 		return nil
@@ -1113,6 +1115,6 @@ func ruleNaming(lc *lintContext, a *lintArtifact) []LintFinding {
 	if err != nil || re.MatchString(a.ID) {
 		return nil
 	}
-	return []LintFinding{a.finding("naming", "", "", "", a.ID,
+	return []Finding{a.finding("naming", "", "", "", a.ID,
 		fmt.Sprintf("the ID %s does not match %s", a.ID, pattern), "rename it with iflow copy (a new ID) when it is next changed")}
 }

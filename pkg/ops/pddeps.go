@@ -72,7 +72,7 @@ func FindPDDependencies(ctx context.Context, dir string, f PDDependenciesFilter)
 	}
 	res := &PDDependencies{References: []PDReference{}, Dynamic: []PDDynamicReference{}}
 	var walkErr error
-	err := walkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
+	err := WalkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
 		_ = filepath.WalkDir(a.Dir, func(p string, e fs.DirEntry, err error) error {
 			if err != nil || e.IsDir() {
 				return nil

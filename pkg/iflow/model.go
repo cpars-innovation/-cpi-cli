@@ -1,4 +1,5 @@
-package ops
+// Package iflow reads the BPMN model of an integration flow (.iflw).
+package iflow
 
 import (
 	"bytes"
@@ -8,22 +9,22 @@ import (
 	"strings"
 )
 
-// FlowModel is the structure of an .iflw (BPMN) model as the linter needs
+// Model is the structure of an .iflw (BPMN) model as the linter needs
 // it: the steps of each process with their configuration and connections.
-type FlowModel struct {
+type Model struct {
 	// Elements by ID: steps, events, gateways, subprocesses (not the
 	// collaboration's participants and message flows).
-	Elements map[string]*FlowElement
+	Elements map[string]*Element
 	// Flows are the sequence flows.
 	Flows []*SequenceFlow
 	// Adapters are the sender and receiver channels (message flows).
-	Adapters []*FlowElement
+	Adapters []*Element
 	// Order is the document order of the element IDs.
 	Order []string
 }
 
-// FlowElement is one BPMN element with its ifl:property values.
-type FlowElement struct {
+// Element is one BPMN element with its ifl:property values.
+type Element struct {
 	ID, Tag, Name string
 	// Container is the ID of the process or subprocess that holds it.
 	Container string
@@ -43,8 +44,8 @@ type SequenceFlow struct {
 
 // Kind is the component name of an element (GroovyScript, Enricher, ...)
 // from cmdVariantUri, else its activityType, else the BPMN tag.
-func (e *FlowElement) Kind() string {
-	if _, cname := variant(e.Props["cmdVariantUri"]); cname != "" {
+func (e *Element) Kind() string {
+	if _, cname := Variant(e.Props["cmdVariantUri"]); cname != "" {
 		return cname
 	}
 	if t := e.Props["activityType"]; t != "" {
@@ -54,23 +55,23 @@ func (e *FlowElement) Kind() string {
 }
 
 // Version is the component version of an element.
-func (e *FlowElement) Version() string { return e.Props["componentVersion"] }
+func (e *Element) Version() string { return e.Props["componentVersion"] }
 
 // IsStep reports whether an element is a processing step (not an event,
 // gateway or container).
-func (e *FlowElement) IsStep() bool {
+func (e *Element) IsStep() bool {
 	return e.Tag == "callActivity" || e.Tag == "serviceTask"
 }
 
 var containerTags = map[string]bool{"process": true, "subProcess": true}
 
-// ParseFlowModel reads an .iflw model.
-func ParseFlowModel(data []byte) (*FlowModel, error) {
-	m := &FlowModel{Elements: map[string]*FlowElement{}}
+// Parse reads an .iflw model.
+func Parse(data []byte) (*Model, error) {
+	m := &Model{Elements: map[string]*Element{}}
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	type frame struct {
 		tag     string
-		el      *FlowElement
+		el      *Element
 		flow    *SequenceFlow
 		key     string
 		text    strings.Builder
@@ -125,12 +126,12 @@ func ParseFlowModel(data []byte) (*FlowModel, error) {
 				f.flow = &SequenceFlow{ID: id, Source: attr("sourceRef"), Target: attr("targetRef"), Container: container, Name: attr("name"), Props: map[string]string{}}
 				m.Flows = append(m.Flows, f.flow)
 			case f.tag == "participant" || f.tag == "messageFlow":
-				f.el = &FlowElement{ID: id, Tag: f.tag, Name: attr("name"), Props: map[string]string{}}
+				f.el = &Element{ID: id, Tag: f.tag, Name: attr("name"), Props: map[string]string{}}
 				if f.tag == "messageFlow" {
 					m.Adapters = append(m.Adapters, f.el)
 				}
 			case id != "" && (containerTags[f.tag] || container != "") && f.tag != "incoming" && f.tag != "outgoing":
-				f.el = &FlowElement{ID: id, Tag: f.tag, Name: attr("name"), Container: container, Props: map[string]string{},
+				f.el = &Element{ID: id, Tag: f.tag, Name: attr("name"), Container: container, Props: map[string]string{},
 					TriggeredByEvent: attr("triggeredByEvent") == "true"}
 				m.Elements[id] = f.el
 				m.Order = append(m.Order, id)
@@ -211,7 +212,7 @@ func contains(list []string, s string) bool {
 }
 
 // Flow returns a sequence flow by ID.
-func (m *FlowModel) Flow(id string) *SequenceFlow {
+func (m *Model) Flow(id string) *SequenceFlow {
 	for _, f := range m.Flows {
 		if f.ID == id {
 			return f
@@ -223,13 +224,13 @@ func (m *FlowModel) Flow(id string) *SequenceFlow {
 // Unreachable returns the elements of each process that cannot be reached
 // from a start event of the same process (event subprocesses and their
 // content count as reachable; the containers themselves are skipped).
-func (m *FlowModel) Unreachable() []*FlowElement {
-	byContainer := map[string][]*FlowElement{}
+func (m *Model) Unreachable() []*Element {
+	byContainer := map[string][]*Element{}
 	for _, id := range m.Order {
 		el := m.Elements[id]
 		byContainer[el.Container] = append(byContainer[el.Container], el)
 	}
-	var out []*FlowElement
+	var out []*Element
 	for container, els := range byContainer {
 		if container == "" {
 			continue
@@ -274,7 +275,7 @@ func (m *FlowModel) Unreachable() []*FlowElement {
 
 // Next returns the single element an element leads to (nil when it has no
 // or several outgoing flows).
-func (m *FlowModel) Next(el *FlowElement) *FlowElement {
+func (m *Model) Next(el *Element) *Element {
 	if len(el.Outgoing) != 1 {
 		return nil
 	}
@@ -283,4 +284,17 @@ func (m *FlowModel) Next(el *FlowElement) *FlowElement {
 		return nil
 	}
 	return m.Elements[f.Target]
+}
+
+// Variant splits a cmdVariantUri into its component type (ctype::) and name
+// (cname::).
+func Variant(uri string) (ctype, cname string) {
+	for part := range strings.SplitSeq(uri, "/") {
+		if v, ok := strings.CutPrefix(part, "ctype::"); ok {
+			ctype = v
+		} else if v, ok := strings.CutPrefix(part, "cname::"); ok {
+			cname = v
+		}
+	}
+	return ctype, cname
 }

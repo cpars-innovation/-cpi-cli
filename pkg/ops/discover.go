@@ -236,7 +236,7 @@ func DiscoverDir(ctx context.Context, dir string) (*Discovery, error) {
 	}
 	d := &Discovery{GeneratedAt: time.Now().UTC().Truncate(time.Second), Source: dir, Packages: []DiscoveredPackage{}, IFlows: []IFlowFacts{}}
 	packages := map[string]*DiscoveredPackage{}
-	err = walkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
+	err = WalkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
 		if a.PackageID != "" {
 			if packages[a.PackageID] == nil {
 				packages[a.PackageID] = &DiscoveredPackage{ID: a.PackageID, Artifacts: map[string]int{}}
@@ -279,10 +279,10 @@ type LocalArtifact struct {
 	Type      string
 }
 
-// walkLocalArtifacts calls fn for every artifact directory below dir (.git is
+// WalkLocalArtifacts calls fn for every artifact directory below dir (.git is
 // skipped, artifact directories are not descended into). Unreadable entries
 // are reported to onErr.
-func walkLocalArtifacts(ctx context.Context, dir string, fn func(LocalArtifact), onErr func(error)) error {
+func WalkLocalArtifacts(ctx context.Context, dir string, fn func(LocalArtifact), onErr func(error)) error {
 	return filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
 		if err != nil {
 			onErr(err)

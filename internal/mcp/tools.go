@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/lint"
 	"os"
 	"path/filepath"
 	"slices"
@@ -823,14 +824,14 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 					return nil, err
 				}
 				if a.ListRules {
-					return map[string]any{"rules": ops.LintRules()}, nil
+					return map[string]any{"rules": lint.Rules()}, nil
 				}
 				o, err := mcpLintOptions(cfg.Root, a.Dir, a.Packages, a.Artifacts)
 				if err != nil {
 					return nil, err
 				}
 				o.MinSeverity = a.MinSeverity
-				res, err := ops.Lint(ctx, o)
+				res, err := lint.Run(ctx, o)
 				if err != nil || len(a.Rules) == 0 {
 					return res, err
 				}
@@ -872,7 +873,7 @@ func toolList(cfg Config, readOnly map[string]any, tenant ops.Tenant, endpoints 
 				if err != nil {
 					return nil, err
 				}
-				return ops.LintFix(ctx, o, ops.LintFixOptions{Rules: a.Rules, DryRun: a.DryRun})
+				return lint.Fix(ctx, o, lint.FixOptions{Rules: a.Rules, DryRun: a.DryRun})
 			},
 		},
 		{
@@ -1619,7 +1620,7 @@ func checkMaxBytes(n int) error {
 }
 
 // mcpLintOptions resolves the lint paths inside the server root.
-func mcpLintOptions(root, dir string, packages, artifacts []string) (ops.LintOptions, error) {
+func mcpLintOptions(root, dir string, packages, artifacts []string) (lint.Options, error) {
 	if dir == "" {
 		dir = "."
 		if info, err := os.Stat(filepath.Join(root, "packages")); err == nil && info.IsDir() {
@@ -1628,16 +1629,16 @@ func mcpLintOptions(root, dir string, packages, artifacts []string) (ops.LintOpt
 	}
 	abs, err := resolvePath(root, dir)
 	if err != nil {
-		return ops.LintOptions{}, err
+		return lint.Options{}, err
 	}
 	base, err := resolvePath(root, ".")
 	if err != nil {
-		return ops.LintOptions{}, err
+		return lint.Options{}, err
 	}
-	cfg, err := ops.LoadLintConfig(filepath.Join(base, ".cpi", "lint.yaml"))
+	cfg, err := lint.LoadConfig(filepath.Join(base, ".cpi", "lint.yaml"))
 	if err != nil {
-		return ops.LintOptions{}, err
+		return lint.Options{}, err
 	}
-	return ops.LintOptions{Dir: abs, Packages: packages, Artifacts: artifacts, Config: cfg,
+	return lint.Options{Dir: abs, Packages: packages, Artifacts: artifacts, Config: cfg,
 		Baseline: filepath.Join(base, ".cpi", "lint-baseline.json")}, nil
 }

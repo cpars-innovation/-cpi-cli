@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
 	"io"
 	"io/fs"
 	"path"
@@ -88,7 +89,7 @@ type ScriptFacts struct {
 	LogsAttachments bool `json:"logsAttachments,omitempty"`
 }
 
-const resourcesDir = "src/main/resources"
+const ResourcesDir = "src/main/resources"
 
 var (
 	reCustomHeader  = regexp.MustCompile(`addCustomHeaderProperty\s*\(\s*["']([^"']+)["']`)
@@ -116,7 +117,7 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 		return nil, fmt.Errorf("META-INF/MANIFEST.MF: %w", err)
 	}
 
-	flows, _ := fs.Glob(fsys, resourcesDir+"/scenarioflows/integrationflow/*.iflw")
+	flows, _ := fs.Glob(fsys, ResourcesDir+"/scenarioflows/integrationflow/*.iflw")
 	if len(flows) == 0 {
 		return f, fmt.Errorf("no .iflw model found")
 	}
@@ -132,8 +133,8 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 			f.PDReferences = append(f.PDReferences, string(m[1])+":"+string(m[2]))
 		}
 	}
-	if props, err := fs.ReadFile(fsys, resourcesDir+"/parameters.prop"); err == nil {
-		values := propertyValues(props)
+	if props, err := fs.ReadFile(fsys, ResourcesDir+"/parameters.prop"); err == nil {
+		values := PropertyValues(props)
 		f.Parameters = sortedMapKeys(values)
 		for _, t := range slices.Concat(f.Triggers, f.Receivers) {
 			for _, m := range reParameterRef.FindAllStringSubmatch(t.Address, -1) {
@@ -146,11 +147,11 @@ func AnalyzeIFlow(fsys fs.FS) (*IFlowFacts, error) {
 			}
 		}
 	}
-	_ = fs.WalkDir(fsys, resourcesDir, func(p string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(fsys, ResourcesDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel := strings.TrimPrefix(p, resourcesDir+"/")
+		rel := strings.TrimPrefix(p, ResourcesDir+"/")
 		dir, _, nested := strings.Cut(rel, "/")
 		if !nested || dir == "scenarioflows" {
 			return nil
@@ -295,27 +296,18 @@ func (f *IFlowFacts) addElement(el *modelElement) {
 		switch {
 		case v == "":
 		case k == "headerTable":
-			f.HeadersSet = append(f.HeadersSet, tableNames(v)...)
+			f.HeadersSet = append(f.HeadersSet, TableNames(v)...)
 		case k == "propertyTable":
-			f.PropertiesSet = append(f.PropertiesSet, tableNames(v)...)
+			f.PropertiesSet = append(f.PropertiesSet, TableNames(v)...)
 		case reCredentialKey.MatchString(k):
 			f.CredentialRefs = append(f.CredentialRefs, v)
 		}
 	}
 }
 
-func variant(uri string) (ctype, cname string) {
-	for part := range strings.SplitSeq(uri, "/") {
-		if v, ok := strings.CutPrefix(part, "ctype::"); ok {
-			ctype = v
-		} else if v, ok := strings.CutPrefix(part, "cname::"); ok {
-			cname = v
-		}
-	}
-	return ctype, cname
-}
+func variant(uri string) (ctype, cname string) { return iflow.Variant(uri) }
 
-func tableNames(table string) []string {
+func TableNames(table string) []string {
 	var names []string
 	for _, m := range reTableName.FindAllStringSubmatch(table, -1) {
 		if m[1] != "" {
@@ -328,9 +320,9 @@ func tableNames(table string) []string {
 // parseManifest reads MANIFEST.MF headers (see manifest.Parse).
 func parseManifest(data []byte) map[string]string { return manifest.Parse(data) }
 
-// propertyValues returns the keys and values of a Java properties file
+// PropertyValues returns the keys and values of a Java properties file
 // (single-line entries; escapes in keys are resolved).
-func propertyValues(data []byte) map[string]string {
+func PropertyValues(data []byte) map[string]string {
 	values := map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)

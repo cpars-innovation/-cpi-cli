@@ -1,9 +1,10 @@
-package ops
+package lint
 
 import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"github.com/cpars-innovation/cpicli/pkg/iflow"
 	"os"
 	"path/filepath"
 	"sort"
@@ -225,8 +226,8 @@ func lintRepo(t *testing.T) string {
 	return root
 }
 
-func findingsOf(res *LintResult, rule, artifact string) []LintFinding {
-	var out []LintFinding
+func findingsOf(res *Result, rule, artifact string) []Finding {
+	var out []Finding
 	for _, f := range res.Findings {
 		if f.Rule == rule && f.Artifact == artifact {
 			out = append(out, f)
@@ -235,9 +236,9 @@ func findingsOf(res *LintResult, rule, artifact string) []LintFinding {
 	return out
 }
 
-func TestLintRules(t *testing.T) {
+func TestRules(t *testing.T) {
 	root := lintRepo(t)
-	res, err := Lint(context.Background(), LintOptions{Dir: root})
+	res, err := Run(context.Background(), Options{Dir: root})
 	require.NoError(t, err)
 	assert.Equal(t, 5, res.Artifacts)
 	has := func(rule, artifact string, n int) {
@@ -286,7 +287,7 @@ func TestLintRules(t *testing.T) {
 	}
 }
 
-func TestLintConfigScopeAndBaseline(t *testing.T) {
+func TestConfigScopeAndBaseline(t *testing.T) {
 	root := lintRepo(t)
 	cfgPath := filepath.Join(t.TempDir(), "lint.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(`rules:
@@ -304,9 +305,9 @@ ignore:
   - artifact: FlowC
     rule: hardcoded-*
 `), 0o644))
-	cfg, err := LoadLintConfig(cfgPath)
+	cfg, err := LoadConfig(cfgPath)
 	require.NoError(t, err)
-	res, err := Lint(context.Background(), LintOptions{Dir: root, Config: cfg})
+	res, err := Run(context.Background(), Options{Dir: root, Config: cfg})
 	require.NoError(t, err)
 	assert.Empty(t, findingsOf(res, "println", "FlowC"), "off")
 	assert.Empty(t, findingsOf(res, "router-literals", "FlowB"), "5 values < 6")
@@ -317,11 +318,11 @@ ignore:
 	// unknown rule
 	bad := filepath.Join(t.TempDir(), "bad.yaml")
 	require.NoError(t, os.WriteFile(bad, []byte("rules:\n  nope: off\n"), 0o644))
-	_, err = LoadLintConfig(bad)
+	_, err = LoadConfig(bad)
 	assert.Error(t, err)
 
 	// scope: only FlowA is reported, cross-flow rules still see every flow
-	res, err = Lint(context.Background(), LintOptions{Dir: root, Artifacts: []string{"FlowA"}})
+	res, err = Run(context.Background(), Options{Dir: root, Artifacts: []string{"FlowA"}})
 	require.NoError(t, err)
 	for _, f := range res.Findings {
 		assert.Equal(t, "FlowA", f.Artifact)
@@ -330,29 +331,29 @@ ignore:
 
 	// baseline: known findings are not new
 	baseline := filepath.Join(t.TempDir(), "baseline.json")
-	res, err = Lint(context.Background(), LintOptions{Dir: root})
+	res, err = Run(context.Background(), Options{Dir: root})
 	require.NoError(t, err)
-	require.NoError(t, WriteLintBaseline(baseline, res.Findings))
-	again, err := Lint(context.Background(), LintOptions{Dir: root, Baseline: baseline})
+	require.NoError(t, WriteBaseline(baseline, res.Findings))
+	again, err := Run(context.Background(), Options{Dir: root, Baseline: baseline})
 	require.NoError(t, err)
 	assert.Empty(t, again.New)
 	assert.Equal(t, res.Counts, again.Counts)
 	// a new finding is new
 	require.NoError(t, os.WriteFile(filepath.Join(root, "P2", "FlowD", "src", "main", "resources", "script", "Log.groovy"), []byte(logScript+"println 'x'\n"), 0o644))
-	again, err = Lint(context.Background(), LintOptions{Dir: root, Baseline: baseline})
+	again, err = Run(context.Background(), Options{Dir: root, Baseline: baseline})
 	require.NoError(t, err)
 	assert.Equal(t, 1, again.New[SevInfo], "println in FlowD")
 }
 
-func TestLintFix(t *testing.T) {
+func TestFix(t *testing.T) {
 	root := lintRepo(t)
 	before := readTree(t, root)
-	res, err := LintFix(context.Background(), LintOptions{Dir: root}, LintFixOptions{DryRun: true})
+	res, err := Fix(context.Background(), Options{Dir: root}, FixOptions{DryRun: true})
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.Changes)
 	assert.Equal(t, before, readTree(t, root), "dry run")
 
-	res, err = LintFix(context.Background(), LintOptions{Dir: root}, LintFixOptions{})
+	res, err = Fix(context.Background(), Options{Dir: root}, FixOptions{})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"P1/P1_Scripts", "P2/P2_Scripts", "P1/P1_Existing"}, res.Collections)
 	assert.Contains(t, res.NextSteps[0], "deploy config")
@@ -379,7 +380,7 @@ func TestLintFix(t *testing.T) {
 	assert.Contains(t, string(modelA), `id="Noop"`, "no-op modifiers only on request")
 
 	// lint again: the fixed findings are gone, the models are intact
-	after, err := Lint(context.Background(), LintOptions{Dir: root})
+	after, err := Run(context.Background(), Options{Dir: root})
 	require.NoError(t, err)
 	for _, rule := range []string{"duplicate-script", "use-script-collection", "unused-script", "unconnected-step", "missing-script-collection"} {
 		for _, f := range after.Findings {
@@ -388,18 +389,18 @@ func TestLintFix(t *testing.T) {
 	}
 
 	// on request: remove the no-op modifier and connect its neighbours
-	_, err = LintFix(context.Background(), LintOptions{Dir: root, Artifacts: []string{"FlowA"}}, LintFixOptions{Rules: []string{"noop-content-modifier"}})
+	_, err = Fix(context.Background(), Options{Dir: root, Artifacts: []string{"FlowA"}}, FixOptions{Rules: []string{"noop-content-modifier"}})
 	require.NoError(t, err)
 	modelA, _ = os.ReadFile(filepath.Join(root, "P1", "FlowA", "src", "main", "resources", "scenarioflows", "integrationflow", "FlowA.iflw"))
 	assert.NotContains(t, string(modelA), `id="Noop"`)
-	m, err := ParseFlowModel(modelA)
+	m, err := iflow.Parse(modelA)
 	require.NoError(t, err)
 	assert.Empty(t, m.Unreachable())
 	next := m.Next(m.Elements["S1"])
 	require.NotNil(t, next)
 	assert.Equal(t, "M2", next.ID, "Log -> Set X")
 
-	_, err = LintFix(context.Background(), LintOptions{Dir: root}, LintFixOptions{Rules: []string{"println"}})
+	_, err = Fix(context.Background(), Options{Dir: root}, FixOptions{Rules: []string{"println"}})
 	assert.Error(t, err, "no fix for println")
 }
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/cpars-innovation/cpicli/internal/sync"
+	"github.com/cpars-innovation/cpicli/pkg/lint"
 	"os"
 	"strings"
 	"time"
@@ -201,7 +202,7 @@ type planResult struct {
 }
 
 func (r lintResult) MarkdownSummary() string {
-	if r.LintResult == nil {
+	if r.Result == nil {
 		return ""
 	}
 	var b strings.Builder
@@ -210,10 +211,10 @@ func (r lintResult) MarkdownSummary() string {
 			map[bool]string{true: " (dry run)", false: ""}[r.Fix.DryRun], len(r.Fix.Changes), len(r.Fix.Changed), strings.Join(r.Fix.Collections, ", "))
 	}
 	fmt.Fprintf(&b, "%d artifact(s) checked: %d error(s), %d warning(s), %d info; new: %d error(s), %d warning(s), %d info.\n\n",
-		r.Checked, r.Counts[ops.SevError], r.Counts[ops.SevWarning], r.Counts[ops.SevInfo], r.New[ops.SevError], r.New[ops.SevWarning], r.New[ops.SevInfo])
+		r.Checked, r.Counts[lint.SevError], r.Counts[lint.SevWarning], r.Counts[lint.SevInfo], r.New[lint.SevError], r.New[lint.SevWarning], r.New[lint.SevInfo])
 	var rows [][]string
 	for _, f := range r.Findings {
-		if !f.Baseline && f.Severity != ops.SevInfo {
+		if !f.Baseline && f.Severity != lint.SevInfo {
 			rows = append(rows, []string{f.Path, f.Severity, f.Rule, f.Message, f.Suggestion})
 		}
 	}

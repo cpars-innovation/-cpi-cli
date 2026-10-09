@@ -63,7 +63,7 @@ func Drift(ctx context.Context, exe *httpclnt.HTTPExecuter, dir, packageID strin
 		return nil, output.Usagef("%s is not a directory", dir)
 	}
 	var artifacts []LocalArtifact
-	if err := walkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
+	if err := WalkLocalArtifacts(ctx, dir, func(a LocalArtifact) {
 		if packageID == "" || a.PackageID == packageID {
 			artifacts = append(artifacts, a)
 		}
