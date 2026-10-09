@@ -112,7 +112,7 @@ tiers:                              # required, in pipeline order; --tier picks 
     keystore: [{ alias: sf_client, expiresInDays: 12 }]
     partnerDirectory: { Shop_DE/endpoint: "https://shop-de.example.com" }
     systems: { s4: { failRate: 0.1 } }                  # overrides per tier
-    trafficScale: 2                 # more messages on this tier
+    trafficScale: 2                 # more messages on this tier (0 or unset: 1; not negative)
 
 systems:                            # receivers the flows call, matched by host
   s4: { match: "s4-*.example.com", latencyMs: 180, failRate: 0.02, status: 500,
@@ -187,7 +187,7 @@ executed: the payload passes through unchanged.
   24 h); runs that would end in the future are left out. The random source is derived from the
   landscape and the tier (or `seed`), so a tier always generates the same history and tiers
   differ. `--live-traffic <speed>` keeps generating messages in real time (`60`: an hour per
-  minute).
+  minute): at most one message per millisecond and rule, however high the speed.
 
 ## Admin API (`/_mock/...`)
 

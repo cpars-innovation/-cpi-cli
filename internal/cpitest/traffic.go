@@ -142,7 +142,7 @@ func (m *Tenant) StartTraffic(ctx context.Context, speed float64) {
 	m.mu.Lock()
 	l, t := m.landscape, m.tierSpec
 	m.mu.Unlock()
-	if l == nil || speed <= 0 {
+	if l == nil || !(speed > 0) { // also NaN
 		return
 	}
 	scale := t.TrafficScale
@@ -153,7 +153,8 @@ func (m *Tenant) StartTraffic(ctx context.Context, speed float64) {
 		if !r.onTier(t.Name) {
 			continue
 		}
-		interval := time.Duration(float64(time.Hour) / (r.PerHour * scale * speed))
+		// A huge rate must not make the interval zero (NewTicker panics).
+		interval := max(time.Duration(float64(time.Hour)/(r.PerHour*scale*speed)), time.Millisecond)
 		go func(ri int, r TrafficRule) {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
@@ -185,9 +186,10 @@ func (m *Tenant) StartTraffic(ctx context.Context, speed float64) {
 // failed.
 func (m *Tenant) liveSend(w http.ResponseWriter, r *http.Request, in *Inbound, body string) {
 	m.liveSerial++
+	correlation := fmt.Sprintf("C-live-%d", m.liveSerial)
 	x := m.newExecutor("LIVE")
 	key := m.messageKey(r, body)
-	res := x.run(in.Artifact, message{correlation: fmt.Sprintf("C-live-%d", m.liveSerial), key: key, payload: body, keyHeaders: m.keyHeaders()}, time.Now(), "", 0)
+	res := x.run(in.Artifact, message{correlation: correlation, key: key, payload: body, keyHeaders: m.keyHeaders()}, time.Now(), "", 0)
 	if appID := r.Header.Get("SAP_ApplicationID"); appID != "" {
 		for i := range x.logs {
 			if x.logs[i].Guid == res.guid {
@@ -197,7 +199,7 @@ func (m *Tenant) liveSend(w http.ResponseWriter, r *http.Request, in *Inbound, b
 	}
 	m.addLogs(x.logs)
 	w.Header().Set("SAP_MessageProcessingLogID", res.guid)
-	w.Header().Set("SAP_MplCorrelationId", fmt.Sprintf("C-live-%d", m.liveSerial))
+	w.Header().Set("SAP_MplCorrelationId", correlation)
 	if res.status != "COMPLETED" {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusInternalServerError)

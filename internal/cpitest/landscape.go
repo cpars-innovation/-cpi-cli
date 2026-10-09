@@ -314,6 +314,9 @@ func (l *Landscape) validate() error {
 			return fmt.Errorf("tier %q: lowercase letters, digits and hyphens, unique", t.Name)
 		}
 		tiers[t.Name] = true
+		if t.TrafficScale < 0 {
+			return fmt.Errorf("tier %s: trafficScale must not be negative", t.Name)
+		}
 		for id := range t.Versions {
 			if err := known("tier "+t.Name+" versions", id); err != nil {
 				return err

@@ -2,6 +2,7 @@ package cpitest_test
 
 import (
 	"context"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -119,4 +120,17 @@ func TestExecutionMissingCredential(t *testing.T) {
 	require.Len(t, logs, 1)
 	assert.Equal(t, "FAILED", logs[0].Status)
 	assert.Contains(t, logs[0].ErrorText, "credential Partner_SFTP not found")
+}
+
+// A huge rate must not make the ticker interval zero (time.NewTicker panics).
+func TestLiveTrafficWithHugeSpeed(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	require.NoError(t, cpitest.SeedDemo(m, "dev", time.Now()))
+	before := len(m.MessageLogs())
+	ctx, cancel := context.WithCancel(context.Background())
+	m.StartTraffic(ctx, 1e15)
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	assert.Greater(t, len(m.MessageLogs()), before, "traffic ran, at most one message per ms and rule")
+	m.StartTraffic(context.Background(), math.NaN()) // ignored
 }
