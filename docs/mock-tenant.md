@@ -233,3 +233,17 @@ services:
 volumes:
   certs: {}
 ```
+
+## In Go tests
+
+`github.com/cpars-innovation/cpicli/pkg/mocktenant` is the same mock as a library, for tests of
+tools built on cpicli:
+
+```go
+m := mocktenant.Start() // live, Basic Auth with CSRF and OAuth, on a free loopback port
+defer m.Close()
+if err := mocktenant.SeedDir(m, "testdata/landscapes/retail-b", "prod-eu", time.Now()); err != nil {
+	t.Fatal(err)
+}
+// point the code under test at m.URL(); read what happened with m.MessageLogs(), m.Artifacts …
+```
