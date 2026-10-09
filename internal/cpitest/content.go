@@ -233,7 +233,7 @@ func (c channel) endpointPath(params map[string]string) string {
 // resources and parameters (configured values of keys that still exist are
 // kept, as on a tenant). An archive the mock cannot read keeps the old state.
 func (a *Artifact) applyContent(zipData []byte) {
-	a.Zip = zipData
+	a.Zip, a.cached = zipData, nil
 	c, err := readArtifactZip(zipData)
 	if err != nil {
 		return

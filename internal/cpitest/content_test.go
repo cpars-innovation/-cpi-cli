@@ -36,11 +36,11 @@ func exportDemo(t *testing.T, id string) string {
 // a message sent to it is logged.
 func TestUploadFidelity(t *testing.T) {
 	m := cpitest.NewTenant(t, nil)
-	m.Live = true
+	m.Live, m.FilterMessageLogs = true, true
 	m.Packages = []cpitest.Package{{ID: "CustomerB", Name: "Customer B", Version: "1.0.0"}}
 	exe := m.Executer()
 
-	for _, id := range []string{"Orders_In", "Billing_Post"} {
+	for _, id := range []string{"Orders_In", "Orders_Route", "Billing_Post"} {
 		res, err := ops.UploadArtifact(exe, ops.UploadRequest{ID: id, Type: "Integration", PackageID: "CustomerB", Dir: exportDemo(t, id), Versioning: versioning.Manifest})
 		require.NoError(t, err, id)
 		assert.NotEmpty(t, res.Action, id)
@@ -86,12 +86,25 @@ func TestUploadFidelity(t *testing.T) {
 		}
 		return m.Executer().ForEndpoint(u.Path), u.Path, nil
 	}
+	// Orders_In calls Orders_Route over ProcessDirect: not deployed yet, so the message fails as on a tenant
+	_, err = ops.SendTestMessage(context.Background(), exe, newExe, ops.TestMessage{ArtifactID: "Orders_In", Body: []byte("<Order/>")})
+	require.ErrorContains(t, err, "HTTP 500")
+	failed, err := ops.QueryMessageLogs(exe, ops.MessageLogQuery{ArtifactID: "Orders_In", Statuses: []string{"FAILED"}})
+	require.NoError(t, err)
+	require.Len(t, failed.Logs, 1)
+
+	require.NoError(t, cpi.NewIntegration(exe).Deploy("Orders_Route"))
 	sent, err := ops.SendTestMessage(context.Background(), exe, newExe, ops.TestMessage{ArtifactID: "Orders_In", Body: []byte("<Order/>")})
 	require.NoError(t, err)
 	logs, err := ops.QueryMessageLogs(exe, ops.MessageLogQuery{ArtifactID: "Orders_In", Since: time.Now().Add(-time.Minute)})
 	require.NoError(t, err)
 	require.NotEmpty(t, logs.Logs)
 	assert.Equal(t, sent.MessageGuid, logs.Logs[0].MessageGuid)
+	assert.Equal(t, "COMPLETED", logs.Logs[0].Status)
+	route, err := ops.QueryMessageLogs(exe, ops.MessageLogQuery{ArtifactID: "Orders_Route"})
+	require.NoError(t, err)
+	require.Len(t, route.Logs, 1, "Orders_Route ran for the second message")
+	assert.Equal(t, sent.MessageGuid, route.Logs[0].PredecessorMessageGuid)
 
 	require.NoError(t, cpi.NewRuntime(exe).UnDeploy("Orders_In"))
 	endpoints, err = ops.ListServiceEndpoints(exe, "Orders_In")

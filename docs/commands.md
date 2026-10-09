@@ -1533,9 +1533,12 @@ credentials, keystore and Partner Directory. Any credentials are accepted
 the layout cpictl snapshot writes, see docs/mock-tenant.md): its tiers, systems
 and traffic; --tier names one of its tiers.
 
-The tenant behaves live: a deploy starts the designtime version, uploads are
-recorded, a message sent to a flow's endpoint (POST /http/orders/in) creates
-a message log. State is in memory; a restart resets it.
+The tenant behaves live: a deploy starts the designtime version and registers
+the flow's endpoints, uploads are recorded, and a message sent to an endpoint
+(POST /http/orders/in) runs the flows: one message processing log per flow,
+ProcessDirect and JMS to the next flows, receivers answered by the landscape's
+systems (latency, failures). --live-traffic keeps generating messages.
+State is in memory; a restart resets it.
 
 Plain http is accepted by cpictl for loopback hosts only. To reach the mock
 from another container use --tls: a CA and server certificate are generated
@@ -1548,14 +1551,15 @@ SSL_CERT_FILE.
 **Flags:**
 
 ```
-      --addr string         Listen address (default "127.0.0.1:8081")
-      --ca-out string       With --tls: file the generated CA certificate is written to (PEM)
-      --public-url string   Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
-      --seed string         Content: demo or empty (default "demo")
-      --seed-dir string     Landscape directory to load instead of --seed (landscape.yaml + packages/)
-      --tier string         Tier of the landscape (demo: dev, test, prod) (default "dev")
-      --tls                 Serve HTTPS with a generated certificate (for access from other containers)
-      --tls-hosts strings   Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
+      --addr string          Listen address (default "127.0.0.1:8081")
+      --ca-out string        With --tls: file the generated CA certificate is written to (PEM)
+      --live-traffic float   Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)
+      --public-url string    Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)
+      --seed string          Content: demo or empty (default "demo")
+      --seed-dir string      Landscape directory to load instead of --seed (landscape.yaml + packages/)
+      --tier string          Tier of the landscape (demo: dev, test, prod) (default "dev")
+      --tls                  Serve HTTPS with a generated certificate (for access from other containers)
+      --tls-hosts strings    Host names and IPs of the generated certificate (default [localhost,127.0.0.1])
 ```
 
 **Examples:**

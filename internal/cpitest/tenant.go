@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +99,7 @@ type Artifact struct {
 	Uploads int
 	Deploys int
 
+	cached         *flowInfo
 	triggered      bool
 	runtimeGets    int
 	taskGets       int
@@ -264,10 +266,14 @@ type Tenant struct {
 	csrfSerial int
 	liveSerial int
 	// landscape and tierSpec are set by SeedLandscape.
-	landscape *Landscape
-	tierSpec  *TierSpec
-	requests  []string
-	server    *httptest.Server
+	landscape   *Landscape
+	traceSerial int64
+	msgSerial   int
+	rng         *mrand.Rand
+	systems     map[string]SystemSpec
+	tierSpec    *TierSpec
+	requests    []string
+	server      *httptest.Server
 }
 
 // NewTenant starts a mock tenant; it is closed when the test ends.
@@ -602,6 +608,10 @@ func (m *Tenant) handleInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(r.Body)
 	m.Received = append(m.Received, ReceivedMessage{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: string(body)})
+	if a := m.Artifacts[in.Artifact]; m.Live && a != nil && a.Runtime != nil && a.info() != nil {
+		m.liveSend(w, r, in, string(body))
+		return
+	}
 	if m.Live && in.Artifact != "" {
 		m.liveSerial++
 		now := time.Now()

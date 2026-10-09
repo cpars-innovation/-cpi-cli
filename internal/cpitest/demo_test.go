@@ -86,8 +86,14 @@ func TestDemoMessages(t *testing.T) {
 	assert.Positive(t, sum.Scanned)
 	assert.Less(t, 5*sum.Scanned, day.Scanned, "the time filter applies")
 	require.NotEmpty(t, day.Errors)
-	assert.Equal(t, "Billing_Post", day.Errors[0].Artifact)
-	assert.Greater(t, day.Errors[0].Count, 1, "the same error with different order numbers is one group")
+	var posting *ops.ErrorGroup
+	for i := range day.Errors {
+		if day.Errors[i].Artifact == "Billing_Post" {
+			posting = &day.Errors[i]
+		}
+	}
+	require.NotNil(t, posting, "postings fail now and then: %v", day.Errors)
+	assert.Greater(t, posting.Count, 1, "the same error with different order numbers is one group")
 
 	returns, err := ops.QueryMessageLogs(exe, ops.MessageLogQuery{ArtifactID: "Returns_In", Top: 1})
 	require.NoError(t, err)
