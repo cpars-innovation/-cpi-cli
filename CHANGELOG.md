@@ -8,6 +8,10 @@ All notable changes to cpictl. Coming from FlashPipe? See
 - `cpictl mcp --toolset inspect|build|test|monitor|promote|improve|partner-directory|security`:
   offer only the tools of the session's task (combined with `--tools`, the mode still applies).
   See [docs/mcp.md](docs/mcp.md#toolsets).
+- `cpictl mcp --dynamic-toolsets`: start with `help`, `doctor`, `list_toolsets` and
+  `enable_toolset`; the agent enables the toolsets it needs and the server sends
+  `notifications/tools/list_changed`. Off by default, for clients without list-changed support.
+  See [docs/mcp.md](docs/mcp.md#dynamic-toolsets).
 
 ## 0.6.0
 

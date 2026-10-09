@@ -151,6 +151,32 @@ mode still applies on top (the more restrictive wins). `doctor` and `help` are a
 "cpi-prod": { "command": "cpictl", "args": ["mcp", "--root", ".", "--mode", "discover", "--toolset", "monitor,promote"] }
 ```
 
+### Dynamic toolsets
+
+With `--dynamic-toolsets` (or `CPICTL_DYNAMIC_TOOLSETS=true`) the server starts with only `help`,
+`doctor`, `list_toolsets` and `enable_toolset`. The agent enables the toolsets of its task
+(`enable_toolset {"toolsets": ["build", "test"]}`); the server then lists their tools and sends
+`notifications/tools/list_changed`, so the client fetches the new list. `--toolset` names the
+toolsets enabled at the start. Toolsets are not disabled again during a session.
+
+- Only the tools the server offers after mode and filters can be enabled: on a `--read-only` server,
+  enabling `build` adds `lint` but not `deploy`.
+- Tools in no toolset (`undeploy`, `delete_data_store_entry`, if the server offers them) are in the
+  toolset `other`.
+- A call to a tool the server offers but has not listed yet still works; the listing is guidance,
+  the filters are the limit.
+- The server instructions name the toolsets and what they are for, so the agent can enable one
+  without calling `list_toolsets` first.
+
+Use it with clients that handle `tools/list_changed` (Claude Code does). For clients that do not,
+start the server without it: all tools, or a fixed `--toolset`. Clients that load tool schemas on
+demand (Claude Code does this when there are many MCP tools) gain little from it; it helps most with
+clients that put every tool into every request.
+
+```json
+"cpi-dev": { "command": "cpictl", "args": ["mcp", "--root", ".", "--mode", "develop", "--dynamic-toolsets", "--toolset", "inspect"] }
+```
+
 ### Limiting tools
 
 The server enforces the limits itself, for every MCP client: disabled tools are not listed in

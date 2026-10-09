@@ -1447,9 +1447,11 @@ Limit the tools per server, e.g. for a QA or production tenant:
   --read-only                     no tool that changes the tenant or sends messages
   --tools list_*,get_*            only matching tools
   --disable-tools undeploy,pd_*   everything except these
+  --toolset build,test            only the tools of these tasks
+  --dynamic-toolsets              start with a few tools; the agent enables toolsets as needed
   --mode discover|operate|develop|full presets (combined with the above, the most
                                   restrictive wins)
-Also as CPICTL_MODE, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+Also as CPICTL_MODE, CPICTL_TOOLSET, CPICTL_DYNAMIC_TOOLSETS, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
 listed and cannot be called; a pattern that matches no tool is an error.
 ```
 
@@ -1460,6 +1462,7 @@ listed and cannot be called; a pattern that matches no tool is an error.
 ```
       --cache-ttl int                       Seconds list_packages and list_artifacts results are reused (0: no cache); any tool that changes the tenant clears them (default 60)
       --disable-tools strings               Do not offer these tools (names or patterns); wins over --tools
+      --dynamic-toolsets                    List only help, doctor, list_toolsets and enable_toolset at the start; the agent enables the toolsets it needs (the client must support tools/list_changed). --toolset then names the toolsets enabled at the start
       --max-checks int                      Default maximum number of deploy/undeploy status checks (default 30)
       --mode string                         Preset: discover (read-only), operate (read tools + set_log_level), develop (all tools, no pd_deploy full_sync), full (all tools, no restrictions)
       --poll-interval int                   Default seconds between deploy/undeploy status checks (default 10)

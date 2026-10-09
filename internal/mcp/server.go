@@ -41,6 +41,8 @@ type Server struct {
 	Version      string
 	Instructions string
 	tools        []Tool
+	// dynamic is set in dynamic toolset mode (UseDynamicToolsets).
+	dynamic *dynamicState
 
 	writeMu sync.Mutex
 	out     io.Writer
@@ -149,7 +151,7 @@ func (s *Server) dispatch(ctx context.Context, line []byte, wg *sync.WaitGroup) 
 	case "ping":
 		s.reply(req.ID, map[string]any{}, nil)
 	case "tools/list":
-		s.reply(req.ID, map[string]any{"tools": s.tools}, nil)
+		s.reply(req.ID, map[string]any{"tools": s.listedTools()}, nil)
 	case "tools/call":
 		wg.Go(func() {
 			result, rpcErr := s.callTool(ctx, req.ID, req.Params)
@@ -184,7 +186,7 @@ func (s *Server) initialize(params json.RawMessage) any {
 	}
 	return map[string]any{
 		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": s.dynamic != nil}},
 		"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
 		"instructions":    s.Instructions,
 	}
@@ -298,10 +300,19 @@ func (s *Server) reply(id json.RawMessage, result any, rpcErr *rpcError) {
 	s.write(resp)
 }
 
+// notify sends a notification without parameters to the client.
+func (s *Server) notify(method string) {
+	s.writeMessage(map[string]any{"jsonrpc": "2.0", "method": method})
+}
+
 func (s *Server) write(resp response) {
-	data, err := json.Marshal(resp)
+	s.writeMessage(resp)
+}
+
+func (s *Server) writeMessage(msg any) {
+	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Error().Msgf("failed to encode response: %v", err)
+		log.Error().Msgf("failed to encode message: %v", err)
 		return
 	}
 	s.writeMu.Lock()

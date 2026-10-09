@@ -40,9 +40,11 @@ Limit the tools per server, e.g. for a QA or production tenant:
   --read-only                     no tool that changes the tenant or sends messages
   --tools list_*,get_*            only matching tools
   --disable-tools undeploy,pd_*   everything except these
+  --toolset build,test            only the tools of these tasks
+  --dynamic-toolsets              start with a few tools; the agent enables toolsets as needed
   --mode discover|operate|develop|full presets (combined with the above, the most
                                   restrictive wins)
-Also as CPICTL_MODE, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
+Also as CPICTL_MODE, CPICTL_TOOLSET, CPICTL_DYNAMIC_TOOLSETS, CPICTL_READ_ONLY, CPICTL_TOOLS, CPICTL_DISABLE_TOOLS. Disabled tools are not
 listed and cannot be called; a pattern that matches no tool is an error.`,
 		Example: `  # Claude Code / any MCP client configuration
   {"mcpServers": {"cpi": {"command": "cpictl", "args": ["mcp", "--root", "/path/to/repo"],
@@ -79,7 +81,8 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			filter := mcp.ToolFilter{ReadOnly: readOnly, Allow: config.GetStringSlice(cmd, "tools"), Deny: config.GetStringSlice(cmd, "disable-tools")}
 			toolsets := config.GetStringSlice(cmd, "toolset")
-			if len(toolsets) > 0 {
+			dynamic := config.GetBool(cmd, "dynamic-toolsets")
+			if len(toolsets) > 0 && !dynamic {
 				names, err := mcp.ToolsetTools(toolsets)
 				if err != nil {
 					return err
@@ -97,11 +100,19 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 			tools = append(tools, mcp.HelpTool(mcp.HelpInfo{Tools: tools, Removed: removed, Mode: mode, ReadOnly: readOnly,
 				Commands: commandInfos(cmd.Root())}))
 			instructions := mcp.FilteredInstructions(mcp.Instructions, filter, removed) + mcp.ModeInstructions(mode)
-			if len(toolsets) > 0 {
+			if len(toolsets) > 0 && !dynamic {
 				instructions += "\n\nToolset: " + strings.Join(toolsets, ", ") + ". Only the tools of these tasks are available; call help to see them."
 			}
+			if dynamic {
+				instructions += mcp.DynamicInstructions()
+			}
 			server := mcp.NewServer("cpicli", version, instructions, tools)
-			log.Info().Msgf("MCP server started with %d tools", len(tools))
+			if dynamic {
+				if err := server.UseDynamicToolsets(toolsets); err != nil {
+					return err
+				}
+			}
+			log.Info().Bool("dynamicToolsets", dynamic).Msgf("MCP server started with %d tools", len(tools))
 			err = server.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 			// time-boxed log levels (TRACE) are set back when the server stops
 			levels.RevertAll()
@@ -117,6 +128,7 @@ listed and cannot be called; a pattern that matches no tool is an error.`,
 	c.Flags().Bool("read-only", false, "Offer only tools that do not change the tenant or trigger processing")
 	c.Flags().StringSlice("tools", nil, "Offer only these tools (names or patterns such as list_*)")
 	c.Flags().StringSlice("toolset", nil, "Offer only the tools of these tasks: "+strings.Join(mcp.ToolsetNames(), ", ")+" (combined with --tools; the mode still applies)")
+	c.Flags().Bool("dynamic-toolsets", false, "List only help, doctor, list_toolsets and enable_toolset at the start; the agent enables the toolsets it needs (the client must support tools/list_changed). --toolset then names the toolsets enabled at the start")
 	c.Flags().StringSlice("disable-tools", nil, "Do not offer these tools (names or patterns); wins over --tools")
 	addRuntimeAuthFlags(c)
 	return c

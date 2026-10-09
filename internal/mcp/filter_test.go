@@ -23,6 +23,9 @@ func toolNames(tools []Tool) []string {
 func TestEveryToolHasAnEffect(t *testing.T) {
 	// help is added by the server command after filtering
 	all := append(NewLedger(t.TempDir()).Wrap(Tools(Config{})), HelpTool(HelpInfo{}))
+	dyn := NewServer("x", "t", "", nil)
+	require.NoError(t, dyn.UseDynamicToolsets(nil))
+	all = append(all, dyn.tools...) // list_toolsets, enable_toolset
 	for _, tool := range all {
 		effect, ok := toolEffects[tool.Name]
 		require.True(t, ok, "add %s to toolEffects", tool.Name)

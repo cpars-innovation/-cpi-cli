@@ -40,7 +40,7 @@ var toolEffects = map[string]Effect{
 	"list_jms_queues": EffectRead, "get_jms_broker": EffectRead, "list_number_ranges": EffectRead,
 	"list_log_files": EffectRead, "get_log_file": EffectRead, "list_idempotent_entries": EffectRead, "list_id_mappings": EffectRead,
 	"drift": EffectRead, "doctor": EffectRead, "lint": EffectRead, "compare": EffectRead, "message_summary": EffectRead, "transport_check": EffectRead,
-	"graph_search": EffectRead, "help": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
+	"graph_search": EffectRead, "help": EffectRead, "list_toolsets": EffectRead, "enable_toolset": EffectRead, "graph_neighbors": EffectRead, "graph_path": EffectRead,
 	"loop_status": EffectRead, "loop_start": EffectLocal, "loop_end": EffectLocal,
 
 	"download_artifact": EffectLocal, "discover_tenant": EffectLocal, "copy_iflow": EffectLocal, "bump_versions": EffectLocal, "lint_fix": EffectLocal, "layout_iflow": EffectLocal,
@@ -220,6 +220,18 @@ var Toolsets = map[string][]string{
 		"bump_versions", "list_artifacts", "get_resource"},
 	"partner-directory": {"get_pd_parameters", "pd_diff", "pd_dependencies", "pd_deploy", "config_diff", "graph_search"},
 	"security":          {"list_credentials", "list_keystore"},
+}
+
+// ToolsetDescriptions say what each toolset is for.
+var ToolsetDescriptions = map[string]string{
+	"inspect":           "understand content: packages, artifacts, resources, parameters, runtime status, endpoints, graph, discovery, drift, compare",
+	"build":             "change flows on a development tenant: download, copy, layout, upload, validate, guidelines, parameters, deploy, lint, loop tools",
+	"test":              "send test messages and diagnose them: message logs, steps, attachments, traces, log level, loop tools",
+	"monitor":           "operations: message summary, message logs and traces, runtime status, log files, data stores, variables, JMS, number ranges, keystore",
+	"promote":           "move content between tiers: compare, transport_check, drift, config_diff, credentials, keystore, Partner Directory dependencies",
+	"improve":           "quality: lint, lint_fix, layout_iflow, graph, drift, compare, bump_versions",
+	"partner-directory": "Partner Directory parameters: read, diff, dependencies, deploy",
+	"security":          "security material (read): credentials and keystore entries",
 }
 
 // ToolsetNames lists the toolsets, sorted.
