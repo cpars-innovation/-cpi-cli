@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.8.0
+
 ### Mock tenant
 
 - `cpictl mock-tenant --seed-dir <dir>`: load your own landscape (`landscape.yaml` plus content in
