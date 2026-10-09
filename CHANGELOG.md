@@ -5,6 +5,8 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+## 0.5.0
+
 - `cpictl iflow layout <path>...` (MCP `layout_iflow`): lays out the diagram of `.iflw` files:
   flow order left to right, router branches one below the other, right-angled lines that cross no
   step, exception subprocesses below the main flow, senders and receivers next to their steps.
