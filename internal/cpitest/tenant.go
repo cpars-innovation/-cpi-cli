@@ -1279,7 +1279,8 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			a = &Artifact{}
 			m.Artifacts[body.Id] = a
 		}
-		a.Type, a.DesignVersion, a.Package, a.Name, a.Zip = typ, "1.0.0", body.PackageId, body.Name, zipData
+		a.Type, a.DesignVersion, a.Package, a.Name = typ, "1.0.0", body.PackageId, body.Name
+		a.applyContent(zipData)
 		a.Uploads++
 		if m.Live {
 			a.ModifiedAt, a.ModifiedBy = time.Now(), "mock-user"
@@ -1303,7 +1304,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		a.Zip = zipData
+		a.applyContent(zipData)
 		a.Uploads++
 		a.ModifiedAt = time.Now()
 		if m.Live {
@@ -1368,6 +1369,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 				version = a.Runtime.Version
 			}
 			a.Runtime, a.undeployed = &Runtime{Version: version, Status: "STARTED", DeployedOn: time.Now()}, false
+			m.registerEndpoints(id, a)
 			if len(a.TaskStatuses) == 0 {
 				a.TaskStatuses = []string{"SUCCESS"}
 			}
@@ -1432,6 +1434,7 @@ func (m *Tenant) handle(w http.ResponseWriter, r *http.Request) {
 		a.undeployed, a.undeployedGets = true, 0
 		if m.Live {
 			a.Runtime, a.undeployed, a.triggered = nil, false, false
+			m.unregisterEndpoints(reRuntime.FindStringSubmatch(path)[1], a)
 		}
 		w.WriteHeader(http.StatusAccepted)
 

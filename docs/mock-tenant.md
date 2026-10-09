@@ -69,7 +69,15 @@ cpictl --profile dev logs summary --since 24h
 
 - A deploy starts the designtime version (a draft deploys as the version running before); the
   build task reports `SUCCESS`; an undeploy removes the runtime artifact.
-- Uploads (create, update) record `ModifiedBy: mock-user` and the time.
+- Uploads (create, update) record `ModifiedBy: mock-user` and the time, and the tenant derives
+  what a real one does from the archive: the resources (scripts, mappings, schemas, the model)
+  and the externalised parameters from `parameters.prop`. A new upload keeps the configured value
+  of a parameter that still exists. Like a real tenant, the upload does not take the version from
+  `MANIFEST.MF` (a new artifact gets 1.0.0); with `--versioning manifest` cpictl sets
+  `Bundle-Version` after the upload ([versioning.md](versioning.md)).
+- A deploy registers the flow's HTTPS (`/http/<urlPath>`) and SOAP (`/cxf/<address>`) senders as
+  runtime endpoints, listed in `ServiceEndpoints`; an undeploy removes them. So flows uploaded
+  into `--seed empty` can receive messages.
 - A message sent to a flow's endpoint (`cpictl send --artifact-id Orders_In`) is answered with
   HTTP 200 and creates a `COMPLETED` message processing log.
 - Message log queries honour the status and time filters, newest first.

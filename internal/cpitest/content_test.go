@@ -1,0 +1,100 @@
+package cpitest_test
+
+import (
+	"context"
+	"net/url"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cpars-innovation/cpicli/internal/cpitest"
+	"github.com/cpars-innovation/cpicli/internal/file"
+	"github.com/cpars-innovation/cpicli/internal/versioning"
+	"github.com/cpars-innovation/cpicli/pkg/cpi"
+	"github.com/cpars-innovation/cpicli/pkg/httpclnt"
+	"github.com/cpars-innovation/cpicli/pkg/ops"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// exportDemo writes a demo artifact's archive into an artifact directory.
+func exportDemo(t *testing.T, id string) string {
+	t.Helper()
+	src := demo(t, "dev")
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, id+".zip")
+	require.NoError(t, os.WriteFile(zipPath, src.Artifacts[id].Zip, 0o600))
+	out := filepath.Join(dir, id)
+	require.NoError(t, file.UnzipSource(zipPath, out))
+	return out
+}
+
+// An empty live tenant filled by uploads behaves like the seeded one: the
+// version is set from the manifest (versioning manifest), resources and
+// parameters come from the archive, a deploy registers the HTTPS endpoint and
+// a message sent to it is logged.
+func TestUploadFidelity(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	m.Live = true
+	m.Packages = []cpitest.Package{{ID: "CustomerB", Name: "Customer B", Version: "1.0.0"}}
+	exe := m.Executer()
+
+	for _, id := range []string{"Orders_In", "Billing_Post"} {
+		res, err := ops.UploadArtifact(exe, ops.UploadRequest{ID: id, Type: "Integration", PackageID: "CustomerB", Dir: exportDemo(t, id), Versioning: versioning.Manifest})
+		require.NoError(t, err, id)
+		assert.NotEmpty(t, res.Action, id)
+	}
+	assert.Equal(t, "1.2.0", m.Artifacts["Orders_In"].DesignVersion, "the manifest version, set after the upload")
+
+	resources, err := ops.ListResources(exe, "Orders_In", "active")
+	require.NoError(t, err)
+	names := []string{}
+	for _, r := range resources {
+		names = append(names, r.Name)
+	}
+	assert.Contains(t, names, "setKeys.groovy")
+
+	cfg := cpi.NewConfiguration(exe)
+	params, err := cfg.Get("Billing_Post", "active")
+	require.NoError(t, err)
+	values := map[string]string{}
+	for _, p := range params.Root.Results {
+		values[p.ParameterKey] = p.ParameterValue
+	}
+	assert.Equal(t, "https://finance-dev.example.com/api/invoices", values["FINANCE_URL"], "parameters.prop unescaped")
+	assert.Equal(t, "60000", values["Timeout"])
+	require.NoError(t, cfg.Update("Billing_Post", "active", "Timeout", "90000"))
+
+	// a new upload keeps the configured value of a key that still exists
+	_, err = ops.UploadArtifact(exe, ops.UploadRequest{ID: "Billing_Post", Type: "Integration", PackageID: "CustomerB", Dir: exportDemo(t, "Billing_Post")})
+	require.NoError(t, err)
+	assert.Equal(t, "90000", m.Artifacts["Billing_Post"].Parameters["Timeout"])
+
+	endpoints, err := ops.ListServiceEndpoints(exe, "Orders_In")
+	require.NoError(t, err)
+	assert.Empty(t, endpoints, "no endpoint before the deploy")
+	require.NoError(t, cpi.NewIntegration(exe).Deploy("Orders_In"))
+	endpoints, err = ops.ListServiceEndpoints(exe, "Orders_In")
+	require.NoError(t, err)
+	require.Len(t, endpoints, 1)
+
+	newExe := func(endpoint string) (*httpclnt.HTTPExecuter, string, error) {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		return m.Executer().ForEndpoint(u.Path), u.Path, nil
+	}
+	sent, err := ops.SendTestMessage(context.Background(), exe, newExe, ops.TestMessage{ArtifactID: "Orders_In", Body: []byte("<Order/>")})
+	require.NoError(t, err)
+	logs, err := ops.QueryMessageLogs(exe, ops.MessageLogQuery{ArtifactID: "Orders_In", Since: time.Now().Add(-time.Minute)})
+	require.NoError(t, err)
+	require.NotEmpty(t, logs.Logs)
+	assert.Equal(t, sent.MessageGuid, logs.Logs[0].MessageGuid)
+
+	require.NoError(t, cpi.NewRuntime(exe).UnDeploy("Orders_In"))
+	endpoints, err = ops.ListServiceEndpoints(exe, "Orders_In")
+	require.NoError(t, err)
+	assert.Empty(t, endpoints, "undeploy removes the endpoint")
+}

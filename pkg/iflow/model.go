@@ -33,6 +33,9 @@ type Element struct {
 	Incoming, Outgoing []string
 	// TriggeredByEvent marks an event subprocess (exception subprocess).
 	TriggeredByEvent bool
+	// Source and Target are the sourceRef and targetRef of a message flow
+	// (adapter): the participant or the step / event it connects.
+	Source, Target string
 }
 
 // SequenceFlow connects two elements.
@@ -128,6 +131,7 @@ func Parse(data []byte) (*Model, error) {
 			case f.tag == "participant" || f.tag == "messageFlow":
 				f.el = &Element{ID: id, Tag: f.tag, Name: attr("name"), Props: map[string]string{}}
 				if f.tag == "messageFlow" {
+					f.el.Source, f.el.Target = attr("sourceRef"), attr("targetRef")
 					m.Adapters = append(m.Adapters, f.el)
 				}
 			case id != "" && (containerTags[f.tag] || container != "") && f.tag != "incoming" && f.tag != "outgoing":
