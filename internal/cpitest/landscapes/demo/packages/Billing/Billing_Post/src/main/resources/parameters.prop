@@ -1,0 +1,2 @@
+FINANCE_URL=https\://finance-dev.example.com/api/invoices
+Timeout=60000

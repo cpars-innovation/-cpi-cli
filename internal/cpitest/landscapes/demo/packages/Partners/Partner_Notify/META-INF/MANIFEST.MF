@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Partner notification
+Bundle-SymbolicName: Partner_Notify; singleton:=true
+Bundle-Version: 1.0.0
+SAP-BundleType: IntegrationFlow
+SAP-NodeType: IFLMAP
+SAP-RuntimeProfile: iflmap
+Origin-Bundle-Name: Partner notification
+Origin-Bundle-SymbolicName: Partner_Notify
+
