@@ -5,20 +5,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
-- `cpictl mock-tenant`: an in-memory CPI tenant for local development, demos and tests, with a
-  demo landscape per tier (`--tier dev|test|prod`: flows linked by ProcessDirect and JMS, real
-  models with diagrams, a day of messages with failures and the `OrderNo` custom header, tiers
-  that differ like real ones), live deploys and test messages, Basic Auth or OAuth, optional TLS
-  with a generated CA. See [docs/mock-tenant.md](docs/mock-tenant.md).
-- Fix: `snapshot` without `--dir-git-repo` (and no `snapshot.dirGitRepo`) wrote the packages
-  relative to the file system root; it now stops with exit code 2. Relative `--dir-git-repo` and
-  `--dir-artifacts` (`.` and `packages`) are accepted.
+## 0.7.0
 
-- `cpictl logs tree --message <guid>` (MCP `get_trace_tree` with `message_guid`): the path of any
-  message across flows by its correlation ID; `--key-header` (custom header properties the flows
-  write) joins runs with another correlation ID, e.g. after Event Mesh or an external system.
-  Trees now have `hops` (with how each was linked) and a `pathKey` per route. See
-  [docs/monitoring.md](docs/monitoring.md#following-a-message-without-a-tracer).
+### MCP: tools per task
 
 - `cpictl mcp --toolset inspect|build|test|monitor|promote|improve|partner-directory|security`:
   offer only the tools of the session's task (combined with `--tools`, the mode still applies).
@@ -29,6 +18,28 @@ All notable changes to cpictl. Coming from FlashPipe? See
   See [docs/mcp.md](docs/mcp.md#dynamic-toolsets).
 - MCP `help` lists the toolsets (`help {"topic": "toolsets"}`) with the tools the server offers,
   for clients that select tools per step themselves.
+
+### Message paths
+
+- `cpictl logs tree --message <guid>` (MCP `get_trace_tree` with `message_guid`): the path of any
+  message across flows by its correlation ID; `--key-header` (custom header properties the flows
+  write) joins runs with another correlation ID, e.g. after Event Mesh or an external system.
+  Trees now have `hops` (with how each was linked: span, predecessor, inferred, header) and a
+  `pathKey` per route. See [docs/monitoring.md](docs/monitoring.md#following-a-message-without-a-tracer).
+
+### Mock tenant
+
+- `cpictl mock-tenant`: an in-memory CPI tenant for local development, demos and tests, with a
+  demo landscape per tier (`--tier dev|test|prod`: flows linked by ProcessDirect and JMS, real
+  models with diagrams, a day of messages with failures and the `OrderNo` custom header, tiers
+  that differ like real ones), live deploys and test messages, Basic Auth or OAuth, optional TLS
+  with a generated CA. See [docs/mock-tenant.md](docs/mock-tenant.md).
+
+### Fixes
+
+- `snapshot` without `--dir-git-repo` (and no `snapshot.dirGitRepo`) wrote the packages
+  relative to the file system root; it now stops with exit code 2. Relative `--dir-git-repo` and
+  `--dir-artifacts` (`.` and `packages`) are accepted.
 
 ## 0.6.0
 
