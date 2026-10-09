@@ -29,20 +29,22 @@ func GetBool(cmd *cobra.Command, flagName string) bool {
 	return val
 }
 
-func verifyNoSensitiveContent(input string) (bool, error) {
-	sensContConfigParams := []string{
-		"tmn-userid",
-		"tmn-password",
-		"oauth-clientid",
-		"oauth-clientsecret",
-	}
+// minSecretLength is the shortest secret value looked for in inputs: a
+// shorter one (a mock's "mock") matches ordinary paths by chance.
+const minSecretLength = 8
 
-	for _, sensContConfigParam := range sensContConfigParams {
-		if viper.IsSet(sensContConfigParam) && strings.Contains(input, viper.GetString(sensContConfigParam)) {
-			return false, fmt.Errorf("Input contains sensitive content from configuration parameter %v", sensContConfigParam)
+// verifyNoSensitiveContent rejects an input (a path from a flag, config file
+// or expanded environment variable) that contains the tenant password or the
+// OAuth client secret, so that a secret never ends up in a file path or log.
+// User IDs and client IDs are not secrets and are not checked: a short one
+// such as "cpi" would block ordinary paths like ".cpi/".
+func verifyNoSensitiveContent(input string) (bool, error) {
+	for _, param := range []string{"tmn-password", "oauth-clientsecret"} {
+		secret := viper.GetString(param)
+		if len(secret) >= minSecretLength && strings.Contains(input, secret) {
+			return false, fmt.Errorf("Input contains sensitive content from configuration parameter %v", param)
 		}
 	}
-
 	return true, nil
 }
 

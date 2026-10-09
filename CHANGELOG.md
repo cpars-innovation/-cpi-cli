@@ -5,6 +5,11 @@ All notable changes to cpictl. Coming from FlashPipe? See
 
 ## Unreleased
 
+- Fix: paths from flags, config and environment variables were rejected when they contained the
+  tenant user ID or OAuth client ID (e.g. user `cpi` blocked `.cpi/`, `mock` blocked
+  `mock-landscapes/`), and every path when a secret was set to an empty value. Only the password
+  and the client secret are checked now, and only when at least 8 characters long.
+
 ## 0.7.0
 
 ### MCP: tools per task
