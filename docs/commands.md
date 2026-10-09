@@ -45,6 +45,7 @@ Every flag can also be set with an environment variable (`CPICTL_` + flag name i
 | [`keystore export-cert`](#keystore-export-cert) | Export the certificate of a keystore entry as PEM |
 | [`keystore import-cert`](#keystore-import-cert) | Import a certificate (PEM or DER) into the tenant keystore |
 | [`keystore list`](#keystore-list) | List keystore entries with remaining validity |
+| [`lint`](#lint) | Check integration flows for reuse, dead weight, Partner Directory candidates and best practices (local files) |
 | [`log-files`](#log-files) | List system and HTTP log files of the runtime |
 | [`log-files get`](#log-files-get) | Print the end of a log file |
 | [`log-level`](#log-level) | Set the message processing log level of a deployed integration flow |
@@ -961,6 +962,72 @@ List keystore entries with remaining validity
 ```
   cpictl keystore list --expiring-within 30d
   cpictl keystore list --expiring-within 30d --fail-on-expiry   # exit 5 in CI
+```
+
+## lint
+
+Check integration flows for reuse, dead weight, Partner Directory candidates and best practices (local files)
+
+```
+Check the integration flows of a content tree (<package>/<artifact>, as snapshot
+writes it) and report findings with a rule, a severity and a suggestion:
+
+  reuse              scripts in several flows (-> script collection), mappings in
+                     several flows, missing script collections
+  partner-directory  routers on many literal values, lookup tables in scripts,
+                     flows deployed several times with different configOverrides
+  dead-weight        unconnected steps, unused scripts, resources and parameters,
+                     content modifiers that do nothing, properties nobody reads
+  simplify           content modifiers in a row, XML/JSON round trips, scripts
+                     that only set headers, very long scripts
+  robustness         no exception subprocess, swallowed exceptions
+  performance        whole body as string, payload attachments, logging in loops
+  configuration      fixed receiver addresses, URLs and secrets in scripts
+  hygiene            outdated step versions, default step names, naming rule
+
+Only local files are read; all flows are read for the cross-flow rules, the
+filters select which flows are reported. Rules, severities and thresholds:
+.cpi/lint.yaml (--rules; cpictl lint --list-rules). Known findings can be recorded in a
+baseline so that --fail-on fails only on new ones.
+
+--fix applies the mechanical fixes to the local files: scripts move into script
+collections (the package's, or a shared one with scriptCollections.crossPackage),
+unused scripts are deleted, unconnected steps removed (--fix-rules all also
+removes content modifiers that do nothing). Review the diff, raise the versions
+(version bump --changed) and deploy the collections before the flows.
+```
+
+**Usage:** `cpictl lint [flags]`
+
+**Flags:**
+
+```
+      --artifact strings       Only report these artifacts (names or patterns)
+      --baseline string        Known findings; --fail-on counts only new ones (config: lint.baseline) (default ".cpi/lint-baseline.json")
+      --changed                Only report artifacts changed in Git since --since (committed, uncommitted, untracked)
+      --deploy-config string   Deploy config for the deployment-copies rule (default: orchestrator.deployConfig)
+      --dir string             Content tree (default: packages if it exists, else the current directory) (config: lint.dir)
+      --dry-run                With --fix: only list the changes
+      --fail-on string         Exit with code 5 when a new finding has at least this severity: info, warning, error (config: lint.failOn)
+      --fix                    Apply the fixes to the local files
+      --fix-rules strings      Rules to fix (default: duplicate-script, use-script-collection, unused-script, unconnected-step; all: every fixable rule)
+      --list-rules             List the rules
+      --min-severity string    Do not report findings below this severity (default "info")
+      --package strings        Only report these packages (names or patterns)
+      --rules string           Rules file: severities, thresholds, script collection names (config: lint.rules) (default ".cpi/lint.yaml")
+      --since string           Git ref for --changed (e.g. origin/main in a pull request) (default "HEAD")
+      --update-baseline        Record the current findings as known
+```
+
+**Examples:**
+
+```
+  cpictl lint
+  cpictl lint --package UtilitiesBaseEDM --output json
+  cpictl lint --changed --since origin/main --fail-on warning
+  cpictl lint --update-baseline
+  cpictl lint --fix --dry-run
+  cpictl lint --fix --package UtilitiesBaseEDM
 ```
 
 ## log-files

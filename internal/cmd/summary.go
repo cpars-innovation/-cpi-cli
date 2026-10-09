@@ -199,3 +199,24 @@ func (r *snapshotResult) MarkdownSummary() string {
 type planResult struct {
 	Plan []PlanItem `json:"plan"`
 }
+
+func (r lintResult) MarkdownSummary() string {
+	if r.LintResult == nil {
+		return ""
+	}
+	var b strings.Builder
+	if r.Fix != nil {
+		fmt.Fprintf(&b, "**Fix**%s: %d change(s) in %d artifact(s); script collections: %s.\n\n",
+			map[bool]string{true: " (dry run)", false: ""}[r.Fix.DryRun], len(r.Fix.Changes), len(r.Fix.Changed), strings.Join(r.Fix.Collections, ", "))
+	}
+	fmt.Fprintf(&b, "%d artifact(s) checked: %d error(s), %d warning(s), %d info; new: %d error(s), %d warning(s), %d info.\n\n",
+		r.Checked, r.Counts[ops.SevError], r.Counts[ops.SevWarning], r.Counts[ops.SevInfo], r.New[ops.SevError], r.New[ops.SevWarning], r.New[ops.SevInfo])
+	var rows [][]string
+	for _, f := range r.Findings {
+		if !f.Baseline && f.Severity != ops.SevInfo {
+			rows = append(rows, []string{f.Path, f.Severity, f.Rule, f.Message, f.Suggestion})
+		}
+	}
+	b.WriteString(mdTable([]string{"Artifact", "Severity", "Rule", "Finding", "Suggestion"}, rows))
+	return b.String()
+}

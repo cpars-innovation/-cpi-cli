@@ -1,0 +1,507 @@
+package ops
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/cpars-innovation/cpicli/internal/output"
+	"gopkg.in/yaml.v3"
+)
+
+// Lint severities.
+const (
+	SevError   = "error"
+	SevWarning = "warning"
+	SevInfo    = "info"
+	SevOff     = "off"
+)
+
+var severityRank = map[string]int{SevInfo: 1, SevWarning: 2, SevError: 3}
+
+// LintFinding is one problem or improvement in one artifact.
+type LintFinding struct {
+	Rule     string `json:"rule"`
+	Group    string `json:"group"`
+	Severity string `json:"severity"`
+	Package  string `json:"package,omitempty"`
+	Artifact string `json:"artifact"`
+	// Path is the artifact folder below the linted directory.
+	Path string `json:"path"`
+	// File is relative to the artifact folder; Element is the model element
+	// (step ID) with its name.
+	File        string `json:"file,omitempty"`
+	Element     string `json:"element,omitempty"`
+	ElementName string `json:"elementName,omitempty"`
+	Message     string `json:"message"`
+	Suggestion  string `json:"suggestion,omitempty"`
+	// Fixable: lint --fix can apply the suggestion.
+	Fixable bool `json:"fixable,omitempty"`
+	// Related are other artifacts involved (e.g. flows with the same script).
+	Related []string `json:"related,omitempty"`
+	// Fingerprint identifies the finding across runs (baseline).
+	Fingerprint string `json:"fingerprint"`
+	// Baseline: the finding is in the baseline file (known, not new).
+	Baseline bool `json:"baseline,omitempty"`
+
+	// key identifies the finding within its artifact and rule.
+	key string
+	// fix carries what --fix needs.
+	fix *lintFix
+}
+
+// LintConfig is .cpi/lint.yaml.
+type LintConfig struct {
+	// Rules sets the severity per rule ("off" disables it).
+	Rules map[string]string `yaml:"rules" json:"rules,omitempty"`
+	// Settings are the thresholds of the rules.
+	Settings LintSettings `yaml:"settings" json:"settings"`
+	// ScriptCollections decides where reused scripts go.
+	ScriptCollections ScriptCollectionConfig `yaml:"scriptCollections" json:"scriptCollections"`
+	// Naming are regular expressions for IDs (empty: not checked).
+	Naming struct {
+		IFlowID string `yaml:"iflowId" json:"iflowId,omitempty"`
+	} `yaml:"naming" json:"naming"`
+	// Ignore suppresses findings: artifact and rule patterns ("*" for all).
+	Ignore []struct {
+		Artifact string `yaml:"artifact" json:"artifact"`
+		Rule     string `yaml:"rule" json:"rule"`
+	} `yaml:"ignore" json:"ignore,omitempty"`
+}
+
+// LintSettings are the thresholds.
+type LintSettings struct {
+	DuplicateMinFlows int `yaml:"duplicateMinFlows" json:"duplicateMinFlows"`
+	RouterMinValues   int `yaml:"routerMinValues" json:"routerMinValues"`
+	LookupMinEntries  int `yaml:"lookupMinEntries" json:"lookupMinEntries"`
+	LargeScriptLines  int `yaml:"largeScriptLines" json:"largeScriptLines"`
+}
+
+// ScriptCollectionConfig names the collections reused scripts move to.
+type ScriptCollectionConfig struct {
+	// CrossPackage: flows may reference a collection in another package
+	// (check that your tenant supports it). false: one collection per
+	// package, also for scripts reused across packages.
+	CrossPackage bool `yaml:"crossPackage" json:"crossPackage"`
+	// PackageCollection is the ID of a package's collection; {package} is
+	// replaced by the package ID.
+	PackageCollection string `yaml:"packageCollection" json:"packageCollection"`
+	// SharedPackage and SharedCollection hold scripts reused across packages
+	// (CrossPackage only).
+	SharedPackage    string `yaml:"sharedPackage" json:"sharedPackage"`
+	SharedCollection string `yaml:"sharedCollection" json:"sharedCollection"`
+}
+
+// DefaultLintConfig returns the defaults.
+func DefaultLintConfig() *LintConfig {
+	return &LintConfig{
+		Rules:    map[string]string{},
+		Settings: LintSettings{DuplicateMinFlows: 2, RouterMinValues: 4, LookupMinEntries: 10, LargeScriptLines: 300},
+		ScriptCollections: ScriptCollectionConfig{PackageCollection: "{package}_Scripts",
+			SharedPackage: "SharedScripts", SharedCollection: "Shared_Scripts"},
+	}
+}
+
+// LoadLintConfig reads a lint config over the defaults (a missing file:
+// defaults).
+func LoadLintConfig(path string) (*LintConfig, error) {
+	cfg := DefaultLintConfig()
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return cfg, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, output.Usagef("%s: %v", path, err)
+	}
+	for rule, sev := range cfg.Rules {
+		if _, ok := lintRuleByID[rule]; !ok {
+			return nil, output.Usagef("%s: unknown rule %q (cpictl lint --list-rules)", path, rule)
+		}
+		if _, ok := severityRank[sev]; !ok && sev != SevOff {
+			return nil, output.Usagef("%s: rule %s: severity %q (off, info, warning, error)", path, rule, sev)
+		}
+	}
+	d := DefaultLintConfig().Settings
+	if cfg.Settings.DuplicateMinFlows < 2 {
+		cfg.Settings.DuplicateMinFlows = d.DuplicateMinFlows
+	}
+	if cfg.Settings.RouterMinValues < 2 {
+		cfg.Settings.RouterMinValues = d.RouterMinValues
+	}
+	if cfg.Settings.LookupMinEntries < 2 {
+		cfg.Settings.LookupMinEntries = d.LookupMinEntries
+	}
+	if cfg.Settings.LargeScriptLines < 1 {
+		cfg.Settings.LargeScriptLines = d.LargeScriptLines
+	}
+	if cfg.ScriptCollections.PackageCollection == "" {
+		cfg.ScriptCollections.PackageCollection = "{package}_Scripts"
+	}
+	return cfg, nil
+}
+
+// LintOptions select what is linted.
+type LintOptions struct {
+	// Dir is the content tree (layout <package>/<artifact>).
+	Dir string
+	// Packages and Artifacts limit the reported findings (names or
+	// path.Match patterns); all artifacts are read for cross-flow rules.
+	Packages, Artifacts []string
+	// Changed limits the findings to artifacts changed in Git since Since
+	// (default HEAD: uncommitted changes).
+	Changed bool
+	Since   string
+	Config  *LintConfig
+	// Baseline is the baseline file (empty: none).
+	Baseline string
+	// DeploymentCopies: artifactDir key "<package>/<dir>" -> deployed IDs
+	// with their configOverrides keys (from the deploy config).
+	DeploymentCopies map[string][]DeploymentCopy
+	// MinSeverity drops findings below it (default info).
+	MinSeverity string
+}
+
+// DeploymentCopy is one ID an artifact folder is deployed as.
+type DeploymentCopy struct {
+	ID        string   `json:"id"`
+	Overrides []string `json:"overrides,omitempty"`
+}
+
+// LintResult is the outcome of Lint.
+type LintResult struct {
+	Dir       string         `json:"dir"`
+	Artifacts int            `json:"artifacts"`
+	Checked   int            `json:"checked"`
+	Findings  []LintFinding  `json:"findings"`
+	Counts    map[string]int `json:"counts"`
+	// New counts the findings per severity that are not in the baseline.
+	New map[string]int `json:"new"`
+	// ByRule counts the findings per rule.
+	ByRule map[string]int `json:"byRule"`
+}
+
+// lintArtifact is an artifact as the rules see it.
+type lintArtifact struct {
+	LocalArtifact
+	// Models by file (relative to the artifact folder).
+	Models    map[string]*FlowModel
+	ModelText string
+	// Scripts by file (relative); Files are all files below src/main/resources.
+	Scripts map[string][]byte
+	Files   []string
+	Params  map[string]string
+	inScope bool
+}
+
+func (a *lintArtifact) finding(rule, file, element, elementName, key, msg, suggestion string) LintFinding {
+	return LintFinding{Rule: rule, Package: a.PackageID, Artifact: a.ID, Path: a.Rel, File: file, Element: element,
+		ElementName: elementName, Message: msg, Suggestion: suggestion, key: key}
+}
+
+type lintContext struct {
+	opts      LintOptions
+	cfg       *LintConfig
+	artifacts []*lintArtifact
+	byID      map[string]*lintArtifact
+}
+
+// runLint checks the artifacts of a content tree against the rules. Only
+// local files are read.
+func runLint(ctx context.Context, o LintOptions) (*LintResult, *lintContext, error) {
+	if o.Config == nil {
+		o.Config = DefaultLintConfig()
+	}
+	if info, err := os.Stat(o.Dir); err != nil || !info.IsDir() {
+		return nil, nil, output.Usagef("%s is not a directory", o.Dir)
+	}
+	for _, p := range append(slices.Clone(o.Packages), o.Artifacts...) {
+		if _, err := path.Match(p, ""); err != nil {
+			return nil, nil, output.Usagef("invalid pattern %q", p)
+		}
+	}
+	lc := &lintContext{opts: o, cfg: o.Config, byID: map[string]*lintArtifact{}}
+	var changed map[string]bool
+	if o.Changed {
+		var err error
+		if changed, err = changedArtifactDirs(ctx, o.Dir, o.Since); err != nil {
+			return nil, nil, err
+		}
+	}
+	var walkErr error
+	err := walkLocalArtifacts(ctx, o.Dir, func(la LocalArtifact) {
+		a, err := loadLintArtifact(la)
+		if err != nil {
+			walkErr = errors.Join(walkErr, fmt.Errorf("%s: %w", la.Rel, err))
+			return
+		}
+		a.inScope = matchAny(o.Packages, a.PackageID) && matchAny(o.Artifacts, a.ID) && (changed == nil || changed[a.Rel])
+		lc.artifacts = append(lc.artifacts, a)
+		lc.byID[a.ID] = a
+	}, func(err error) { walkErr = errors.Join(walkErr, err) })
+	if err != nil {
+		return nil, nil, err
+	}
+	if walkErr != nil {
+		return nil, nil, walkErr
+	}
+	sort.Slice(lc.artifacts, func(i, j int) bool { return lc.artifacts[i].Rel < lc.artifacts[j].Rel })
+
+	res := &LintResult{Dir: o.Dir, Artifacts: len(lc.artifacts), Findings: []LintFinding{}, Counts: map[string]int{}, New: map[string]int{}, ByRule: map[string]int{}}
+	var all []LintFinding
+	for _, a := range lc.artifacts {
+		if a.inScope {
+			res.Checked++
+		}
+		if !a.inScope || a.Type != "Integration" {
+			continue
+		}
+		for _, r := range lintRules {
+			if r.artifact != nil && lc.enabled(r) {
+				for _, f := range r.artifact(lc, a) {
+					all = append(all, lc.complete(r, f))
+				}
+			}
+		}
+	}
+	for _, r := range lintRules {
+		if r.cross != nil && lc.enabled(r) {
+			for _, f := range r.cross(lc) {
+				if a := lc.byID[f.Artifact]; a != nil && a.inScope {
+					all = append(all, lc.complete(r, f))
+				}
+			}
+		}
+	}
+	known, err := loadBaseline(o.Baseline)
+	if err != nil {
+		return nil, nil, err
+	}
+	min := severityRank[o.MinSeverity]
+	for _, f := range all {
+		if lc.ignored(f) || severityRank[f.Severity] < min {
+			continue
+		}
+		f.Baseline = known[f.Fingerprint]
+		res.Findings = append(res.Findings, f)
+		res.Counts[f.Severity]++
+		res.ByRule[f.Rule]++
+		if !f.Baseline {
+			res.New[f.Severity]++
+		}
+	}
+	sort.SliceStable(res.Findings, func(i, j int) bool {
+		a, b := res.Findings[i], res.Findings[j]
+		if a.Path != b.Path {
+			return a.Path < b.Path
+		}
+		if severityRank[a.Severity] != severityRank[b.Severity] {
+			return severityRank[a.Severity] > severityRank[b.Severity]
+		}
+		if a.Rule != b.Rule {
+			return a.Rule < b.Rule
+		}
+		return a.key < b.key
+	})
+	return res, lc, nil
+}
+
+func (lc *lintContext) enabled(r lintRule) bool {
+	return lc.severity(r) != SevOff
+}
+
+func (lc *lintContext) severity(r lintRule) string {
+	if s, ok := lc.cfg.Rules[r.id]; ok {
+		return s
+	}
+	return r.severity
+}
+
+func (lc *lintContext) complete(r lintRule, f LintFinding) LintFinding {
+	f.Rule, f.Group = r.id, r.group
+	if f.Severity == "" || lc.cfg.Rules[r.id] != "" {
+		f.Severity = lc.severity(r)
+	}
+	f.Fixable = f.fix != nil
+	sum := sha256.Sum256([]byte(strings.Join([]string{r.id, f.Path, f.File, f.Element, f.key}, "\x00")))
+	f.Fingerprint = hex.EncodeToString(sum[:8])
+	return f
+}
+
+func (lc *lintContext) ignored(f LintFinding) bool {
+	for _, ig := range lc.cfg.Ignore {
+		a, r := ig.Artifact, ig.Rule
+		if a == "" {
+			a = "*"
+		}
+		if r == "" {
+			r = "*"
+		}
+		if ok, _ := path.Match(a, f.Artifact); !ok {
+			continue
+		}
+		if ok, _ := path.Match(r, f.Rule); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func loadLintArtifact(la LocalArtifact) (*lintArtifact, error) {
+	a := &lintArtifact{LocalArtifact: la, Models: map[string]*FlowModel{}, Scripts: map[string][]byte{}, Params: map[string]string{}}
+	root := filepath.Join(la.Dir, filepath.FromSlash(resourcesDir))
+	var text strings.Builder
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(la.Dir, p)
+		rel = filepath.ToSlash(rel)
+		a.Files = append(a.Files, rel)
+		switch {
+		case strings.HasSuffix(rel, ".iflw"):
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			m, err := ParseFlowModel(data)
+			if err != nil {
+				return fmt.Errorf("%s: %w", rel, err)
+			}
+			a.Models[rel] = m
+			text.Write(data)
+		case strings.HasPrefix(rel, resourcesDir+"/script/"):
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			a.Scripts[rel] = data
+		case rel == resourcesDir+"/parameters.prop":
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			a.Params = propertyValues(data)
+		}
+		return nil
+	})
+	sort.Strings(a.Files)
+	a.ModelText = text.String()
+	return a, err
+}
+
+// changedArtifactDirs returns the artifact folders (relative to dir) with
+// files changed since a Git ref, including uncommitted and untracked ones.
+func changedArtifactDirs(ctx context.Context, dir, since string) (map[string]bool, error) {
+	if since == "" {
+		since = "HEAD"
+	}
+	top, err := git(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, output.Usagef("--changed needs a Git repository: %v", err)
+	}
+	root := strings.TrimSpace(top)
+	absDir, _ := filepath.Abs(dir)
+	if r, err := filepath.EvalSymlinks(absDir); err == nil {
+		absDir = r
+	}
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	diff, err := git(ctx, root, "diff", "--name-only", since, "--")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := git(ctx, root, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, line := range strings.Split(diff+"\n"+untracked, "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		rel, err := filepath.Rel(absDir, filepath.Join(root, filepath.FromSlash(line)))
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) >= 2 {
+			out[parts[0]+"/"+parts[1]] = true
+		}
+		out[parts[0]] = true
+	}
+	return out, nil
+}
+
+// lint baseline: known findings that do not fail CI.
+type lintBaseline struct {
+	Findings []string `json:"findings"`
+}
+
+func loadBaseline(path string) (map[string]bool, error) {
+	known := map[string]bool{}
+	if path == "" {
+		return known, nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return known, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var b lintBaseline
+	if err := json.Unmarshal(data, &b); err != nil {
+		return nil, output.Usagef("baseline %s: %v", path, err)
+	}
+	for _, f := range b.Findings {
+		known[f] = true
+	}
+	return known, nil
+}
+
+// WriteLintBaseline records the findings as known (sorted, for stable diffs).
+func WriteLintBaseline(path string, findings []LintFinding) error {
+	b := lintBaseline{Findings: []string{}}
+	for _, f := range findings {
+		b.Findings = append(b.Findings, f.Fingerprint)
+	}
+	sort.Strings(b.Findings)
+	b.Findings = slices.Compact(b.Findings)
+	data, err := json.MarshalIndent(b, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
+}
+
+// AtLeast reports whether severity is at least min.
+func AtLeast(severity, min string) bool {
+	return severityRank[severity] >= severityRank[min]
+}
+
+func readArtifactFile(a *lintArtifact, rel string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(a.Dir, filepath.FromSlash(rel)))
+}
