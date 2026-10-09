@@ -16,6 +16,9 @@ All notable changes to cpictl. Coming from FlashPipe? See
 - The `cpi-build`, `cpi-improve` and `cpi-review` skills use `layout_iflow` instead of placing
   shapes by hand.
 - `lint --fix` no longer rewrites `'` as `&apos;` in the models it edits.
+- Opt-in end-to-end test on a development tenant (`go test -tags e2e`, `CPICTL_E2E=1`): plan,
+  upload and deploy, two snapshots without diff, comparison with the snapshot state, a change
+  deployed once, layout accepted. See [docs/e2e.md](docs/e2e.md).
 - Lint and the flow model moved to `pkg/lint` and `pkg/iflow` (Go API; the CLI is unchanged).
 
 - **Drafts no longer fail the orchestrator.** An artifact in draft on the tenant (someone edits

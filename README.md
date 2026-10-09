@@ -452,6 +452,7 @@ Claude Code plugin: [docs/agents.md](docs/agents.md).
 | [Partner Directory](docs/partner-directory.md) | `pd-snapshot`, `pd-deploy`, full sync |
 | [CI/CD](docs/ci.md) | GitHub Actions, Azure Pipelines, the snapshot -> update -> configure -> deploy-once pipeline, job summary, exit codes |
 | [Examples](docs/examples) | Ready-to-copy configuration files |
+| [End-to-end test](docs/e2e.md) | Opt-in test of the pipeline on a development tenant, manual checks (drafts, layout) |
 | [Coming from FlashPipe](docs/migrating-from-flashpipe.md) | What changed and how to migrate |
 
 ## Development
