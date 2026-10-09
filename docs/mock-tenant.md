@@ -15,6 +15,7 @@ CPICTL_TMN_HOST=http://127.0.0.1:8081
 CPICTL_TMN_USERID=mock
 CPICTL_TMN_PASSWORD=mock
 # or OAuth: CPICTL_OAUTH_HOST=127.0.0.1:8081 CPICTL_OAUTH_CLIENTID=mock CPICTL_OAUTH_CLIENTSECRET=mock
+CPICTL_MOCK_ADMIN_TOKEN=<random token for the /_mock admin API; printed unless you pass --admin-token>
 ```
 
 State is in memory: a restart resets it. Stop it with Ctrl+C.
@@ -190,22 +191,29 @@ executed: the payload passes through unchanged.
 
 ## Admin API (`/_mock/...`)
 
-Tests and demos change the running mock over HTTP instead of restarting it. The admin API answers
-only on loopback or over TLS, needs no credentials, and is not part of the SAP API.
+Tests and demos change the running mock over HTTP instead of restarting it. The admin API is not
+part of the SAP API and is protected by a token, TLS or not (encryption is not authorization):
+
+- Every request needs `Authorization: Bearer <token>`. The token is `--admin-token <value>`; without
+  it the mock generates a random one at start and prints it as `CPICTL_MOCK_ADMIN_TOKEN=...`.
+- `pkg/mocktenant` has no token by default: then only loopback clients are allowed. Set
+  `m.AdminToken` to require one from every client.
+- A request without the token, or with a wrong one, is answered with 403.
 
 | Method and path | Body | Effect |
 |-----------------|------|--------|
 | `GET /_mock/systems` | | the tier's systems |
 | `PUT /_mock/systems/<name>` | `{"match", "latencyMs", "failRate", "status", "error"}` | add or change a system (e.g. `failRate: 1`: it is down) |
-| `POST /_mock/run` | `{"artifact", "key", "payload", "count"}` | run a deployed flow now (also timer and ProcessDirect flows); returns `{runs: [{messageGuid, status, error}]}` |
+| `POST /_mock/run` | `{"artifact", "key", "payload", "count"}` | run a deployed flow now, `count` up to 1000 times (also timer and ProcessDirect flows); returns `{runs: [{messageGuid, status, error}]}` |
 | `POST /_mock/messagelogs` | `[{"Guid", "Artifact", "Status", "CorrelationID", "ErrorText", "Headers", "Steps", ...}]` | add message logs as they are |
 | `POST /_mock/faults` | `{"pathPrefix": "/api/v1/IntegrationPackages", "status": 401, "count": 2}` | the next `count` requests on the path answer `status` (expired login, 429, 503 …) |
 | `DELETE /_mock/faults` | | drop pending faults |
 | `GET /_mock/state` / `PUT /_mock/state` | the exported state | export the whole tenant (content, security material, Partner Directory, logs, systems) and load it into another mock |
 
 ```bash
-curl -X PUT localhost:8081/_mock/systems/finance -d '{"match":"finance-*.example.com","failRate":1,"error":"finance down for {key}"}'
-curl -X POST localhost:8081/_mock/run -d '{"artifact":"Billing_Post","key":"4711"}'
+TOKEN=<CPICTL_MOCK_ADMIN_TOKEN from the start output>
+curl -H "Authorization: Bearer $TOKEN" -X PUT localhost:8081/_mock/systems/finance -d '{"match":"finance-*.example.com","failRate":1,"error":"finance down for {key}"}'
+curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8081/_mock/run -d '{"artifact":"Billing_Post","key":"4711"}'
 ```
 
 ## From other containers

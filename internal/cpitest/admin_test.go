@@ -105,3 +105,13 @@ func runOnce(t *testing.T, m *cpitest.Tenant, artifact string) []cpitest.Message
 	}
 	return logs
 }
+
+func TestAdminRunCountIsBounded(t *testing.T) {
+	m := cpitest.NewTenant(t, nil)
+	require.NoError(t, cpitest.SeedDemo(m, "dev", time.Now()))
+	before := len(m.MessageLogs())
+	assert.Equal(t, http.StatusBadRequest, admin(t, m, http.MethodPost, "/run", map[string]any{"artifact": "Billing_Post", "count": 1001}, nil))
+	assert.Equal(t, http.StatusBadRequest, admin(t, m, http.MethodPost, "/run", map[string]any{"artifact": "Billing_Post", "count": 100000000}, nil))
+	assert.Len(t, m.MessageLogs(), before, "nothing ran")
+	assert.Equal(t, http.StatusOK, admin(t, m, http.MethodPost, "/run", map[string]any{"artifact": "Billing_Post", "count": 1000}, nil))
+}

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -48,6 +49,8 @@ the flow's endpoints, uploads are recorded, and a message sent to an endpoint
 (POST /http/orders/in) runs the flows: one message processing log per flow,
 ProcessDirect and JMS to the next flows, receivers answered by the landscape's
 systems (latency, failures). --live-traffic keeps generating messages.
+The /_mock admin API needs "Authorization: Bearer <token>": --admin-token, or a random
+token generated at start and printed as CPICTL_MOCK_ADMIN_TOKEN.
 State is in memory; a restart resets it.
 
 Plain http is accepted by cpictl for loopback hosts only. To reach the mock
@@ -101,6 +104,15 @@ SSL_CERT_FILE.`,
 			m := cpitest.Serve(l, tlsConfig)
 			defer m.Close()
 			m.Live, m.OAuth, m.FilterMessageLogs = true, true, true
+			m.AdminToken, _ = cmd.Flags().GetString("admin-token")
+			generatedToken := m.AdminToken == ""
+			if generatedToken {
+				b := make([]byte, 24)
+				if _, err := rand.Read(b); err != nil {
+					return err
+				}
+				m.AdminToken = hex.EncodeToString(b)
+			}
 			host := l.Addr().String()
 			if h, p, err := net.SplitHostPort(host); err == nil && (h == "::" || h == "0.0.0.0") {
 				host = net.JoinHostPort("localhost", p)
@@ -127,6 +139,9 @@ SSL_CERT_FILE.`,
 				caOut, _ := cmd.Flags().GetString("ca-out")
 				fmt.Fprintf(out, "SSL_CERT_FILE=%s\n", caOut)
 			}
+			if generatedToken {
+				fmt.Fprintf(out, "CPICTL_MOCK_ADMIN_TOKEN=%s\n", m.AdminToken)
+			}
 			if speed, _ := cmd.Flags().GetFloat64("live-traffic"); speed > 0 {
 				m.StartTraffic(cmd.Context(), speed)
 			}
@@ -141,6 +156,7 @@ SSL_CERT_FILE.`,
 	c.Flags().String("tier", "dev", "Tier of the landscape (demo: "+strings.Join(cpitest.DemoTiers, ", ")+")")
 	c.Flags().Float64("live-traffic", 0, "Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)")
 	c.Flags().String("public-url", "", "Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)")
+	c.Flags().String("admin-token", "", "Bearer token for the /_mock admin API (default: a random token, printed at start)")
 	c.Flags().Bool("tls", false, "Serve HTTPS with a generated certificate (for access from other containers)")
 	c.Flags().StringSlice("tls-hosts", []string{"localhost", "127.0.0.1"}, "Host names and IPs of the generated certificate")
 	c.Flags().String("ca-out", "", "With --tls: file the generated CA certificate is written to (PEM)")

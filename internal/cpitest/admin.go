@@ -1,6 +1,7 @@
 package cpitest
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,8 +12,9 @@ import (
 
 // The admin API (/_mock/...) changes the mock while it runs: it is how
 // tests and demos put the tenant into a state (a failing system, an expired
-// login, extra message logs) without restarting it. It answers only on
-// loopback or over TLS, and is not part of the SAP API.
+// login, extra message logs) without restarting it. It needs the admin token
+// (Authorization: Bearer) or, when the mock has none, a loopback client, and
+// is not part of the SAP API.
 
 // fault answers the next Count requests whose path starts with PathPrefix
 // with Status.
@@ -36,9 +38,16 @@ type mockState struct {
 	LogLevels   map[string]map[string]string         `json:"logLevels"`
 }
 
-func adminAllowed(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
+// maxRunCount bounds /_mock/run (the runs happen under the tenant's lock).
+const maxRunCount = 1000
+
+// adminAllowed decides who may use the admin API. With an AdminToken every
+// request needs it as Bearer token, TLS or not (encryption is not
+// authorization). Without one only loopback clients are allowed.
+func (m *Tenant) adminAllowed(r *http.Request) bool {
+	if m.AdminToken != "" {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		return ok && subtle.ConstantTimeCompare([]byte(got), []byte(m.AdminToken)) == 1
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -50,9 +59,9 @@ func adminAllowed(r *http.Request) bool {
 
 // handleAdmin serves /_mock/... (called with the lock held).
 func (m *Tenant) handleAdmin(w http.ResponseWriter, r *http.Request) {
-	if !adminAllowed(r) {
+	if !m.adminAllowed(r) {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("the mock admin API answers on loopback or TLS only"))
+		_, _ = w.Write([]byte("the mock admin API needs the admin token (Authorization: Bearer), or a loopback client when no token is set"))
 		return
 	}
 	bad := func(err error) {
@@ -146,6 +155,10 @@ func (m *Tenant) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		a := m.Artifacts[req.Artifact]
 		if a == nil || a.Runtime == nil || a.info() == nil {
 			bad(fmt.Errorf("artifact %q is not a deployed integration flow", req.Artifact))
+			return
+		}
+		if req.Count > maxRunCount {
+			bad(fmt.Errorf("count %d: at most %d runs per request", req.Count, maxRunCount))
 			return
 		}
 		var runs []map[string]string

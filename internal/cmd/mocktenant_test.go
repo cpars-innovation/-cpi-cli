@@ -22,6 +22,8 @@ func TestMockTenantCommand(t *testing.T) {
 	require.Equal(t, 0, code, stderr.String())
 	assert.Contains(t, stdout.String(), "CPICTL_TMN_HOST=https://127.0.0.1:")
 	assert.Contains(t, stdout.String(), "SSL_CERT_FILE="+ca)
+	assert.Regexp(t, `CPICTL_MOCK_ADMIN_TOKEN=[0-9a-f]{48}
+`, stdout.String())
 	pemData, err := os.ReadFile(ca)
 	require.NoError(t, err)
 	assert.Contains(t, string(pemData), "BEGIN CERTIFICATE")
@@ -45,4 +47,15 @@ func TestMockTenantSeedDir(t *testing.T) {
 
 	assert.Equal(t, 2, runMain(t, "mock-tenant", "--addr", "127.0.0.1:0", "--seed-dir", dir, "--tier", "dev").code, "not a tier of the landscape")
 	assert.Equal(t, 2, runMain(t, "mock-tenant", "--addr", "127.0.0.1:0", "--seed-dir", t.TempDir()).code, "no landscape.yaml")
+}
+
+func TestMockTenantAdminTokenFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	code := Run(ctx, []string{"mock-tenant", "--addr", "127.0.0.1:0", "--admin-token", "my-token"}, &stdout, &stderr, "test", "test")
+	require.Equal(t, 0, code, stderr.String())
+	assert.NotContains(t, stdout.String(), "CPICTL_MOCK_ADMIN_TOKEN", "a token given by the user is not echoed")
+	assert.NotContains(t, stdout.String(), "my-token")
 }

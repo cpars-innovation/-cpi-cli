@@ -1538,6 +1538,8 @@ the flow's endpoints, uploads are recorded, and a message sent to an endpoint
 (POST /http/orders/in) runs the flows: one message processing log per flow,
 ProcessDirect and JMS to the next flows, receivers answered by the landscape's
 systems (latency, failures). --live-traffic keeps generating messages.
+The /_mock admin API needs "Authorization: Bearer <token>": --admin-token, or a random
+token generated at start and printed as CPICTL_MOCK_ADMIN_TOKEN.
 State is in memory; a restart resets it.
 
 Plain http is accepted by cpictl for loopback hosts only. To reach the mock
@@ -1552,6 +1554,7 @@ SSL_CERT_FILE.
 
 ```
       --addr string          Listen address (default "127.0.0.1:8081")
+      --admin-token string   Bearer token for the /_mock admin API (default: a random token, printed at start)
       --ca-out string        With --tls: file the generated CA certificate is written to (PEM)
       --live-traffic float   Keep generating the landscape's traffic in real time at this speed (1: as in landscape.yaml, 60: an hour per minute; 0: off)
       --public-url string    Base URL of the flows' runtime endpoints as clients reach the mock, e.g. https://mock-dev:8443 (default: the listen address)

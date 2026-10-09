@@ -259,6 +259,9 @@ type Tenant struct {
 	// Inbound endpoint are logged, and message log queries honour the status
 	// and time filters (newest first).
 	Live bool
+	// AdminToken protects the admin API (/_mock/...): requests need
+	// "Authorization: Bearer <token>". Empty: only loopback clients are allowed.
+	AdminToken string
 	// NoCSRF disables CSRF enforcement (by default modifying Basic Auth
 	// requests need the token and session cookie from a "Fetch" request).
 	NoCSRF     bool
